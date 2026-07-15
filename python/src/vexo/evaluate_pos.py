@@ -7,7 +7,10 @@ from torch.utils.data import DataLoader
 from vexo.conllu import read_sentences
 from vexo.dataset import PosDataset, collate_sentences
 from vexo.inference import load_pos_model
-from vexo.training import evaluate
+from vexo.training import (
+    evaluate,
+    evaluate_knownness
+)
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -48,10 +51,35 @@ def main() -> None:
 
     loss, accuracy = evaluate(model, loader, device)
 
+    (
+        known_correct,
+        known_count,
+        unknown_correct,
+        unknown_count,
+    ) = evaluate_knownness(
+        model,
+        loader,
+        device,
+        words["<UNK>"],
+    )
+
+    known_accuracy = known_correct / known_count
+    unknown_accuracy = unknown_correct / unknown_count
+
     print("Split:", arguments.split)
     print("Sätze:", len(sentences))
     print("Loss:", f"{loss:.4f}")
     print("Genauigkeit:", f"{accuracy:.2%}")
+    print(
+        "Bekannte Tokens:",
+        known_count,
+        f"({known_accuracy:.2%} korrekt)",
+    )
+    print(
+        "<UNK>-Tokens:",
+        unknown_count,
+        f"({unknown_accuracy:.2%} korrekt)",
+    )
 
 if __name__ == "__main__":
     main()

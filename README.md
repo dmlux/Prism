@@ -22,43 +22,57 @@ The current implementation can:
 - build deterministic word, character, and POS vocabularies;
 - train a word-only BiLSTM POS tagger;
 - train a word-and-character BiLSTM POS tagger;
+- analyze the morphological feature inventory in the treebank;
+- jointly train POS tagging and morphological Number prediction through a
+  shared word-and-character encoder;
 - evaluate saved checkpoints on the official development and test splits;
-- predict POS tags for externally tokenized text;
+- report accuracy by vocabulary status and precision, recall, and F1 by class;
+- predict POS tags and Number values for externally tokenized text;
 - train on Apple Silicon through PyTorch MPS, with a CPU fallback.
 
-The best current model combines word and character representations and
-reaches **95.75% UPOS accuracy** on the Norwegian Bokmål test split with gold
-tokenization. See [the benchmark notes](docs/benchmarks.md) for the full setup
-and comparison.
+The best current POS-only model combines word and character representations
+and reaches **96.00% UPOS accuracy** on the Norwegian Bokmål test split with
+gold tokenization. The first multi-task model reaches **95.96% UPOS accuracy**
+while additionally predicting morphological Number with **97.27% overall
+accuracy** and **95.69% accuracy on tokens annotated for Number**. See
+[the benchmark notes](docs/benchmarks.md) for the full setup and comparison.
 
 Vexo does **not** yet provide its own tokenizer, sentence segmenter,
-lemmatizer, morphological predictor, dependency parser, or Swift runtime.
-Prediction commands therefore expect text that has already been split into
-tokens.
+lemmatizer, complete morphological analysis, dependency parser, or Swift
+runtime. Morphological prediction currently covers only `Number`. Prediction
+commands expect text that has already been split into tokens.
 
 ## Model architecture
 
-The current best POS model combines two representations for every token:
+The current neural models combine two representations for every token:
 
 ```text
 Word ID -> word embedding -------------------+
-                                              +-> sentence BiLSTM -> POS logits
-Characters -> character embeddings -> BiLSTM +
+                                              +-> sentence BiLSTM -+-> POS logits
+Characters -> character embeddings -> BiLSTM +                    +-> Number logits
 ```
 
 The word branch learns lexical information for frequent words. Words seen
 fewer than twice during training are mapped to `<UNK>`. The character branch
 still sees their spelling, allowing it to learn useful patterns such as
 capitalization and Norwegian inflectional endings. A bidirectional sentence
-LSTM then uses both left and right context to predict one of the 17 Universal
-POS tags for each token.
+LSTM then uses both left and right context. The POS-only model predicts one of
+the 17 Universal POS tags for each token. The multi-task model reuses the same
+contextual representation for separate POS and Number output layers, allowing
+both training objectives to shape the shared encoder.
 
-Two model variants are retained for comparison:
+Three model variants are retained for comparison:
 
-| Model | Development | Test |
-| --- | ---: | ---: |
-| Word-only BiLSTM | 91.91% | 91.22% |
-| Word + character BiLSTM | 96.43% | 95.75% |
+| Model | POS development | POS test | Number test |
+| --- | ---: | ---: | ---: |
+| Word-only BiLSTM | 91.91% | 91.22% | - |
+| Word + character BiLSTM | 96.76% | 96.00% | - |
+| POS + Number multi-task BiLSTM | 96.49% | 95.96% | 97.27% |
+
+The Number score in this table includes the `<NONE>` class. Accuracy on test
+tokens that carry a Number annotation is 95.69%. The rare combined value
+`Plur,Sing` is retained by the current prototype but is not learned reliably
+from its six training examples.
 
 ## Requirements
 
@@ -128,17 +142,26 @@ Train the word-and-character model:
 python -m vexo.train_character_pos
 ```
 
-Both commands automatically use Apple MPS when available and otherwise fall
-back to the CPU. Each command trains for five epochs, evaluates against the
-development split after every epoch, and keeps the checkpoint with the best
-development accuracy.
+Train the joint POS and Number model:
+
+```bash
+python -m vexo.train_pos_number
+```
+
+All commands automatically use Apple MPS when available and otherwise fall
+back to the CPU. The word-only model trains for five epochs. The character and
+multi-task experiments train for up to ten epochs and evaluate against the
+development split after every epoch. POS-only checkpoints are selected by
+development accuracy; the multi-task checkpoint is selected by the combined
+POS and Number development loss.
 
 Generated checkpoints are stored locally under:
 
 ```text
 models/norwegian-bokmaal/
 ├── pos_bilstm.pt
-└── pos_character_bilstm.pt
+├── pos_character_bilstm_10_epochs.pt
+└── pos_number_bilstm.pt
 ```
 
 The `models/` directory and common model formats are ignored by Git. Model
@@ -156,25 +179,35 @@ python -m vexo.evaluate_pos
 Evaluate the character model on the development split:
 
 ```bash
-python -m vexo.evaluate_character_pos
+python -m vexo.evaluate_character_pos \
+  --checkpoint models/norwegian-bokmaal/pos_character_bilstm_10_epochs.pt
 ```
 
-Both commands accept `--split test` for a final evaluation of a fixed model:
+Evaluate the joint POS and Number model:
 
 ```bash
-python -m vexo.evaluate_character_pos --split test
+python -m vexo.evaluate_pos_number
+```
+
+The evaluation commands accept `--split test` for a final evaluation of a
+fixed model:
+
+```bash
+python -m vexo.evaluate_pos_number --split test
 ```
 
 Use the development split for model selection and tuning. The test split
 should only be used to report results for an already fixed model version.
 
-## POS prediction
+## Prediction
 
 The prediction interface currently expects pre-tokenized input. Run the
 word-and-character model with one shell argument per token:
 
 ```bash
-python -m vexo.predict_character_pos Jeg leser en bok .
+python -m vexo.predict_character_pos \
+  --checkpoint models/norwegian-bokmaal/pos_character_bilstm_10_epochs.pt \
+  Jeg leser en bok .
 ```
 
 Example output:
@@ -193,6 +226,26 @@ The word-only comparison model remains available through:
 python -m vexo.predict_pos Jeg leser en bok .
 ```
 
+Run the multi-task model to predict POS and Number together:
+
+```bash
+python -m vexo.predict_pos_number Jeg leser en bok og to bøker .
+```
+
+Example output:
+
+```text
+Token   POS     Number
+Jeg     PRON    Sing
+leser   VERB    <NONE>
+en      DET     Sing
+bok     NOUN    Sing
+og      CCONJ   <NONE>
+to      NUM     Plur
+bøker   NOUN    Plur
+.       PUNCT   <NONE>
+```
+
 In the future, Vexo is intended to offer both a high-level raw-text API and a
 lower-level API for applications, such as LexKeep, that already own their
 tokenization and source offsets.
@@ -205,8 +258,9 @@ Run the complete test suite from the repository root:
 python -m pytest python/tests
 ```
 
-The current tests cover CoNLL-U parsing, vocabulary and character encoding,
-two-level batch padding, and the neural model tensor shapes.
+The current tests cover CoNLL-U parsing, word, character, and morphological
+feature encoding, two-level batch padding, POS and multi-task model tensor
+shapes, and multi-task evaluation.
 
 ## Repository layout
 
@@ -236,8 +290,10 @@ training artifacts are excluded through `.gitignore`.
 
 Planned milestones include:
 
-- deeper analysis of known and unknown POS-tagging errors;
-- joint prediction of POS tags and morphological features;
+- calibrated confidence scores and explicit handling of uncertain predictions;
+- support for multi-valued morphological annotations;
+- additional morphology heads for Gender, Definite, Degree, Tense, VerbForm,
+  and the remaining Universal Dependencies features;
 - lemmatization using a lexicon and learned edit rules;
 - language-aware tokenization and sentence segmentation;
 - model export and a native Swift inference runtime;

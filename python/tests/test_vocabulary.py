@@ -1,17 +1,23 @@
 from vexo.conllu import Token
 from vexo.vocabulary import (
+    NO_FEATURE,
     PAD_CHARACTER,
     UNKNOWN_CHARACTER,
     build_character_vocabulary,
+    build_feature_vocabulary,
     encode_sentence_characters,
+    encode_sentence_feature,
 )
 
-def make_token(text: str) -> Token:
+def make_token(
+    text: str,
+    features: dict[str, str] | None = None,
+) -> Token:
     return Token(
         text=text,
         lemma=text,
         upos="X",
-        features={},
+        features=features or {},
     )
 
 def test_character_vocabulary_and_encoding() -> None:
@@ -35,3 +41,33 @@ def test_character_vocabulary_and_encoding() -> None:
         vocabulary["å"],
         vocabulary[UNKNOWN_CHARACTER],
     ]]
+
+def test_feature_vocabulary() -> None:
+    sentence = [
+        make_token("bok", {"Number": "Sing"}),
+        make_token("bøker", {"Number": "Plur"}),
+        make_token("og"),
+    ]
+
+    vocabulary = build_feature_vocabulary(
+        [sentence],
+        "Number",
+    )
+
+    assert vocabulary == {
+        NO_FEATURE: 0,
+        "Plur": 1,
+        "Sing": 2,
+    }
+
+    encoded = encode_sentence_feature(
+        sentence,
+        "Number",
+        vocabulary,
+    )
+
+    assert encoded == [
+        vocabulary["Sing"],
+        vocabulary["Plur"],
+        vocabulary[NO_FEATURE],
+    ]

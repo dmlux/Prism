@@ -21,7 +21,8 @@ train, development, and test splits.
 - Device: Apple MPS
 - Optimizer: Adam
 - Learning rate: 0.001
-- Epochs: 5
+- Epochs: 5 for the initial POS experiments; up to 10 for the
+  extended character and multi-task experiments
 - Training batch size: 32
 - Random seed: 42
 - Minimum word frequency: 2
@@ -45,8 +46,60 @@ train, development, and test splits.
 - Development accuracy: 96.43%
 - Test accuracy: 95.75%
 
+### Extended word and character BiLSTM
+
+The same architecture was trained for up to 10 epochs while retaining
+the checkpoint with the best development accuracy. The selected checkpoint
+was saved after epoch 9.
+
+- Development accuracy: 96.76%
+- Test accuracy: 96.00%
+- Test accuracy on known tokens: 97.18%
+- Test accuracy on `<UNK>` tokens: 88.87%
+
 Adding character representations reduced the test error rate
 from 8.78% to 4.25%, a relative reduction of approximately 52%.
 
 The test split must not be used for model selection or
 hyperparameter tuning.
+
+### Accuracy by word-vocabulary status
+
+The test split contains 25,706 known tokens and 4,260 tokens
+mapped to `<UNK>`.
+
+| Model | Known tokens | `<UNK>` tokens |
+| --- | ---: | ---: |
+| Word-only BiLSTM | 95.25% | 66.85% |
+| Word and character BiLSTM | 96.87% | 88.94% |
+
+Character representations improved accuracy on `<UNK>` tokens
+by 22.09 percentage points and reduced their error rate by
+approximately 67%.
+
+### POS and Number multi-task BiLSTM
+
+The multi-task model shares its word, character, and sentence
+encoder between POS tagging and Number prediction. Separate
+output layers predict the two tasks.
+
+The checkpoint was selected by the lowest combined development
+loss and was saved after epoch 6.
+
+| Metric | Development | Test |
+| --- | ---: | ---: |
+| POS accuracy | 96.49% | 95.96% |
+| Number accuracy | 97.50% | 97.27% |
+| Number accuracy on annotated tokens | 95.78% | 95.69% |
+
+Number results by value on the test split:
+
+| Value | Precision | Recall | F1 | Support |
+| --- | ---: | ---: | ---: | ---: |
+| `<NONE>` | 98.76% | 98.19% | 98.47% | 18,869 |
+| `Plur` | 94.31% | 94.31% | 94.31% | 3,145 |
+| `Plur,Sing` | 0.00% | 0.00% | 0.00% | 2 |
+| `Sing` | 94.95% | 96.26% | 95.60% | 7,950 |
+
+The multi-task model retains nearly the same POS accuracy as the
+best POS-only model while additionally predicting Number.

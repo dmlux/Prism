@@ -7,6 +7,7 @@ from vexo.conllu import Token
 from vexo.vocabulary import (
     encode_sentence,
     encode_sentence_characters,
+    encode_sentence_feature
 )
 
 class PosDataset(Dataset[tuple[Tensor, Tensor]]):
@@ -159,6 +160,108 @@ def collate_character_sentences(
         padded_words,
         padded_characters,
         padded_tags,
+        sentence_lengths,
+        character_lengths
+    )
+
+class CharacterFeatureDataset(
+    Dataset[tuple[Tensor, Tensor, Tensor, list[Tensor]]]
+):
+    def __init__(
+        self,
+        sentences: list[list[Token]],
+        word_vocabulary: dict[str, int],
+        tag_vocabulary: dict[str, int],
+        character_vocabulary: dict[str, int],
+        feature_name: str,
+        feature_vocabulary: dict[str, int],
+    ) -> None:
+        self.sentences = sentences
+        self.word_vocabulary = word_vocabulary
+        self.tag_vocabulary = tag_vocabulary
+        self.character_vocabulary = character_vocabulary
+        self.feature_name = feature_name
+        self.feature_vocabulary = feature_vocabulary
+
+    def __len__(self) -> int:
+        return len(self.sentences)
+
+    def __getitem__(
+        self,
+        index: int
+    ) -> tuple[Tensor, Tensor, Tensor, list[Tensor]]:
+        sentence = self.sentences[index]
+
+        word_ids, tag_ids = encode_sentence(
+            sentence,
+            self.word_vocabulary,
+            self.tag_vocabulary,
+        )
+        feature_ids = encode_sentence_feature(
+            sentence,
+            self.feature_name,
+            self.feature_vocabulary,
+        )
+        character_ids = encode_sentence_characters(
+            sentence,
+            self.character_vocabulary,
+        )
+
+        return (
+            torch.tensor(word_ids, dtype=torch.long),
+            torch.tensor(tag_ids, dtype=torch.long),
+            torch.tensor(feature_ids, dtype=torch.long),
+            [
+                torch.tensor(ids, dtype=torch.long)
+                for ids in character_ids
+            ]
+        )
+
+def collate_character_feature_sentences(
+    batch: list[
+        tuple[Tensor, Tensor, Tensor, list[Tensor]]
+    ],
+) -> tuple[
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+    Tensor,
+]:
+    (
+        word_sequences,
+        tag_sequences,
+        feature_sequences,
+        character_sequences,
+    ) = zip(*batch)
+
+    (
+        padded_words,
+        padded_characters,
+        padded_tags,
+        sentence_lengths,
+        character_lengths,
+    ) = collate_character_sentences([
+        (words, tags, characters)
+        for words, tags, characters in zip(
+            word_sequences,
+            tag_sequences,
+            character_sequences,
+        )
+    ])
+
+    padded_features = pad_sequence(
+        feature_sequences,
+        batch_first=True,
+        padding_value=-100,
+    )
+
+    return (
+        padded_words,
+        padded_characters,
+        padded_tags,
+        padded_features,
         sentence_lengths,
         character_lengths
     )

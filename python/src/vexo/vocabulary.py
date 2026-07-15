@@ -6,6 +6,7 @@ PAD_TOKEN = "<PAD>"
 PAD_CHARACTER = "<PAD_CHAR>"
 UNKNOWN_TOKEN = "<UNK>"
 UNKNOWN_CHARACTER = "<UNK_CHAR>"
+NO_FEATURE = "<NONE>"
 
 def build_word_vocabulary(
     sentences: list[list[Token]],
@@ -96,3 +97,36 @@ def encode_sentence_characters(
         for token in sentence
     ]
 
+def build_feature_vocabulary(
+    sentences: list[list[Token]],
+    feature_name: str,
+) -> dict[str, int]:
+    values = sorted(
+        {
+            token.features[feature_name]
+            for sentence in sentences
+            for token in sentence
+            if feature_name in token.features
+        }
+    )
+
+    vocabulary = {
+        NO_FEATURE: 0,
+    }
+
+    for value in values:
+        vocabulary[value] = len(vocabulary)
+
+    return vocabulary
+
+def encode_sentence_feature(
+    sentence: list[Token],
+    feature_name: str,
+    feature_vocabulary: dict[str, int],
+) -> list[int]:
+    return [
+        feature_vocabulary[
+            token.features.get(feature_name, NO_FEATURE)
+        ]
+        for token in sentence
+    ]

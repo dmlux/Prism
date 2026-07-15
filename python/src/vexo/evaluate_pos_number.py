@@ -6,15 +6,15 @@ from torch.utils.data import DataLoader
 
 from vexo.conllu import read_sentences
 from vexo.dataset import (
-    CharacterPosDataset,
-    collate_character_sentences,
+    CharacterFeatureDataset,
+    collate_character_feature_sentences,
 )
-from vexo.inference import load_character_pos_model
+from vexo.inference import load_multitask_model
 from vexo.training import (
-    character_confusion_matrix,
-    evaluate_character,
-    evaluate_character_knownness,
+    evaluate_multitask,
+    multitask_feature_confusion_matrix,
 )
+from vexo.vocabulary import NO_FEATURE
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -28,7 +28,7 @@ def main() -> None:
         type=Path,
         default=Path(
             "models/norwegian-bokmaal/"
-            "pos_character_bilstm.pt"
+            "pos_number_bilstm.pt"
         ),
     )
     arguments = parser.parse_args()
@@ -41,7 +41,9 @@ def main() -> None:
         words,
         characters,
         tags,
-    ) = load_character_pos_model(
+        feature_name,
+        feature_values,
+    ) = load_multitask_model(
         arguments.checkpoint,
         device,
     )
@@ -54,74 +56,80 @@ def main() -> None:
         Path("data/raw/UD_Norwegian-Bokmaal") / filename
     )
     loader = DataLoader(
-        CharacterPosDataset(
+        CharacterFeatureDataset(
             sentences,
             words,
             tags,
             characters,
+            feature_name,
+            feature_values,
         ),
         batch_size=64,
-        collate_fn=collate_character_sentences,
-    )
-
-    loss, accuracy = evaluate_character(
-        model,
-        loader,
-        device,
+        collate_fn=collate_character_feature_sentences,
     )
 
     (
-        known_correct,
-        known_count,
-        unknown_correct,
-        unknown_count,
-    ) = evaluate_character_knownness(
+        pos_loss,
+        pos_accuracy,
+        feature_loss,
+        feature_accuracy,
+        annotated_accuracy,
+    ) = evaluate_multitask(
         model,
         loader,
         device,
-        words["<UNK>"],
+        no_feature_id=feature_values[NO_FEATURE],
     )
 
-    matrix = character_confusion_matrix(
+    feature_matrix = multitask_feature_confusion_matrix(
         model,
         loader,
         device,
-        len(tags),
+        len(feature_values),
     )
-
-    known_accuracy = known_correct / known_count
-    unknown_accuracy = unknown_correct / unknown_count
 
     print("Split:", arguments.split)
     print("Sätze:", len(sentences))
-    print("Loss:", f"{loss:.4f}")
-    print("Genauigkeit:", f"{accuracy:.2%}")
+    print("POS-Loss:", f"{pos_loss:.4f}")
+    print("POS-Genauigkeit:", f"{pos_accuracy:.2%}")
     print(
-        "Bekannte Tokens:",
-        known_count,
-        f"({known_accuracy:.2%} korrekt)",
+        f"{feature_name}-Loss:",
+        f"{feature_loss:.4f}",
     )
     print(
-        "<UNK>-Tokens:",
-        unknown_count,
-        f"({unknown_accuracy:.2%} korrekt)",
+        f"{feature_name}-Genauigkeit:",
+        f"{feature_accuracy:.2%}",
     )
+    print(
+        f"{feature_name} annotiert:",
+        f"{annotated_accuracy:.2%}",
+    )
+
     print()
     print(
-        f"{'POS':<8}"
+        f"{feature_name:<12}"
         f"{'Precision':>12}"
         f"{'Recall':>12}"
         f"{'F1':>12}"
         f"{'Support':>10}"
     )
 
-    for tag, tag_id in sorted(
-        tags.items(),
+    for value, value_id in sorted(
+        feature_values.items(),
         key=lambda item: item[1],
     ):
-        true_positive = matrix[tag_id, tag_id].item()
-        predicted_count = matrix[:, tag_id].sum().item()
-        actual_count = matrix[tag_id, :].sum().item()
+        true_positive = feature_matrix[
+            value_id,
+            value_id,
+        ].item()
+        predicted_count = feature_matrix[
+            :,
+            value_id,
+        ].sum().item()
+        actual_count = feature_matrix[
+            value_id,
+            :,
+        ].sum().item()
 
         precision = (
             true_positive / predicted_count
@@ -140,7 +148,7 @@ def main() -> None:
         )
 
         print(
-            f"{tag:<8}"
+            f"{value:<12}"
             f"{precision:>11.2%}"
             f"{recall:>12.2%}"
             f"{f1:>12.2%}"

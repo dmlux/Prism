@@ -113,7 +113,7 @@ class BiLSTMPosTagger(nn.Module):
         )
         
         return self.output(contextualized)
-    
+
 class CharacterBiLSTMPosTagger(nn.Module):
     def __init__(
         self,
@@ -154,7 +154,7 @@ class CharacterBiLSTMPosTagger(nn.Module):
             tag_count,
         )
 
-    def forward(
+    def encode(
         self,
         word_ids: Tensor,
         character_ids: Tensor,
@@ -167,16 +167,16 @@ class CharacterBiLSTMPosTagger(nn.Module):
             character_lengths
         )
 
-        combine = torch.cat(
+        combined = torch.cat(
             (
                 word_representations,
-                character_representations
+                character_representations,
             ),
             dim=-1,
         )
 
         packed = pack_padded_sequence(
-            combine,
+            combined,
             sentence_lengths.cpu(),
             batch_first=True,
             enforce_sorted=False,
@@ -189,5 +189,69 @@ class CharacterBiLSTMPosTagger(nn.Module):
             batch_first=True,
             total_length=word_ids.size(1),
         )
-        
+
+        return contextualized
+
+    def forward(
+        self,
+        word_ids: Tensor,
+        character_ids: Tensor,
+        sentence_lengths: Tensor,
+        character_lengths: Tensor,
+    ) -> Tensor:
+        contextualized = self.encode(
+            word_ids,
+            character_ids,
+            sentence_lengths,
+            character_lengths
+        )
+
         return self.output(contextualized)
+
+class CharacterBiLSTMMultiTaskTagger(
+    CharacterBiLSTMPosTagger
+):
+    def __init__(
+        self,
+        vocabulary_size: int,
+        character_count: int,
+        tag_count: int,
+        feature_count: int,
+        word_embedding_size: int = 64,
+        character_embedding_size: int = 32,
+        character_hidden_size: int = 32,
+        hidden_size: int = 128,
+    ) -> None:
+        super().__init__(
+            vocabulary_size=vocabulary_size,
+            character_count=character_count,
+            tag_count=tag_count,
+            word_embedding_size=word_embedding_size,
+            character_embedding_size=character_embedding_size,
+            character_hidden_size=character_hidden_size,
+            hidden_size=hidden_size
+        )
+
+        self.feature_output = nn.Linear(
+            hidden_size * 2,
+            feature_count,
+        )
+
+    def forward(
+        self,
+        word_ids: Tensor,
+        character_ids: Tensor,
+        sentence_lengths: Tensor,
+        character_lengths: Tensor,
+    ) -> tuple[Tensor, Tensor]:
+        contextualized = self.encode(
+            word_ids,
+            character_ids,
+            sentence_lengths,
+            character_lengths,
+        )
+
+        pos_outputs = self.output(contextualized)
+        feature_outputs = self.feature_output(contextualized)
+
+        return pos_outputs, feature_outputs
