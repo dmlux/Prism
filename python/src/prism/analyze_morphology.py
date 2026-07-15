@@ -1,7 +1,7 @@
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from vexo.conllu import read_sentences
+from prism.conllu import read_sentences
 
 def main() -> None:
     path = Path(

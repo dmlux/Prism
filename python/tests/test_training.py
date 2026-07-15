@@ -1,7 +1,7 @@
 import torch
 
-from vexo.model import CharacterBiLSTMMultiTaskTagger
-from vexo.training import evaluate_multitask
+from prism.model import CharacterBiLSTMMultiTaskTagger
+from prism.training import evaluate_multitask
 
 
 def test_evaluate_multitask() -> None:

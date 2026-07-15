@@ -4,10 +4,10 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
-from vexo.conllu import read_sentences
-from vexo.dataset import PosDataset, collate_sentences
-from vexo.inference import load_pos_model
-from vexo.training import (
+from prism.conllu import read_sentences
+from prism.dataset import PosDataset, collate_sentences
+from prism.inference import load_pos_model
+from prism.training import (
     evaluate,
     evaluate_knownness
 )

@@ -2,108 +2,31 @@
 <svg xmlns="http://www.w3.org/2000/svg"
      width="1024" height="1024" viewBox="0 0 1024 1024"
      role="img" aria-labelledby="title desc">
-  <title id="title">Vexo logo</title>
-  <desc id="desc">A cyan-to-violet Vexo symbol above a blue-violet lowercase vexo wordmark, on a transparent background.</desc>
+  <title id="title">Prism NLP logo</title>
+  <desc id="desc">Seven translucent rainbow triangles overlap in a circular prism rosette above a geometric Prism wordmark, on a transparent background.</desc>
 
   <defs>
-    <linearGradient id="symbol-gradient" x1="248" y1="384" x2="774" y2="718" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#28d9ff"/>
-      <stop offset="0.34" stop-color="#269dff"/>
-      <stop offset="0.69" stop-color="#5142ff"/>
-      <stop offset="1" stop-color="#a847ff"/>
-    </linearGradient>
-
-    <linearGradient id="left-gradient" x1="276" y1="384" x2="550" y2="808" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#25d9ff"/>
-      <stop offset="0.48" stop-color="#287dff"/>
-      <stop offset="1" stop-color="#6439ff"/>
-    </linearGradient>
-
-    <linearGradient id="right-gradient" x1="775" y1="385" x2="578" y2="718" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#a84aff"/>
-      <stop offset="0.52" stop-color="#663dff"/>
-      <stop offset="1" stop-color="#3f42e8"/>
-    </linearGradient>
-
-    <linearGradient id="word-gradient" x1="220" y1="956" x2="788" y2="956" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#4863e7"/>
-      <stop offset="0.52" stop-color="#525be3"/>
-      <stop offset="1" stop-color="#5e53e0"/>
-    </linearGradient>
-
+    <g id="prism-rosette" style="isolation:isolate">
+      <path d="M512 126 L718 718 L306 718 Z" fill="#FF3B4E" fill-opacity=".54" style="mix-blend-mode:screen"/>
+      <path d="M512 126 L718 718 L306 718 Z" fill="#FF7A21" fill-opacity=".54" style="mix-blend-mode:screen" transform="rotate(51.4286 512 512)"/>
+      <path d="M512 126 L718 718 L306 718 Z" fill="#FFD21F" fill-opacity=".54" style="mix-blend-mode:screen" transform="rotate(102.8571 512 512)"/>
+      <path d="M512 126 L718 718 L306 718 Z" fill="#31C967" fill-opacity=".54" style="mix-blend-mode:screen" transform="rotate(154.2857 512 512)"/>
+      <path d="M512 126 L718 718 L306 718 Z" fill="#16C7D9" fill-opacity=".54" style="mix-blend-mode:screen" transform="rotate(205.7143 512 512)"/>
+      <path d="M512 126 L718 718 L306 718 Z" fill="#3478F6" fill-opacity=".54" style="mix-blend-mode:screen" transform="rotate(257.1429 512 512)"/>
+      <path d="M512 126 L718 718 L306 718 Z" fill="#8A4DFF" fill-opacity=".54" style="mix-blend-mode:screen" transform="rotate(308.5714 512 512)"/>
+    </g>
   </defs>
 
-  <!-- Square logo lockup with a generous, platform-friendly safe area. -->
-  <g transform="translate(-92.8 -329.2) scale(1.2)">
-  <!-- The stylized V: reconstructed as clean Bézier paths. -->
-  <g>
-    <path fill="url(#left-gradient)"
-          d="M259 384
-             C252 384 247 388 249 395
-             C250 398 252 401 254 404
-             L496 790
-             C503 801 513 808 526 809
-             C538 810 548 804 554 794
-             L577 758
-             C581 751 581 745 577 738
-             L376 411
-             C365 393 350 384 329 384
-             Z"/>
-    <path fill="url(#right-gradient)"
-          d="M747 384
-             C728 384 712 394 702 412
-             L560 660
-             C557 666 557 672 560 678
-             L582 713
-             C585 718 590 720 595 718
-             C598 717 601 714 603 710
-             L773 398
-             C777 391 772 385 765 384
-             Z"/>
-  </g>
+  <!-- Transparent canvas: intentionally no background rectangle. -->
+  <use href="#prism-rosette" transform="translate(164 30) scale(.68)"/>
 
-  <!-- Linguistic-analysis lines inside the V. -->
-  <g fill="url(#symbol-gradient)">
-    <rect x="422" y="412" width="114" height="16" rx="8"/>
-    <rect x="445" y="453" width="190" height="16" rx="8"/>
-    <rect x="469" y="494" width="140" height="16" rx="8"/>
-    <rect x="494" y="536" width="89" height="16" rx="8"/>
-    <rect x="517" y="578" width="48" height="15" rx="7.5"/>
-    <rect x="535" y="619" width="20" height="15" rx="7.5"/>
-  </g>
-
-  <!-- Lowercase vexo wordmark. All glyphs are paths; no font dependency. -->
-  <g fill="url(#word-gradient)" fill-rule="evenodd">
-    <path d="M220 897 L245 897 L286.5 990 L330 897 L354 897 L298 1016 L278 1016 Z"/>
-
-    <path d="M496 952
-             L394 970
-             C400 988 416 997 438 997
-             C453 997 465 992 475 982
-             L490 997
-             C478 1010 460 1018 437 1018
-             C397 1018 370 996 370 956
-             C370 919 396 894 436 894
-             C472 894 494 916 496 948
-             Z
-             M394 952
-             L471 939
-             C468 923 455 914 435 914
-             C412 914 397 929 394 952
-             Z"/>
-
-    <path d="M514 897 L543 897 L577 938 L611 897 L638 897 L592 953 L645 1016 L616 1016 L577 969 L538 1016 L510 1016 L562 953 Z"/>
-
-    <path d="M723 894
-             C683 894 658 919 658 956
-             C658 994 683 1018 723 1018
-             C763 1018 788 994 788 956
-             C788 919 763 894 723 894 Z
-             M723 915
-             C748 915 764 931 764 956
-             C764 981 748 997 723 997
-             C698 997 682 981 682 956
-             C682 931 698 915 723 915 Z"/>
-  </g>
+  <!-- Custom geometric PRISM wordmark; all glyphs are vectors, not font text. -->
+  <g fill="none" stroke="#24233D" stroke-width="15" stroke-linecap="butt" stroke-linejoin="miter">
+    <path d="M209 851 V746 H256 C284 746 299 759 299 779 C299 800 284 813 256 813 H209"/>
+    <path d="M346 851 V746 H393 C421 746 436 759 436 779 C436 800 421 813 393 813 H346"/>
+    <path d="M399 813 L442 851"/>
+    <path d="M517 739 V859"/>
+    <path d="M682 760 C670 751 653 746 634 746 C608 746 592 757 592 774 C592 791 609 797 636 801 C664 805 680 811 680 828 C680 843 663 851 636 851 C615 851 596 846 583 835"/>
+    <path d="M738 857 V759 L778 819 L818 759 V857"/>
   </g>
 </svg>

@@ -4,13 +4,13 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
-from vexo.conllu import read_sentences
-from vexo.dataset import (
+from prism.conllu import read_sentences
+from prism.dataset import (
     CharacterPosDataset,
     collate_character_sentences,
 )
-from vexo.inference import load_character_pos_model
-from vexo.training import (
+from prism.inference import load_character_pos_model
+from prism.training import (
     character_confusion_matrix,
     evaluate_character,
     evaluate_character_knownness,

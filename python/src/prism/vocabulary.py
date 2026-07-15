@@ -1,6 +1,6 @@
 from collections import Counter
 
-from vexo.conllu import Token
+from prism.conllu import Token
 
 PAD_TOKEN = "<PAD>"
 PAD_CHARACTER = "<PAD_CHAR>"

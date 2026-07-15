@@ -4,17 +4,17 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
-from vexo.conllu import read_sentences
-from vexo.dataset import (
+from prism.conllu import read_sentences
+from prism.dataset import (
     CharacterFeatureDataset,
     collate_character_feature_sentences,
 )
-from vexo.inference import load_multitask_model
-from vexo.training import (
+from prism.inference import load_multitask_model
+from prism.training import (
     evaluate_multitask,
     multitask_feature_confusion_matrix,
 )
-from vexo.vocabulary import NO_FEATURE
+from prism.vocabulary import NO_FEATURE
 
 def main() -> None:
     parser = argparse.ArgumentParser()

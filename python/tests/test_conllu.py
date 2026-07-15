@@ -1,4 +1,4 @@
-from vexo.conllu import Token, parse_token
+from prism.conllu import Token, parse_token
 
 def test_parse_token() -> None:
     line = (

@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="logos/logo.png" alt="Vexo" width="420">
+  <img src="logos/logo.svg" alt="Prism" width="420">
 </p>
 
-# Vexo
+# Prism
 
-Vexo is an experimental, modular NLP toolkit for fast, local, and
+Prism is an experimental, modular NLP toolkit for fast, local, and
 privacy-friendly linguistic analysis. The long-term goal is to provide
 language-specific models through a unified API for tokenization, sentence
 segmentation, part-of-speech tagging, lemmatization, and morphological
@@ -37,7 +37,7 @@ while additionally predicting morphological Number with **97.27% overall
 accuracy** and **95.69% accuracy on tokens annotated for Number**. See
 [the benchmark notes](docs/benchmarks.md) for the full setup and comparison.
 
-Vexo does **not** yet provide its own tokenizer, sentence segmenter,
+Prism does **not** yet provide its own tokenizer, sentence segmenter,
 lemmatizer, complete morphological analysis, dependency parser, or Swift
 runtime. Morphological prediction currently covers only `Number`. Prediction
 commands expect text that has already been split into tokens.
@@ -89,8 +89,8 @@ runtime.
 Clone the repository and enter it:
 
 ```bash
-git clone git@github.com:dmlux/Vexo.git
-cd Vexo
+git clone git@github.com:dmlux/Prism.git
+cd Prism
 ```
 
 Create and activate a virtual environment:
@@ -100,14 +100,16 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 ```
 
-Install Vexo in editable mode with its development dependencies:
+Install Prism in editable mode with its development dependencies:
 
 ```bash
 python -m pip install -e './python[dev]'
 ```
 
-Editable installation makes the `vexo` package importable while ensuring that
-source changes are used immediately without reinstalling the package.
+The Python distribution is named `prism-nlp` because the name `prism` is
+already occupied on PyPI. Its import package remains `prism`. Editable
+installation ensures that source changes are used immediately without
+reinstalling the package.
 
 ## Training data
 
@@ -133,19 +135,19 @@ Training data is intentionally not committed to this repository.
 Train the word-only baseline neural model:
 
 ```bash
-python -m vexo.train_pos
+python -m prism.train_pos
 ```
 
 Train the word-and-character model:
 
 ```bash
-python -m vexo.train_character_pos
+python -m prism.train_character_pos
 ```
 
 Train the joint POS and Number model:
 
 ```bash
-python -m vexo.train_pos_number
+python -m prism.train_pos_number
 ```
 
 All commands automatically use Apple MPS when available and otherwise fall
@@ -173,27 +175,27 @@ configuration, benchmark results, and applicable license information.
 Evaluate the word-only model on the development split:
 
 ```bash
-python -m vexo.evaluate_pos
+python -m prism.evaluate_pos
 ```
 
 Evaluate the character model on the development split:
 
 ```bash
-python -m vexo.evaluate_character_pos \
+python -m prism.evaluate_character_pos \
   --checkpoint models/norwegian-bokmaal/pos_character_bilstm_10_epochs.pt
 ```
 
 Evaluate the joint POS and Number model:
 
 ```bash
-python -m vexo.evaluate_pos_number
+python -m prism.evaluate_pos_number
 ```
 
 The evaluation commands accept `--split test` for a final evaluation of a
 fixed model:
 
 ```bash
-python -m vexo.evaluate_pos_number --split test
+python -m prism.evaluate_pos_number --split test
 ```
 
 Use the development split for model selection and tuning. The test split
@@ -205,7 +207,7 @@ The prediction interface currently expects pre-tokenized input. Run the
 word-and-character model with one shell argument per token:
 
 ```bash
-python -m vexo.predict_character_pos \
+python -m prism.predict_character_pos \
   --checkpoint models/norwegian-bokmaal/pos_character_bilstm_10_epochs.pt \
   Jeg leser en bok .
 ```
@@ -223,13 +225,13 @@ bok     NOUN
 The word-only comparison model remains available through:
 
 ```bash
-python -m vexo.predict_pos Jeg leser en bok .
+python -m prism.predict_pos Jeg leser en bok .
 ```
 
 Run the multi-task model to predict POS and Number together:
 
 ```bash
-python -m vexo.predict_pos_number Jeg leser en bok og to bøker .
+python -m prism.predict_pos_number Jeg leser en bok og to bøker .
 ```
 
 Example output:
@@ -246,7 +248,7 @@ bøker   NOUN    Plur
 .       PUNCT   <NONE>
 ```
 
-In the future, Vexo is intended to offer both a high-level raw-text API and a
+In the future, Prism is intended to offer both a high-level raw-text API and a
 lower-level API for applications, such as LexKeep, that already own their
 tokenization and source offsets.
 
@@ -265,13 +267,13 @@ shapes, and multi-task evaluation.
 ## Repository layout
 
 ```text
-Vexo/
+Prism/
 ├── docs/
 │   └── benchmarks.md
 ├── logos/
 ├── python/
 │   ├── pyproject.toml
-│   ├── src/vexo/
+│   ├── src/prism/
 │   │   ├── baseline.py
 │   │   ├── conllu.py
 │   │   ├── dataset.py
@@ -297,8 +299,8 @@ Planned milestones include:
 - lemmatization using a lexicon and learned edit rules;
 - language-aware tokenization and sentence segmentation;
 - model export and a native Swift inference runtime;
-- modular Swift packages such as `VexoKit`, `VexoCore`, and
-  `VexoNorwegian`;
+- modular Swift packages such as `PrismKit`, `PrismCore`, and
+  `PrismNorwegian`;
 - additional language modules after the Norwegian pipeline is stable.
 
 Phrase, named-entity, and multiword-expression recognition are considered
@@ -306,8 +308,8 @@ separate span-level tasks and are not part of the current POS model.
 
 ## Licensing
 
-The Vexo source code is licensed under the
-[Apache License 2.0](LICENSE.md). This software license applies to Vexo's own
+The Prism source code is licensed under the
+[Apache License 2.0](LICENSE.md). This software license applies to Prism's own
 source code and does not relicense external datasets or model artifacts.
 
 The UD Norwegian Bokmål data used by the current experiments is distributed
@@ -318,7 +320,7 @@ provenance, attribution, and applicable license information.
 
 ## Project direction
 
-Vexo aims to become a modular, open-source NLP toolkit for tokenization,
+Prism aims to become a modular, open-source NLP toolkit for tokenization,
 sentence segmentation, POS tagging, lemmatization, and morphological analysis.
 It is designed around local inference, explicit language modules, reproducible
 training, and a unified API that can eventually be consumed from both Python

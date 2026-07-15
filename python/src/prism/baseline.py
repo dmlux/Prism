@@ -1,6 +1,6 @@
 from collections import Counter, defaultdict
 
-from vexo.conllu import Token
+from prism.conllu import Token
 
 
 def train_pos_baseline(

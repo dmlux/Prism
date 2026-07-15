@@ -3,21 +3,11 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
-from vexo.conllu import read_sentences
-from vexo.dataset import (
-    CharacterPosDataset,
-    collate_character_sentences,
-)
-from vexo.model import CharacterBiLSTMPosTagger
-from vexo.training import (
-    evaluate_character,
-    train_character_epoch,
-)
-from vexo.vocabulary import (
-    build_character_vocabulary,
-    build_tag_vocabulary,
-    build_word_vocabulary,
-)
+from prism.conllu import read_sentences
+from prism.vocabulary import build_tag_vocabulary, build_word_vocabulary
+from prism.dataset import PosDataset, collate_sentences
+from prism.model import BiLSTMPosTagger
+from prism.training import evaluate, train_epoch
 
 def main() -> None:
     data_root = Path(
@@ -34,31 +24,18 @@ def main() -> None:
 
     word_vocabulary = build_word_vocabulary(training)
     tag_vocabulary = build_tag_vocabulary(training)
-    character_vocabulary = build_character_vocabulary(
-        training
-    )
 
     training_loader = DataLoader(
-        CharacterPosDataset(
-            training,
-            word_vocabulary,
-            tag_vocabulary,
-            character_vocabulary
-        ),
+        PosDataset(training, word_vocabulary, tag_vocabulary),
         batch_size=32,
         shuffle=True,
-        collate_fn=collate_character_sentences,
+        collate_fn=collate_sentences,
     )
 
     development_loader = DataLoader(
-        CharacterPosDataset(
-            development,
-            word_vocabulary,
-            tag_vocabulary,
-            character_vocabulary,
-        ),
+        PosDataset(development, word_vocabulary, tag_vocabulary),
         batch_size=64,
-        collate_fn=collate_character_sentences,
+        collate_fn=collate_sentences,
     )
 
     device = torch.device(
@@ -67,9 +44,8 @@ def main() -> None:
 
     torch.manual_seed(42)
 
-    model = CharacterBiLSTMPosTagger(
+    model = BiLSTMPosTagger(
         vocabulary_size=len(word_vocabulary),
-        character_count=len(character_vocabulary),
         tag_count=len(tag_vocabulary),
     ).to(device)
 
@@ -80,21 +56,19 @@ def main() -> None:
 
     checkpoint_directory = Path("models/norwegian-bokmaal")
     checkpoint_directory.mkdir(parents=True, exist_ok=True)
-    checkpoint_path = (
-        checkpoint_directory / "pos_character_bilstm_10_epochs.pt"
-    )
+    checkpoint_path = checkpoint_directory / "pos_bilstm.pt"
 
     best_accuracy = 0.0
 
-    for epoch in range(1, 11):
-        training_loss = train_character_epoch(
+    for epoch in range(1, 6):
+        training_loss = train_epoch(
             model,
             training_loader,
             optimizer,
             device,
         )
 
-        development_loss, development_accuracy = evaluate_character(
+        development_loss, development_accuracy = evaluate(
             model,
             development_loader,
             device,
@@ -112,17 +86,13 @@ def main() -> None:
 
             torch.save(
                 {
-                    "model_type": "character_bilstm_pos",
                     "model_state": {
                         name: value.detach().cpu()
                         for name, value in model.state_dict().items()
                     },
                     "word_vocabulary": word_vocabulary,
-                    "character_vocabulary": character_vocabulary,
                     "tag_vocabulary": tag_vocabulary,
-                    "word_embedding_size": 64,
-                    "character_embedding_size": 32,
-                    "character_hidden_size": 32,
+                    "embedding_size": 64,
                     "hidden_size": 128,
                     "epoch": epoch,
                     "development_accuracy": development_accuracy,
@@ -137,7 +107,6 @@ def main() -> None:
     print("Entwicklungssätze:", len(development))
     print("Entwicklungs-Batches:", len(development_loader))
     print("Wortverzeichnis:", len(word_vocabulary))
-    print("Zeichenverzeichnis:", len(character_vocabulary))
     print("POS-Klassen:", len(tag_vocabulary))
     print("Gerät:", device)
 

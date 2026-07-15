@@ -3,8 +3,8 @@ from torch import Tensor
 from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 
-from vexo.conllu import Token
-from vexo.vocabulary import (
+from prism.conllu import Token
+from prism.vocabulary import (
     encode_sentence,
     encode_sentence_characters,
     encode_sentence_feature

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import torch
 
-from vexo.inference import (
+from prism.inference import (
     load_multitask_model,
     predict_multitask,
 )

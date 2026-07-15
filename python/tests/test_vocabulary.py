@@ -1,5 +1,5 @@
-from vexo.conllu import Token
-from vexo.vocabulary import (
+from prism.conllu import Token
+from prism.vocabulary import (
     NO_FEATURE,
     PAD_CHARACTER,
     UNKNOWN_CHARACTER,

@@ -3,7 +3,10 @@ from pathlib import Path
 
 import torch
 
-from vexo.inference import load_pos_model, predict_pos_tags
+from prism.inference import (
+    load_character_pos_model, 
+    predict_character_pos_tags
+)
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -18,7 +21,8 @@ def main() -> None:
         "--checkpoint",
         type=Path,
         default=Path(
-            "models/norwegian-bokmaal/pos_bilstm.pt"
+            "models/norwegian-bokmaal/"
+            "pos_character_bilstm.pt"
         ),
     )
     arguments = parser.parse_args()
@@ -27,16 +31,22 @@ def main() -> None:
         "mps" if torch.backends.mps.is_available() else "cpu"
     )
 
-    model, word_vocabulary, tag_vocabulary = load_pos_model(
+    (
+        model, 
+        word_vocabulary,
+        character_vocabulary,
+        tag_vocabulary
+    ) = load_character_pos_model(
         arguments.checkpoint,
-        device
+        device,
     )
-    tags = predict_pos_tags(
+    tags = predict_character_pos_tags(
         model,
         arguments.tokens,
         word_vocabulary,
+        character_vocabulary,
         tag_vocabulary,
-        device
+        device,
     )
 
     for token, tag in zip(arguments.tokens, tags):

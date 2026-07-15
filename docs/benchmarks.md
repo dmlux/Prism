@@ -1,4 +1,4 @@
-# Vexo Benchmarks
+# Prism Benchmarks
 
 ## Norwegian Bokmål POS tagging
 

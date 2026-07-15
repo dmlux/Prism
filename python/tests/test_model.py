@@ -1,6 +1,6 @@
 import torch
 
-from vexo.model import (
+from prism.model import (
     CharacterBiLSTMMultiTaskTagger,
     CharacterBiLSTMPosTagger,
     CharacterEncoder,

@@ -1,11 +1,11 @@
-from vexo.conllu import Token
-from vexo.dataset import (
+from prism.conllu import Token
+from prism.dataset import (
     CharacterFeatureDataset,
     CharacterPosDataset,
     collate_character_sentences,
     collate_character_feature_sentences,
 )
-from vexo.vocabulary import (
+from prism.vocabulary import (
     NO_FEATURE,
     build_character_vocabulary,
     build_feature_vocabulary,

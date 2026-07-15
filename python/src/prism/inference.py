@@ -2,12 +2,12 @@ import torch
 
 from pathlib import Path
 
-from vexo.model import (
+from prism.model import (
     BiLSTMPosTagger,
     CharacterBiLSTMPosTagger,
     CharacterBiLSTMMultiTaskTagger
 )
-from vexo.vocabulary import (
+from prism.vocabulary import (
     UNKNOWN_CHARACTER,
     UNKNOWN_TOKEN
 )

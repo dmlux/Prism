@@ -3,17 +3,17 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
-from vexo.conllu import read_sentences
-from vexo.dataset import (
+from prism.conllu import read_sentences
+from prism.dataset import (
     CharacterFeatureDataset,
     collate_character_feature_sentences,
 )
-from vexo.model import CharacterBiLSTMMultiTaskTagger
-from vexo.training import (
+from prism.model import CharacterBiLSTMMultiTaskTagger
+from prism.training import (
     evaluate_multitask,
     train_multitask_epoch,
 )
-from vexo.vocabulary import (
+from prism.vocabulary import (
     NO_FEATURE,
     build_character_vocabulary,
     build_feature_vocabulary,

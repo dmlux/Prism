@@ -3,7 +3,7 @@ from collections.abc import Iterable
 import torch
 from torch import Tensor, nn
 
-from vexo.model import (
+from prism.model import (
     BiLSTMPosTagger,
     CharacterBiLSTMMultiTaskTagger,
     CharacterBiLSTMPosTagger,

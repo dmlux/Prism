@@ -2,64 +2,17 @@
 <svg xmlns="http://www.w3.org/2000/svg"
      width="1024" height="1024" viewBox="0 0 1024 1024"
      role="img" aria-labelledby="title desc">
-  <title id="title">Vexo symbol</title>
-  <desc id="desc">The cyan-to-violet Vexo symbol without a wordmark, centered on a transparent square canvas.</desc>
+  <title id="title">Prism NLP symbol</title>
+  <desc id="desc">Seven translucent rainbow triangles overlap in a circular prism rosette with additive color mixing, on a transparent background.</desc>
 
-  <defs>
-    <linearGradient id="symbol-gradient" x1="248" y1="384" x2="774" y2="718" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#28d9ff"/>
-      <stop offset="0.34" stop-color="#269dff"/>
-      <stop offset="0.69" stop-color="#5142ff"/>
-      <stop offset="1" stop-color="#a847ff"/>
-    </linearGradient>
-
-    <linearGradient id="left-gradient" x1="276" y1="384" x2="550" y2="808" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#25d9ff"/>
-      <stop offset="0.48" stop-color="#287dff"/>
-      <stop offset="1" stop-color="#6439ff"/>
-    </linearGradient>
-
-    <linearGradient id="right-gradient" x1="775" y1="385" x2="578" y2="718" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#a84aff"/>
-      <stop offset="0.52" stop-color="#663dff"/>
-      <stop offset="1" stop-color="#3f42e8"/>
-    </linearGradient>
-  </defs>
-
-  <!-- Enlarged symbol with a safe area for square and circular crops. -->
-  <g transform="translate(-229.675 -352.925) scale(1.45)">
-    <path fill="url(#left-gradient)"
-          d="M259 384
-             C252 384 247 388 249 395
-             C250 398 252 401 254 404
-             L496 790
-             C503 801 513 808 526 809
-             C538 810 548 804 554 794
-             L577 758
-             C581 751 581 745 577 738
-             L376 411
-             C365 393 350 384 329 384
-             Z"/>
-
-    <path fill="url(#right-gradient)"
-          d="M747 384
-             C728 384 712 394 702 412
-             L560 660
-             C557 666 557 672 560 678
-             L582 713
-             C585 718 590 720 595 718
-             C598 717 601 714 603 710
-             L773 398
-             C777 391 772 385 765 384
-             Z"/>
-
-    <g fill="url(#symbol-gradient)">
-      <rect x="422" y="412" width="114" height="16" rx="8"/>
-      <rect x="445" y="453" width="190" height="16" rx="8"/>
-      <rect x="469" y="494" width="140" height="16" rx="8"/>
-      <rect x="494" y="536" width="89" height="16" rx="8"/>
-      <rect x="517" y="578" width="48" height="15" rx="7.5"/>
-      <rect x="535" y="619" width="20" height="15" rx="7.5"/>
-    </g>
+  <!-- Transparent canvas: intentionally no background rectangle. -->
+  <g style="isolation:isolate">
+    <path d="M512 126 L718 718 L306 718 Z" fill="#FF3B4E" fill-opacity=".54" style="mix-blend-mode:screen"/>
+    <path d="M512 126 L718 718 L306 718 Z" fill="#FF7A21" fill-opacity=".54" style="mix-blend-mode:screen" transform="rotate(51.4286 512 512)"/>
+    <path d="M512 126 L718 718 L306 718 Z" fill="#FFD21F" fill-opacity=".54" style="mix-blend-mode:screen" transform="rotate(102.8571 512 512)"/>
+    <path d="M512 126 L718 718 L306 718 Z" fill="#31C967" fill-opacity=".54" style="mix-blend-mode:screen" transform="rotate(154.2857 512 512)"/>
+    <path d="M512 126 L718 718 L306 718 Z" fill="#16C7D9" fill-opacity=".54" style="mix-blend-mode:screen" transform="rotate(205.7143 512 512)"/>
+    <path d="M512 126 L718 718 L306 718 Z" fill="#3478F6" fill-opacity=".54" style="mix-blend-mode:screen" transform="rotate(257.1429 512 512)"/>
+    <path d="M512 126 L718 718 L306 718 Z" fill="#8A4DFF" fill-opacity=".54" style="mix-blend-mode:screen" transform="rotate(308.5714 512 512)"/>
   </g>
 </svg>

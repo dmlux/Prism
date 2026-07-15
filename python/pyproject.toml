@@ -3,9 +3,9 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vexo"
+name = "prism-nlp"
 version = "0.1.0"
-description = "Training and experimentation tools for Vexo NLP models"
+description = "Training and experimentation tools for Prism NLP models"
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.5,<3",
