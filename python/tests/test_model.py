@@ -1,6 +1,6 @@
 import torch
 
-from prism.model import (
+from prism.baselines.recurrent.model import (
     CharacterBiLSTMMultiTaskTagger,
     CharacterBiLSTMPosTagger,
     CharacterEncoder,

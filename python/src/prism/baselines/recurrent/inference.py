@@ -2,14 +2,14 @@ import torch
 
 from pathlib import Path
 
-from prism.model import (
+from prism.baselines.recurrent.model import (
     BiLSTMPosTagger,
     CharacterBiLSTMPosTagger,
-    CharacterBiLSTMMultiTaskTagger
+    CharacterBiLSTMMultiTaskTagger,
 )
-from prism.vocabulary import (
+from prism.baselines.recurrent.vocabulary import (
     UNKNOWN_CHARACTER,
-    UNKNOWN_TOKEN
+    UNKNOWN_TOKEN,
 )
 
 def load_pos_model(

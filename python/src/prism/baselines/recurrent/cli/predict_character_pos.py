@@ -3,17 +3,14 @@ from pathlib import Path
 
 import torch
 
-from prism.inference import (
-    load_multitask_model,
-    predict_multitask,
+from prism.baselines.recurrent.inference import (
+    load_character_pos_model,
+    predict_character_pos_tags,
 )
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description=(
-            "Predict POS and morphology for "
-            "pre-tokenized Norwegian text."
-        )
+        description="Predict POS tags for pre-tokenized Norwegian text."
     )
     parser.add_argument(
         "tokens",
@@ -25,7 +22,7 @@ def main() -> None:
         type=Path,
         default=Path(
             "models/norwegian-bokmaal/"
-            "pos_number_bilstm.pt"
+            "pos_character_bilstm.pt"
         ),
     )
     arguments = parser.parse_args()
@@ -35,36 +32,25 @@ def main() -> None:
     )
 
     (
-        model,
+        model, 
         word_vocabulary,
         character_vocabulary,
-        tag_vocabulary,
-        feature_name,
-        feature_vocabulary,
-    ) = load_multitask_model(
+        tag_vocabulary
+    ) = load_character_pos_model(
         arguments.checkpoint,
         device,
     )
-
-    predictions = predict_multitask(
+    tags = predict_character_pos_tags(
         model,
         arguments.tokens,
         word_vocabulary,
         character_vocabulary,
         tag_vocabulary,
-        feature_vocabulary,
         device,
     )
 
-    print(f"Token\tPOS\t{feature_name}")
-
-    for token, (tag, feature_value) in zip(
-        arguments.tokens,
-        predictions,
-    ):
-        print(
-            f"{token}\t{tag}\t{feature_value}"
-        )
+    for token, tag in zip(arguments.tokens, tags):
+        print(f"{token}\t{tag}")
 
 if __name__ == "__main__":
     main()

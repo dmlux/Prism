@@ -135,19 +135,19 @@ Training data is intentionally not committed to this repository.
 Train the word-only baseline neural model:
 
 ```bash
-python -m prism.train_pos
+python -m prism.baselines.recurrent.cli.train_pos
 ```
 
 Train the word-and-character model:
 
 ```bash
-python -m prism.train_character_pos
+python -m prism.baselines.recurrent.cli.train_character_pos
 ```
 
 Train the joint POS and Number model:
 
 ```bash
-python -m prism.train_pos_number
+python -m prism.baselines.recurrent.cli.train_pos_number
 ```
 
 All commands automatically use Apple MPS when available and otherwise fall
@@ -175,27 +175,27 @@ configuration, benchmark results, and applicable license information.
 Evaluate the word-only model on the development split:
 
 ```bash
-python -m prism.evaluate_pos
+python -m prism.baselines.recurrent.cli.evaluate_pos
 ```
 
 Evaluate the character model on the development split:
 
 ```bash
-python -m prism.evaluate_character_pos \
+python -m prism.baselines.recurrent.cli.evaluate_character_pos \
   --checkpoint models/norwegian-bokmaal/pos_character_bilstm_10_epochs.pt
 ```
 
 Evaluate the joint POS and Number model:
 
 ```bash
-python -m prism.evaluate_pos_number
+python -m prism.baselines.recurrent.cli.evaluate_pos_number
 ```
 
 The evaluation commands accept `--split test` for a final evaluation of a
 fixed model:
 
 ```bash
-python -m prism.evaluate_pos_number --split test
+python -m prism.baselines.recurrent.cli.evaluate_pos_number --split test
 ```
 
 Use the development split for model selection and tuning. The test split
@@ -207,7 +207,7 @@ The prediction interface currently expects pre-tokenized input. Run the
 word-and-character model with one shell argument per token:
 
 ```bash
-python -m prism.predict_character_pos \
+python -m prism.baselines.recurrent.cli.predict_character_pos \
   --checkpoint models/norwegian-bokmaal/pos_character_bilstm_10_epochs.pt \
   Jeg leser en bok .
 ```
@@ -225,13 +225,14 @@ bok     NOUN
 The word-only comparison model remains available through:
 
 ```bash
-python -m prism.predict_pos Jeg leser en bok .
+python -m prism.baselines.recurrent.cli.predict_pos Jeg leser en bok .
 ```
 
 Run the multi-task model to predict POS and Number together:
 
 ```bash
-python -m prism.predict_pos_number Jeg leser en bok og to bøker .
+python -m prism.baselines.recurrent.cli.predict_pos_number \
+  Jeg leser en bok og to bøker .
 ```
 
 Example output:
@@ -269,17 +270,24 @@ shapes, and multi-task evaluation.
 ```text
 Prism/
 ├── docs/
-│   └── benchmarks.md
+│   ├── PROJECT_STATUS.md
+│   ├── benchmarks.md
+│   └── model-strategy.md
 ├── logos/
 ├── python/
 │   ├── pyproject.toml
 │   ├── src/prism/
-│   │   ├── baseline.py
+│   │   ├── baselines/
+│   │   │   ├── dictionary.py
+│   │   │   └── recurrent/
+│   │   │       ├── cli/
+│   │   │       ├── dataset.py
+│   │   │       ├── inference.py
+│   │   │       ├── model.py
+│   │   │       ├── training.py
+│   │   │       └── vocabulary.py
+│   │   ├── analyze_morphology.py
 │   │   ├── conllu.py
-│   │   ├── dataset.py
-│   │   ├── inference.py
-│   │   ├── model.py
-│   │   ├── training.py
 │   │   └── ...
 │   └── tests/
 └── README.md
@@ -292,13 +300,13 @@ training artifacts are excluded through `.gitignore`.
 
 Planned milestones include:
 
+- a versioned output schema for all supported morphology features and learned
+  lemma edit rules;
+- a high-capacity pretrained Norwegian teacher and a compact distilled student;
 - calibrated confidence scores and explicit handling of uncertain predictions;
-- support for multi-valued morphological annotations;
-- additional morphology heads for Gender, Definite, Degree, Tense, VerbForm,
-  and the remaining Universal Dependencies features;
-- lemmatization using a lexicon and learned edit rules;
-- language-aware tokenization and sentence segmentation;
-- model export and a native Swift inference runtime;
+- versioned ExecuTorch model artifacts with PyTorch export-parity tests;
+- a native Swift runtime wrapper and document-scale latency benchmarks;
+- language-aware tokenization and sentence segmentation as a separate task;
 - modular Swift packages such as `PrismKit`, `PrismCore`, and
   `PrismNorwegian`;
 - additional language modules after the Norwegian pipeline is stable.

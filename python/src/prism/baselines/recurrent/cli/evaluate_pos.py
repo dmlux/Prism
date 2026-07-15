@@ -5,11 +5,11 @@ import torch
 from torch.utils.data import DataLoader
 
 from prism.conllu import read_sentences
-from prism.dataset import PosDataset, collate_sentences
-from prism.inference import load_pos_model
-from prism.training import (
+from prism.baselines.recurrent.dataset import PosDataset, collate_sentences
+from prism.baselines.recurrent.inference import load_pos_model
+from prism.baselines.recurrent.training import (
     evaluate,
-    evaluate_knownness
+    evaluate_knownness,
 )
 
 def main() -> None:

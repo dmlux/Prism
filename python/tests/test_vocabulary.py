@@ -1,5 +1,5 @@
 from prism.conllu import Token
-from prism.vocabulary import (
+from prism.baselines.recurrent.vocabulary import (
     NO_FEATURE,
     PAD_CHARACTER,
     UNKNOWN_CHARACTER,

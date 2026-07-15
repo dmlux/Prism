@@ -1,7 +1,7 @@
 import torch
 
-from prism.model import CharacterBiLSTMMultiTaskTagger
-from prism.training import evaluate_multitask
+from prism.baselines.recurrent.model import CharacterBiLSTMMultiTaskTagger
+from prism.baselines.recurrent.training import evaluate_multitask
 
 
 def test_evaluate_multitask() -> None:

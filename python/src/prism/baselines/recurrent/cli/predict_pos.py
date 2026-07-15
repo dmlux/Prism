@@ -3,7 +3,7 @@ from pathlib import Path
 
 import torch
 
-from prism.inference import load_pos_model, predict_pos_tags
+from prism.baselines.recurrent.inference import load_pos_model, predict_pos_tags
 
 def main() -> None:
     parser = argparse.ArgumentParser(

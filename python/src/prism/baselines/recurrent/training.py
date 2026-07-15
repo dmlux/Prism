@@ -3,7 +3,7 @@ from collections.abc import Iterable
 import torch
 from torch import Tensor, nn
 
-from prism.model import (
+from prism.baselines.recurrent.model import (
     BiLSTMPosTagger,
     CharacterBiLSTMMultiTaskTagger,
     CharacterBiLSTMPosTagger,

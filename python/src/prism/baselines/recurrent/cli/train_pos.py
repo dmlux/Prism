@@ -4,10 +4,13 @@ import torch
 from torch.utils.data import DataLoader
 
 from prism.conllu import read_sentences
-from prism.vocabulary import build_tag_vocabulary, build_word_vocabulary
-from prism.dataset import PosDataset, collate_sentences
-from prism.model import BiLSTMPosTagger
-from prism.training import evaluate, train_epoch
+from prism.baselines.recurrent.dataset import PosDataset, collate_sentences
+from prism.baselines.recurrent.model import BiLSTMPosTagger
+from prism.baselines.recurrent.training import evaluate, train_epoch
+from prism.baselines.recurrent.vocabulary import (
+    build_tag_vocabulary,
+    build_word_vocabulary,
+)
 
 def main() -> None:
     data_root = Path(

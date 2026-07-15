@@ -19,9 +19,11 @@ local, and privacy-friendly linguistic analysis. The long-term feature set is:
 - language-specific models behind a unified API;
 - native Swift packages suitable for applications such as LexKeep.
 
-Only Norwegian Bokmål is currently in scope. The planned learning path grows
-from understandable statistical and recurrent neural baselines toward richer
-morphology and lemmatization before considering a transformer.
+Only Norwegian Bokmål is currently in scope. The accepted next-generation
+direction is a teacher-student architecture: a high-capacity pretrained
+Norwegian teacher is used during training, while only a compact student is
+shipped for fast local inference. The full decision and release gates are in
+`docs/model-strategy.md`.
 
 ## Collaboration requirements
 
@@ -93,7 +95,10 @@ its own clearly stated model license.
 
 ## Completed implementation
 
-The Python code under `python/src/prism/` currently provides:
+Shared data reading remains directly under `python/src/prism/`. The completed
+recurrent experiments are isolated under
+`python/src/prism/baselines/recurrent/`, including their CLI implementations.
+Together, the current Python code provides:
 
 - a CoNLL-U reader and typed token representation;
 - deterministic word, POS-tag, character, and morphology vocabularies;
@@ -109,6 +114,13 @@ The Python code under `python/src/prism/` currently provides:
 - training, checkpointing, evaluation, and prediction entry points;
 - precision, recall, F1, support, vocabulary-status, and annotated-feature
   evaluation.
+
+The most-frequent-tag comparison is isolated separately in
+`python/src/prism/baselines/dictionary.py`. Internal baseline code and tests
+import the baseline packages directly. No duplicate top-level model or command
+wrappers remain. This gives the next-generation model a clean package namespace
+while recurrent checkpoints remain loadable through the explicit baseline
+commands.
 
 Prediction currently expects tokens to be supplied externally. This matches
 LexKeep's current ownership of tokenization and offsets. A later high-level
@@ -220,34 +232,51 @@ checkpoint was successfully evaluated after the rename.
   prematurely.
 - Keep datasets and model artifacts outside the source repository. Publish
   models separately with reproducibility and license documentation.
+- Use the current recurrent models as measured baselines, not as the final
+  production architecture. Do not remove their training or checkpoint support
+  until a replacement is reproducible and passes the new quality and runtime
+  gates.
+- The first next-generation production bundle jointly predicts UPOS, supported
+  Norwegian UD morphology features, lemmas, and calibrated confidence. It does
+  not silently add dependency parsing, tokenization, sentence segmentation,
+  named entities, phrases, or multiword expressions.
+- Train a high-capacity Norwegian teacher and distill its predictions into a
+  compact student. Only the student is distributed to applications. Compare
+  the distilled student against the same architecture trained without
+  distillation.
+- Export versioned model packages initially around an ExecuTorch `.pte`
+  artifact plus a manifest, vocabularies, labels, provenance, and licenses.
+  Native libraries wrap this artifact without exposing runtime-specific types
+  in their public APIs.
+- Treat document inference as a release property. The initial gate uses a
+  6,000-token, 200-sentence fixture and requires at most 1.0 second median warm
+  latency, 1.5 seconds p95 warm latency, 3.0 seconds cold load plus inference,
+  250 MiB additional peak memory, and a 100 MiB quantized Norwegian package on
+  a recorded Apple Silicon reference machine.
 
 ## Immediate next milestone
 
-The next technical milestone is to generalize the current single `Number`
-head into a multi-feature morphology model while keeping POS as a joint task.
-Do this incrementally rather than adding every UD feature at once.
+The next milestone is the data and output contract for the first
+next-generation production bundle. Before selecting or fine-tuning a teacher,
+define and test the complete Norwegian morphology representation and lemma
+edit-rule representation consumed by both teacher and student.
 
-The recommended first step is to design and test a representation for
-multi-valued morphology features. The current vocabulary treats values such as
-`Plur,Sing` as one rare class. Before adding more heads, the project should
-decide whether each feature is single-label with normalized combinations or
-multi-label with independent values. The decision must preserve `<NONE>`,
-masking, class-level evaluation, and checkpoint metadata.
-
-After that foundation, add morphology features in useful, well-supported
-groups, beginning with high-frequency features such as Gender, Definite,
-Degree, Tense, and VerbForm. Evaluate every new head both overall and only on
-annotated tokens, and monitor whether joint learning changes POS accuracy.
+Morphology uses one head per feature with an explicit `<NONE>` value. The
+representation must handle genuinely multi-valued annotations deliberately
+instead of encoding a rare comma-joined class by accident. Lemmatization begins
+with learned edit rules and must report coverage and unknown-token accuracy.
+The resulting schema is versioned and becomes part of checkpoint and exported
+artifact metadata.
 
 ## Longer-term roadmap
 
-Once multi-feature morphology is stable:
+Once the output contract is stable:
 
-1. add calibrated confidence and uncertainty thresholds;
-2. build a lemmatizer using a lexicon plus learned edit rules;
-3. design language-aware tokenization and sentence segmentation separately;
-4. define stable high-level and externally-tokenized inference APIs;
-5. investigate export and native Swift inference for LexKeep;
-6. consider transformers only after the smaller architecture and evaluation
-   pipeline are understood and well documented;
+1. benchmark and select a Norwegian teacher on the development split;
+2. train a compact student with and without distillation;
+3. add confidence calibration and abstention thresholds;
+4. export the fixed student and prove PyTorch-to-ExecuTorch parity;
+5. benchmark document inference and integrate the artifact through a Swift
+   runtime wrapper for LexKeep;
+6. decide on dependency parsing separately after the token tasks are stable;
 7. add further languages as separate modules after Norwegian is stable.

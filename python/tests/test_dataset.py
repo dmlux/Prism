@@ -1,11 +1,11 @@
 from prism.conllu import Token
-from prism.dataset import (
+from prism.baselines.recurrent.dataset import (
     CharacterFeatureDataset,
     CharacterPosDataset,
     collate_character_sentences,
     collate_character_feature_sentences,
 )
-from prism.vocabulary import (
+from prism.baselines.recurrent.vocabulary import (
     NO_FEATURE,
     build_character_vocabulary,
     build_feature_vocabulary,

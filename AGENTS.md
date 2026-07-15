@@ -7,6 +7,8 @@
 - Treat `docs/PROJECT_STATUS.md` as the handoff for the confirmed current state
   and update it whenever a milestone, benchmark, or architectural decision
   changes materially.
+- Read `docs/model-strategy.md` before changing model architecture, task heads,
+  export formats, native runtimes, or the Python package layout.
 - Verify the repository instead of assuming that an older handoff is still
   current.
 
@@ -39,6 +41,16 @@
 - Accuracy and calibrated uncertainty matter because predictions may be shown
   in learning software. Do not present a single aggregate accuracy as proof
   that every class or prediction is dependable.
+- Follow the accepted teacher-student direction in `docs/model-strategy.md`:
+  use a high-capacity Norwegian teacher for quality-oriented training and ship
+  only a compact, measured student for local inference.
+- The first new production model bundle covers UPOS, the supported Norwegian
+  UD morphology features, lemmatization, and calibrated confidence. Keep
+  dependency parsing, tokenization, sentence segmentation, named entities,
+  phrases, and multiword expressions as explicit later decisions.
+- Treat the versioned model artifact and its manifest as the cross-platform
+  contract. Keep public Swift, Java/Kotlin, and C++ APIs independent of the
+  selected inference runtime.
 
 ## Python and package conventions
 
@@ -52,6 +64,49 @@
   evaluation, and prediction workflows belong in Python modules and tests.
 - Prefer type annotations and small, explicit data transformations that are
   understandable to an ML beginner.
+
+## Python architecture quality
+
+- Treat Python as production code, not as a collection of experiment scripts.
+  Before adding a new module, identify its responsibility, its public contract,
+  and the existing layer that should own it.
+- Organize reusable behavior by stable concerns such as data/schema, task
+  definitions, model components, training, evaluation, export, and artifact
+  loading. Keep dependencies directed: lower-level schema and task contracts
+  must not import CLI, training orchestration, or a specific native runtime.
+- Keep `python -m prism.<module>` entry points thin. They may parse arguments,
+  construct configuration, call reusable services, and render results; model,
+  data, training, evaluation, and checkpoint logic belongs in importable
+  modules with tests.
+- Use explicit typed domain objects for configurations, batches, predictions,
+  metrics, manifests, and checkpoint metadata instead of loosely structured
+  dictionaries crossing module boundaries. Validate data at file, checkpoint,
+  and model-artifact boundaries and fail with actionable errors.
+- Separate pure transformations from filesystem access, device selection,
+  logging, and command-line output. Pass dependencies and configuration
+  explicitly rather than relying on mutable module-level state or hidden
+  defaults.
+- Extend or refactor the existing source of truth instead of copying logic into
+  another training, evaluation, or prediction path. Shared behavior must have
+  one tested implementation; task-specific differences should be represented
+  through clear configuration or narrow interfaces.
+- Prefer small cohesive modules and composition over large classes, inheritance
+  trees, and catch-all utility files. Introduce an abstraction only when it
+  expresses a real stable boundary or removes demonstrated duplication; do not
+  add design patterns merely to make the project appear sophisticated.
+- Keep model architecture, training policy, evaluation policy, serialization,
+  and runtime integration separable. A change to one should not require
+  rewriting the others unless their documented contract genuinely changes.
+- Make reproducibility data first-class: resolved configuration, random seeds,
+  dataset identity, label schema, model schema version, and relevant library
+  versions must travel with checkpoints and released artifacts.
+- Add tests at the layer where behavior belongs. Prefer focused unit tests for
+  transformations and contracts, integration tests for checkpoint/export
+  boundaries, and a small number of representative end-to-end commands.
+- Do not append new production code to a weak structure merely to move faster.
+  Improve the affected boundary first when necessary, preserve behavior with
+  tests, and then add the feature. Keep such refactors scoped and preserve
+  unrelated user work.
 
 ## Data, training, and evaluation
 
@@ -70,13 +125,25 @@
   `<NONE>` class otherwise inflates the headline score.
 - Preserve existing checkpoint compatibility when practical. If a format must
   change, document the migration or explicitly version the new format.
+- Keep the current recurrent models as reproducible baselines until a
+  replacement passes the documented quality and document-inference gates. Do
+  not delete old training paths merely to make the repository look cleaner.
+- For teacher-student work, report an ablation against the same student trained
+  without distillation. A larger teacher is not evidence that the shipped
+  student improved.
 
 ## Verification
 
 - After Python changes, run `python -m pytest python/tests`.
 - For changes to inference, checkpoint loading, or model structure, also run a
-  representative `python -m prism.evaluate_*` or `python -m prism.predict_*`
-  command when the required local data and checkpoint are available.
+  representative `python -m prism.baselines.recurrent.cli.evaluate_*` or
+  `python -m prism.baselines.recurrent.cli.predict_*` command when verifying
+  the recurrent baseline and the required local data and checkpoint are
+  available.
+- For model export, verify numerical parity between PyTorch and the exported
+  artifact. For production-runtime changes, measure the 6,000-token,
+  200-sentence document fixture using the protocol in
+  `docs/model-strategy.md`.
 - Check `git diff --check` before handing off code changes.
 - Never claim a benchmark improved without evaluating the fixed checkpoint on
   the appropriate split and recording the exact result.

@@ -4,10 +4,10 @@ from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 
 from prism.conllu import Token
-from prism.vocabulary import (
+from prism.baselines.recurrent.vocabulary import (
     encode_sentence,
     encode_sentence_characters,
-    encode_sentence_feature
+    encode_sentence_feature,
 )
 
 class PosDataset(Dataset[tuple[Tensor, Tensor]]):
