@@ -1,0 +1,63 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Python environments
+.venv/
+venv/
+env/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Packaging and build output
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment variables and local secrets
+.env
+.env.*
+!.env.example
+
+# Editors and IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local datasets and generated preprocessing output
+data/raw/
+data/interim/
+data/processed/
+
+# Training runs, checkpoints, and exported models
+runs/
+checkpoints/
+artifacts/
+models/
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.safetensors
+
+# Logs and temporary files
+logs/
+*.log
+tmp/
+temp/
+
