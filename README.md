@@ -44,6 +44,10 @@ commands expect text that has already been split into tokens.
 
 ## Model architecture
 
+For a detailed, learning-oriented explanation of the planned Transformer,
+teacher-student, multi-task, export, and LexKeep inference architecture, see
+[the architecture guide](docs/ARCHITECTURE.md).
+
 The current neural models combine two representations for every token:
 
 ```text
@@ -270,6 +274,7 @@ shapes, and multi-task evaluation.
 ```text
 Prism/
 ├── docs/
+│   ├── ARCHITECTURE.md
 │   ├── PROJECT_STATUS.md
 │   ├── benchmarks.md
 │   └── model-strategy.md

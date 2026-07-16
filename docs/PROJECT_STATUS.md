@@ -23,7 +23,9 @@ Only Norwegian Bokmål is currently in scope. The accepted next-generation
 direction is a teacher-student architecture: a high-capacity pretrained
 Norwegian teacher is used during training, while only a compact student is
 shipped for fast local inference. The full decision and release gates are in
-`docs/model-strategy.md`.
+`docs/model-strategy.md`. The detailed data flow from external tokens through
+the Transformer, task heads, distillation, export, and LexKeep inference is
+documented in `docs/ARCHITECTURE.md`.
 
 ## Collaboration requirements
 
@@ -65,7 +67,7 @@ The complete test suite is run from the repository root:
 python -m pytest python/tests
 ```
 
-At the time of this handoff, the suite contains 41 passing tests. Ruff 0.15
+At the time of this handoff, the suite contains 48 passing tests. Ruff 0.15
 provides repository-wide formatting and linting. Python compatibility is
 explicitly restricted to Python 3.12.
 
