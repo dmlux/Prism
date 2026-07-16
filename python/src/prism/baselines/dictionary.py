@@ -12,7 +12,4 @@ def train_pos_baseline(
         for token in sentence:
             tag_counts[token.text][token.upos] += 1
 
-    return {
-        text: counts.most_common(1)[0][0]
-        for text, counts in tag_counts.items()
-    }
+    return {text: counts.most_common(1)[0][0] for text, counts in tag_counts.items()}

@@ -8,20 +8,24 @@ from prism.baselines.recurrent.model import (
 
 
 def test_character_encoder_shape_and_padding() -> None:
-    character_ids = torch.tensor([
+    character_ids = torch.tensor(
         [
-            [2, 3, 0],
-            [4, 5, 6],
-        ],
+            [
+                [2, 3, 0],
+                [4, 5, 6],
+            ],
+            [
+                [7, 8, 0],
+                [0, 0, 0],
+            ],
+        ]
+    )
+    character_lengths = torch.tensor(
         [
-            [7, 8, 0],
-            [0, 0, 0],
-        ],
-    ])
-    character_lengths = torch.tensor([
-        [2, 3],
-        [2, 0],
-    ])
+            [2, 3],
+            [2, 0],
+        ]
+    )
 
     encoder = CharacterEncoder(
         character_count=9,
@@ -40,26 +44,33 @@ def test_character_encoder_shape_and_padding() -> None:
         torch.zeros(6),
     )
 
+
 def test_character_pos_tagger_output_shape() -> None:
-    word_ids = torch.tensor([
-        [2, 3],
-        [4, 0],
-    ])
-    character_ids = torch.tensor([
+    word_ids = torch.tensor(
         [
-            [2, 3, 0],
-            [4, 5, 6],
-        ],
+            [2, 3],
+            [4, 0],
+        ]
+    )
+    character_ids = torch.tensor(
         [
-            [7, 8, 0],
-            [0, 0, 0],
-        ],
-    ])
+            [
+                [2, 3, 0],
+                [4, 5, 6],
+            ],
+            [
+                [7, 8, 0],
+                [0, 0, 0],
+            ],
+        ]
+    )
     sentence_lengths = torch.tensor([2, 1])
-    character_lengths = torch.tensor([
-        [2, 3],
-        [2, 0],
-    ])
+    character_lengths = torch.tensor(
+        [
+            [2, 3],
+            [2, 0],
+        ]
+    )
 
     model = CharacterBiLSTMPosTagger(
         vocabulary_size=5,
@@ -80,26 +91,33 @@ def test_character_pos_tagger_output_shape() -> None:
 
     assert outputs.shape == (2, 2, 3)
 
+
 def test_multi_task_tagger_output_shapes() -> None:
-    word_ids = torch.tensor([
-        [2, 3],
-        [4, 0],
-    ])
-    character_ids = torch.tensor([
+    word_ids = torch.tensor(
         [
-            [2, 3, 0],
-            [4, 5, 6],
-        ],
+            [2, 3],
+            [4, 0],
+        ]
+    )
+    character_ids = torch.tensor(
         [
-            [7, 8, 0],
-            [0, 0, 0],
-        ],
-    ])
+            [
+                [2, 3, 0],
+                [4, 5, 6],
+            ],
+            [
+                [7, 8, 0],
+                [0, 0, 0],
+            ],
+        ]
+    )
     sentence_lengths = torch.tensor([2, 1])
-    character_lengths = torch.tensor([
-        [2, 3],
-        [2, 0],
-    ])
+    character_lengths = torch.tensor(
+        [
+            [2, 3],
+            [2, 0],
+        ]
+    )
 
     model = CharacterBiLSTMMultiTaskTagger(
         vocabulary_size=5,

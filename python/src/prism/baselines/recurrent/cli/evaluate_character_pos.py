@@ -16,6 +16,7 @@ from prism.baselines.recurrent.training import (
     evaluate_character_knownness,
 )
 
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -26,16 +27,11 @@ def main() -> None:
     parser.add_argument(
         "--checkpoint",
         type=Path,
-        default=Path(
-            "models/norwegian-bokmaal/"
-            "pos_character_bilstm.pt"
-        ),
+        default=Path("models/norwegian-bokmaal/pos_character_bilstm.pt"),
     )
     arguments = parser.parse_args()
 
-    device = torch.device(
-        "mps" if torch.backends.mps.is_available() else "cpu"
-    )
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     (
         model,
         words,
@@ -46,13 +42,9 @@ def main() -> None:
         device,
     )
 
-    filename = (
-        f"no_bokmaal-ud-{arguments.split}.conllu"
-    )
+    filename = f"no_bokmaal-ud-{arguments.split}.conllu"
 
-    sentences = read_sentences(
-        Path("data/raw/UD_Norwegian-Bokmaal") / filename
-    )
+    sentences = read_sentences(Path("data/raw/UD_Norwegian-Bokmaal") / filename)
     loader = DataLoader(
         CharacterPosDataset(
             sentences,
@@ -107,13 +99,7 @@ def main() -> None:
         f"({unknown_accuracy:.2%} korrekt)",
     )
     print()
-    print(
-        f"{'POS':<8}"
-        f"{'Precision':>12}"
-        f"{'Recall':>12}"
-        f"{'F1':>12}"
-        f"{'Support':>10}"
-    )
+    print(f"{'POS':<8}{'Precision':>12}{'Recall':>12}{'F1':>12}{'Support':>10}")
 
     for tag, tag_id in sorted(
         tags.items(),
@@ -123,29 +109,14 @@ def main() -> None:
         predicted_count = matrix[:, tag_id].sum().item()
         actual_count = matrix[tag_id, :].sum().item()
 
-        precision = (
-            true_positive / predicted_count
-            if predicted_count
-            else 0.0
-        )
-        recall = (
-            true_positive / actual_count
-            if actual_count
-            else 0.0
-        )
+        precision = true_positive / predicted_count if predicted_count else 0.0
+        recall = true_positive / actual_count if actual_count else 0.0
         f1 = (
-            2 * precision * recall / (precision + recall)
-            if precision + recall
-            else 0.0
+            2 * precision * recall / (precision + recall) if precision + recall else 0.0
         )
 
-        print(
-            f"{tag:<8}"
-            f"{precision:>11.2%}"
-            f"{recall:>12.2%}"
-            f"{f1:>12.2%}"
-            f"{actual_count:>10}"
-        )
+        print(f"{tag:<8}{precision:>11.2%}{recall:>12.2%}{f1:>12.2%}{actual_count:>10}")
+
 
 if __name__ == "__main__":
     main()

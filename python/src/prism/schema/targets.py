@@ -10,18 +10,11 @@ def encode_morphology_targets(
     schema: MorphologySchema,
     features: Mapping[str, str],
 ) -> tuple[tuple[bool, ...], ...]:
-    schema_feature_names = {
-        feature_schema.name
-        for feature_schema in schema.features
-    }
-    unknown_feature_names = sorted(
-        set(features).difference(schema_feature_names)
-    )
+    schema_feature_names = {feature_schema.name for feature_schema in schema.features}
+    unknown_feature_names = sorted(set(features).difference(schema_feature_names))
 
     if unknown_feature_names:
-        raise ValueError(
-            f"Unknown morphology feature: {unknown_feature_names[0]}"
-        )
+        raise ValueError(f"Unknown morphology feature: {unknown_feature_names[0]}")
 
     encoded_features: list[tuple[bool, ...]] = []
 
@@ -33,18 +26,13 @@ def encode_morphology_targets(
         else:
             values = tuple(raw_value.split(","))
 
-            if (
-                len(values) > 1
-                and not feature_schema.allows_multiple_values
-            ):
+            if len(values) > 1 and not feature_schema.allows_multiple_values:
                 raise ValueError(
                     f"Morphology feature {feature_schema.name!r} "
                     "does not allow multiple values."
                 )
 
-            unknown_values = sorted(
-                set(values).difference(feature_schema.values)
-            )
+            unknown_values = sorted(set(values).difference(feature_schema.values))
             if unknown_values:
                 raise ValueError(
                     f"Unknown value {unknown_values[0]!r} "
@@ -54,10 +42,7 @@ def encode_morphology_targets(
             active_values = set(values)
 
         encoded_features.append(
-            tuple(
-                label in active_values
-                for label in feature_schema.labels
-            )
+            tuple(label in active_values for label in feature_schema.labels)
         )
 
     return tuple(encoded_features)
@@ -68,9 +53,7 @@ def decode_morphology_values(
     encoded_features: Sequence[Sequence[bool]],
 ) -> dict[str, str]:
     if len(encoded_features) != len(schema.features):
-        raise ValueError(
-            "Encoded morphology feature count does not match schema."
-        )
+        raise ValueError("Encoded morphology feature count does not match schema.")
 
     decoded_features: dict[str, str] = {}
 
@@ -104,23 +87,17 @@ def decode_morphology_values(
         if NO_MORPHOLOGY_VALUE in active_values:
             if len(active_values) > 1:
                 raise ValueError(
-                    f"{NO_MORPHOLOGY_VALUE} cannot be combined "
-                    "with morphology values."
+                    f"{NO_MORPHOLOGY_VALUE} cannot be combined with morphology values."
                 )
 
             continue
 
-        if (
-            len(active_values) > 1
-            and not feature_schema.allows_multiple_values
-        ):
+        if len(active_values) > 1 and not feature_schema.allows_multiple_values:
             raise ValueError(
                 f"Morphology feature {feature_schema.name!r} "
                 "does not allow multiple values."
             )
 
-        decoded_features[feature_schema.name] = ",".join(
-            active_values
-        )
+        decoded_features[feature_schema.name] = ",".join(active_values)
 
     return decoded_features

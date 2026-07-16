@@ -12,18 +12,13 @@ from prism.baselines.recurrent.vocabulary import (
     build_word_vocabulary,
 )
 
+
 def main() -> None:
-    data_root = Path(
-        "data/raw/UD_Norwegian-Bokmaal"
-    )
+    data_root = Path("data/raw/UD_Norwegian-Bokmaal")
 
-    training = read_sentences(
-        data_root / "no_bokmaal-ud-train.conllu"
-    )
+    training = read_sentences(data_root / "no_bokmaal-ud-train.conllu")
 
-    development = read_sentences(
-        data_root / "no_bokmaal-ud-dev.conllu"
-    )
+    development = read_sentences(data_root / "no_bokmaal-ud-dev.conllu")
 
     word_vocabulary = build_word_vocabulary(training)
     tag_vocabulary = build_tag_vocabulary(training)
@@ -41,9 +36,7 @@ def main() -> None:
         collate_fn=collate_sentences,
     )
 
-    device = torch.device(
-        "mps" if torch.backends.mps.is_available() else "cpu"
-    )
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
     torch.manual_seed(42)
 
@@ -112,6 +105,7 @@ def main() -> None:
     print("Wortverzeichnis:", len(word_vocabulary))
     print("POS-Klassen:", len(tag_vocabulary))
     print("Gerät:", device)
+
 
 if __name__ == "__main__":
     main()

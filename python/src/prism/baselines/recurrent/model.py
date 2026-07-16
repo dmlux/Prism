@@ -2,12 +2,10 @@ import torch
 from torch import Tensor, nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
+
 class CharacterEncoder(nn.Module):
     def __init__(
-        self,
-        character_count: int,
-        embedding_size: int = 32,
-        hidden_size: int = 32
+        self, character_count: int, embedding_size: int = 32, hidden_size: int = 32
     ) -> None:
         super().__init__()
 
@@ -29,9 +27,7 @@ class CharacterEncoder(nn.Module):
         character_ids: Tensor,
         character_lengths: Tensor,
     ) -> Tensor:
-        batch_size, sentence_length, word_length = (
-            character_ids.shape
-        )
+        batch_size, sentence_length, word_length = character_ids.shape
 
         flattened_ids = character_ids.reshape(
             batch_size * sentence_length,
@@ -67,13 +63,14 @@ class CharacterEncoder(nn.Module):
             self.output_size,
         )
 
+
 class BiLSTMPosTagger(nn.Module):
     def __init__(
-            self,
-            vocabulary_size: int,
-            tag_count: int,
-            embedding_size: int = 64,
-            hidden_size: int = 128,
+        self,
+        vocabulary_size: int,
+        tag_count: int,
+        embedding_size: int = 64,
+        hidden_size: int = 128,
     ) -> None:
         super().__init__()
 
@@ -91,7 +88,7 @@ class BiLSTMPosTagger(nn.Module):
         self.output = nn.Linear(hidden_size * 2, tag_count)
 
     def forward(
-        self, 
+        self,
         word_ids: Tensor,
         lengths: Tensor,
     ) -> Tensor:
@@ -111,8 +108,9 @@ class BiLSTMPosTagger(nn.Module):
             batch_first=True,
             total_length=word_ids.size(1),
         )
-        
+
         return self.output(contextualized)
+
 
 class CharacterBiLSTMPosTagger(nn.Module):
     def __init__(
@@ -123,7 +121,7 @@ class CharacterBiLSTMPosTagger(nn.Module):
         word_embedding_size: int = 64,
         character_embedding_size: int = 32,
         character_hidden_size: int = 32,
-        hidden_size: int = 128
+        hidden_size: int = 128,
     ) -> None:
         super().__init__()
 
@@ -138,10 +136,7 @@ class CharacterBiLSTMPosTagger(nn.Module):
             hidden_size=character_hidden_size,
         )
 
-        combine_size = (
-            word_embedding_size
-            + self.character_encoder.output_size
-        )
+        combine_size = word_embedding_size + self.character_encoder.output_size
 
         self.lstm = nn.LSTM(
             input_size=combine_size,
@@ -163,8 +158,7 @@ class CharacterBiLSTMPosTagger(nn.Module):
     ) -> Tensor:
         word_representations = self.word_embedding(word_ids)
         character_representations = self.character_encoder(
-            character_ids,
-            character_lengths
+            character_ids, character_lengths
         )
 
         combined = torch.cat(
@@ -200,17 +194,13 @@ class CharacterBiLSTMPosTagger(nn.Module):
         character_lengths: Tensor,
     ) -> Tensor:
         contextualized = self.encode(
-            word_ids,
-            character_ids,
-            sentence_lengths,
-            character_lengths
+            word_ids, character_ids, sentence_lengths, character_lengths
         )
 
         return self.output(contextualized)
 
-class CharacterBiLSTMMultiTaskTagger(
-    CharacterBiLSTMPosTagger
-):
+
+class CharacterBiLSTMMultiTaskTagger(CharacterBiLSTMPosTagger):
     def __init__(
         self,
         vocabulary_size: int,
@@ -229,7 +219,7 @@ class CharacterBiLSTMMultiTaskTagger(
             word_embedding_size=word_embedding_size,
             character_embedding_size=character_embedding_size,
             character_hidden_size=character_hidden_size,
-            hidden_size=hidden_size
+            hidden_size=hidden_size,
         )
 
         self.feature_output = nn.Linear(

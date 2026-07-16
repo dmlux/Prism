@@ -12,6 +12,7 @@ from prism.baselines.recurrent.training import (
     evaluate_knownness,
 )
 
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -22,27 +23,19 @@ def main() -> None:
     parser.add_argument(
         "--checkpoint",
         type=Path,
-        default=Path(
-            "models/norwegian-bokmaal/pos_bilstm.pt"
-        ),
+        default=Path("models/norwegian-bokmaal/pos_bilstm.pt"),
     )
     arguments = parser.parse_args()
 
-    device = torch.device(
-        "mps" if torch.backends.mps.is_available() else "cpu"
-    )
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     model, words, tags = load_pos_model(
         arguments.checkpoint,
         device,
     )
 
-    filename = (
-        f"no_bokmaal-ud-{arguments.split}.conllu"
-    )
+    filename = f"no_bokmaal-ud-{arguments.split}.conllu"
 
-    sentences = read_sentences(
-        Path("data/raw/UD_Norwegian-Bokmaal") / filename
-    )
+    sentences = read_sentences(Path("data/raw/UD_Norwegian-Bokmaal") / filename)
     loader = DataLoader(
         PosDataset(sentences, words, tags),
         batch_size=64,
@@ -80,6 +73,7 @@ def main() -> None:
         unknown_count,
         f"({unknown_accuracy:.2%} korrekt)",
     )
+
 
 if __name__ == "__main__":
     main()

@@ -52,7 +52,6 @@ def test_lemma_edit_rule_rejects_invalid_removals() -> None:
         rule.apply("hus")
 
 
-
 @pytest.mark.parametrize(
     ("token", "lemma", "expected_rule"),
     [

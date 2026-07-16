@@ -3,16 +3,12 @@ from pathlib import Path
 
 from prism.conllu import read_sentences
 
+
 def main() -> None:
-    path = Path(
-        "data/raw/UD_Norwegian-Bokmaal/"
-        "no_bokmaal-ud-train.conllu"
-    )
+    path = Path("data/raw/UD_Norwegian-Bokmaal/no_bokmaal-ud-train.conllu")
     sentences = read_sentences(path)
 
-    feature_counts: dict[str, Counter[str]] = defaultdict(
-        Counter
-    )
+    feature_counts: dict[str, Counter[str]] = defaultdict(Counter)
 
     for sentence in sentences:
         for token in sentence:
@@ -29,6 +25,7 @@ def main() -> None:
             print(f"   {value}: {count}")
 
         print()
+
 
 if __name__ == "__main__":
     main()

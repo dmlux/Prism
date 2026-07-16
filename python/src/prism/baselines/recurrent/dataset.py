@@ -10,12 +10,13 @@ from prism.baselines.recurrent.vocabulary import (
     encode_sentence_feature,
 )
 
+
 class PosDataset(Dataset[tuple[Tensor, Tensor]]):
     def __init__(
-            self,
-            sentences: list[list[Token]],
-            word_vocabulary: dict[str, int],
-            tag_vocabulary: dict[str, int],
+        self,
+        sentences: list[list[Token]],
+        word_vocabulary: dict[str, int],
+        tag_vocabulary: dict[str, int],
     ) -> None:
         self.sentences = sentences
         self.word_vocabulary = word_vocabulary
@@ -23,7 +24,7 @@ class PosDataset(Dataset[tuple[Tensor, Tensor]]):
 
     def __len__(self) -> int:
         return len(self.sentences)
-        
+
     def __getitem__(self, index: int) -> tuple[Tensor, Tensor]:
         word_ids, tag_ids = encode_sentence(
             self.sentences[index],
@@ -35,6 +36,7 @@ class PosDataset(Dataset[tuple[Tensor, Tensor]]):
             torch.tensor(word_ids, dtype=torch.long),
             torch.tensor(tag_ids, dtype=torch.long),
         )
+
 
 def collate_sentences(
     batch: list[tuple[Tensor, Tensor]],
@@ -54,15 +56,13 @@ def collate_sentences(
     )
 
     lengths = torch.tensor(
-        [len(sequence) for sequence in word_sequences],
-        dtype=torch.long
+        [len(sequence) for sequence in word_sequences], dtype=torch.long
     )
 
     return padded_words, padded_tags, lengths
 
-class CharacterPosDataset(
-    Dataset[tuple[Tensor, Tensor, list[Tensor]]]
-):
+
+class CharacterPosDataset(Dataset[tuple[Tensor, Tensor, list[Tensor]]]):
     def __init__(
         self,
         sentences: list[list[Token]],
@@ -77,11 +77,8 @@ class CharacterPosDataset(
 
     def __len__(self) -> int:
         return len(self.sentences)
-    
-    def __getitem__(
-        self,
-        index: int
-    ) -> tuple[Tensor, Tensor, list[Tensor]]:
+
+    def __getitem__(self, index: int) -> tuple[Tensor, Tensor, list[Tensor]]:
         sentence = self.sentences[index]
 
         word_ids, tag_ids = encode_sentence(
@@ -97,12 +94,10 @@ class CharacterPosDataset(
         return (
             torch.tensor(word_ids, dtype=torch.long),
             torch.tensor(tag_ids, dtype=torch.long),
-            [
-                torch.tensor(ids, dtype=torch.long)
-                for ids in character_ids
-            ],
+            [torch.tensor(ids, dtype=torch.long) for ids in character_ids],
         )
-    
+
+
 def collate_character_sentences(
     batch: list[tuple[Tensor, Tensor, list[Tensor]]],
 ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
@@ -125,9 +120,7 @@ def collate_character_sentences(
     )
 
     maximum_word_length = max(
-        len(characters)
-        for sentence in character_sequences
-        for characters in sentence
+        len(characters) for sentence in character_sequences for characters in sentence
     )
 
     padded_characters = torch.zeros(
@@ -139,10 +132,7 @@ def collate_character_sentences(
         dtype=torch.long,
     )
     character_lengths = torch.zeros(
-        (
-            len(batch),
-            padded_words.size(1)
-        ),
+        (len(batch), padded_words.size(1)),
         dtype=torch.long,
     )
 
@@ -161,12 +151,11 @@ def collate_character_sentences(
         padded_characters,
         padded_tags,
         sentence_lengths,
-        character_lengths
+        character_lengths,
     )
 
-class CharacterFeatureDataset(
-    Dataset[tuple[Tensor, Tensor, Tensor, list[Tensor]]]
-):
+
+class CharacterFeatureDataset(Dataset[tuple[Tensor, Tensor, Tensor, list[Tensor]]]):
     def __init__(
         self,
         sentences: list[list[Token]],
@@ -186,10 +175,7 @@ class CharacterFeatureDataset(
     def __len__(self) -> int:
         return len(self.sentences)
 
-    def __getitem__(
-        self,
-        index: int
-    ) -> tuple[Tensor, Tensor, Tensor, list[Tensor]]:
+    def __getitem__(self, index: int) -> tuple[Tensor, Tensor, Tensor, list[Tensor]]:
         sentence = self.sentences[index]
 
         word_ids, tag_ids = encode_sentence(
@@ -211,16 +197,12 @@ class CharacterFeatureDataset(
             torch.tensor(word_ids, dtype=torch.long),
             torch.tensor(tag_ids, dtype=torch.long),
             torch.tensor(feature_ids, dtype=torch.long),
-            [
-                torch.tensor(ids, dtype=torch.long)
-                for ids in character_ids
-            ]
+            [torch.tensor(ids, dtype=torch.long) for ids in character_ids],
         )
 
+
 def collate_character_feature_sentences(
-    batch: list[
-        tuple[Tensor, Tensor, Tensor, list[Tensor]]
-    ],
+    batch: list[tuple[Tensor, Tensor, Tensor, list[Tensor]]],
 ) -> tuple[
     Tensor,
     Tensor,
@@ -242,14 +224,16 @@ def collate_character_feature_sentences(
         padded_tags,
         sentence_lengths,
         character_lengths,
-    ) = collate_character_sentences([
-        (words, tags, characters)
-        for words, tags, characters in zip(
-            word_sequences,
-            tag_sequences,
-            character_sequences,
-        )
-    ])
+    ) = collate_character_sentences(
+        [
+            (words, tags, characters)
+            for words, tags, characters in zip(
+                word_sequences,
+                tag_sequences,
+                character_sequences,
+            )
+        ]
+    )
 
     padded_features = pad_sequence(
         feature_sequences,
@@ -263,5 +247,5 @@ def collate_character_feature_sentences(
         padded_tags,
         padded_features,
         sentence_lengths,
-        character_lengths
+        character_lengths,
     )

@@ -8,12 +8,10 @@ from prism.baselines.recurrent.inference import (
     predict_multitask,
 )
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description=(
-            "Predict POS and morphology for "
-            "pre-tokenized Norwegian text."
-        )
+        description=("Predict POS and morphology for pre-tokenized Norwegian text.")
     )
     parser.add_argument(
         "tokens",
@@ -23,16 +21,11 @@ def main() -> None:
     parser.add_argument(
         "--checkpoint",
         type=Path,
-        default=Path(
-            "models/norwegian-bokmaal/"
-            "pos_number_bilstm.pt"
-        ),
+        default=Path("models/norwegian-bokmaal/pos_number_bilstm.pt"),
     )
     arguments = parser.parse_args()
 
-    device = torch.device(
-        "mps" if torch.backends.mps.is_available() else "cpu"
-    )
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
     (
         model,
@@ -62,9 +55,8 @@ def main() -> None:
         arguments.tokens,
         predictions,
     ):
-        print(
-            f"{token}\t{tag}\t{feature_value}"
-        )
+        print(f"{token}\t{tag}\t{feature_value}")
+
 
 if __name__ == "__main__":
     main()

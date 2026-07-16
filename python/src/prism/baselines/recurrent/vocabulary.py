@@ -8,15 +8,12 @@ UNKNOWN_TOKEN = "<UNK>"
 UNKNOWN_CHARACTER = "<UNK_CHAR>"
 NO_FEATURE = "<NONE>"
 
+
 def build_word_vocabulary(
     sentences: list[list[Token]],
     minimum_frequency: int = 2,
 ) -> dict[str, int]:
-    counts = Counter(
-        token.text
-        for sentence in sentences
-        for token in sentence
-    )
+    counts = Counter(token.text for sentence in sentences for token in sentence)
 
     vocabulary = {
         PAD_TOKEN: 0,
@@ -29,21 +26,14 @@ def build_word_vocabulary(
 
     return vocabulary
 
+
 def build_tag_vocabulary(
     sentences: list[list[Token]],
 ) -> dict[str, int]:
-    tags = sorted(
-        {
-            token.upos
-            for sentence in sentences
-            for token in sentence
-        }
-    )
+    tags = sorted({token.upos for sentence in sentences for token in sentence})
 
-    return {
-        tag: index
-        for index, tag in enumerate(tags)
-    }
+    return {tag: index for index, tag in enumerate(tags)}
+
 
 def encode_sentence(
     sentence: list[Token],
@@ -54,12 +44,10 @@ def encode_sentence(
         word_vocabulary.get(token.text, word_vocabulary[UNKNOWN_TOKEN])
         for token in sentence
     ]
-    tag_ids = [
-        tag_vocabulary[token.upos]
-        for token in sentence
-    ]
+    tag_ids = [tag_vocabulary[token.upos] for token in sentence]
 
     return word_ids, tag_ids
+
 
 def build_character_vocabulary(
     sentences: list[list[Token]],
@@ -83,6 +71,7 @@ def build_character_vocabulary(
 
     return vocabulary
 
+
 def encode_sentence_characters(
     sentence: list[Token],
     character_vocabulary: dict[str, int],
@@ -90,12 +79,10 @@ def encode_sentence_characters(
     unknown_id = character_vocabulary[UNKNOWN_CHARACTER]
 
     return [
-        [
-            character_vocabulary.get(character, unknown_id)
-            for character in token.text
-        ]
+        [character_vocabulary.get(character, unknown_id) for character in token.text]
         for token in sentence
     ]
+
 
 def build_feature_vocabulary(
     sentences: list[list[Token]],
@@ -119,14 +106,13 @@ def build_feature_vocabulary(
 
     return vocabulary
 
+
 def encode_sentence_feature(
     sentence: list[Token],
     feature_name: str,
     feature_vocabulary: dict[str, int],
 ) -> list[int]:
     return [
-        feature_vocabulary[
-            token.features.get(feature_name, NO_FEATURE)
-        ]
+        feature_vocabulary[token.features.get(feature_name, NO_FEATURE)]
         for token in sentence
     ]

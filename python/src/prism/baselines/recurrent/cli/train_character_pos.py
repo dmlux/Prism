@@ -19,31 +19,21 @@ from prism.baselines.recurrent.vocabulary import (
     build_word_vocabulary,
 )
 
+
 def main() -> None:
-    data_root = Path(
-        "data/raw/UD_Norwegian-Bokmaal"
-    )
+    data_root = Path("data/raw/UD_Norwegian-Bokmaal")
 
-    training = read_sentences(
-        data_root / "no_bokmaal-ud-train.conllu"
-    )
+    training = read_sentences(data_root / "no_bokmaal-ud-train.conllu")
 
-    development = read_sentences(
-        data_root / "no_bokmaal-ud-dev.conllu"
-    )
+    development = read_sentences(data_root / "no_bokmaal-ud-dev.conllu")
 
     word_vocabulary = build_word_vocabulary(training)
     tag_vocabulary = build_tag_vocabulary(training)
-    character_vocabulary = build_character_vocabulary(
-        training
-    )
+    character_vocabulary = build_character_vocabulary(training)
 
     training_loader = DataLoader(
         CharacterPosDataset(
-            training,
-            word_vocabulary,
-            tag_vocabulary,
-            character_vocabulary
+            training, word_vocabulary, tag_vocabulary, character_vocabulary
         ),
         batch_size=32,
         shuffle=True,
@@ -61,9 +51,7 @@ def main() -> None:
         collate_fn=collate_character_sentences,
     )
 
-    device = torch.device(
-        "mps" if torch.backends.mps.is_available() else "cpu"
-    )
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
     torch.manual_seed(42)
 
@@ -80,9 +68,7 @@ def main() -> None:
 
     checkpoint_directory = Path("models/norwegian-bokmaal")
     checkpoint_directory.mkdir(parents=True, exist_ok=True)
-    checkpoint_path = (
-        checkpoint_directory / "pos_character_bilstm_10_epochs.pt"
-    )
+    checkpoint_path = checkpoint_directory / "pos_character_bilstm_10_epochs.pt"
 
     best_accuracy = 0.0
 
@@ -140,6 +126,7 @@ def main() -> None:
     print("Zeichenverzeichnis:", len(character_vocabulary))
     print("POS-Klassen:", len(tag_vocabulary))
     print("Gerät:", device)
+
 
 if __name__ == "__main__":
     main()

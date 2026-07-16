@@ -13,6 +13,7 @@ from prism.baselines.recurrent.vocabulary import (
     build_word_vocabulary,
 )
 
+
 def make_token(
     text: str,
     upos: str,
@@ -24,6 +25,7 @@ def make_token(
         upos=upos,
         features=features or {},
     )
+
 
 def test_character_batch_padding() -> None:
     sentences = [
@@ -56,10 +58,12 @@ def test_character_batch_padding() -> None:
         tag_ids,
         sentence_lengths,
         character_lengths,
-    ) = collate_character_sentences([
-        dataset[0],
-        dataset[1],
-    ])
+    ) = collate_character_sentences(
+        [
+            dataset[0],
+            dataset[1],
+        ]
+    )
 
     assert word_ids.shape == (2, 2)
     assert character_ids.shape == (2, 2, 3)
@@ -74,6 +78,7 @@ def test_character_batch_padding() -> None:
     assert word_ids[1, 1].item() == 0
     assert tag_ids[1, 1].item() == -100
 
+
 def test_character_feature_dataset() -> None:
     sentences = [
         [
@@ -82,7 +87,7 @@ def test_character_feature_dataset() -> None:
                 "Noun",
                 {"Number": "Sing"},
             ),
-            make_token("og", "CCONJ")
+            make_token("og", "CCONJ"),
         ],
         [
             make_token(
@@ -90,7 +95,7 @@ def test_character_feature_dataset() -> None:
                 "NOUN",
                 {"Number": "Plur"},
             )
-        ]
+        ],
     ]
 
     words = build_word_vocabulary(
@@ -129,10 +134,12 @@ def test_character_feature_dataset() -> None:
         number_batch,
         sentence_lengths,
         _,
-    ) = collate_character_feature_sentences([
-        dataset[0],
-        dataset[1],
-    ])
+    ) = collate_character_feature_sentences(
+        [
+            dataset[0],
+            dataset[1],
+        ]
+    )
 
     assert number_batch.shape == (2, 2)
     assert number_batch[1].tolist() == [

@@ -19,9 +19,7 @@ class MorphologyFeatureSchema:
             )
 
         if not self.values:
-            raise ValueError(
-                "Morphology feature values must not be empty."
-            )
+            raise ValueError("Morphology feature values must not be empty.")
 
         if NO_MORPHOLOGY_VALUE in self.values:
             raise ValueError(
@@ -29,14 +27,10 @@ class MorphologyFeatureSchema:
             )
 
         if len(set(self.values)) != len(self.values):
-            raise ValueError(
-                "Morphology feature values must be unique."
-            )
+            raise ValueError("Morphology feature values must be unique.")
 
         if self.values != tuple(sorted(self.values)):
-            raise ValueError(
-                "Morphology feature values must be sorted."
-            )
+            raise ValueError("Morphology feature values must be sorted.")
 
     @property
     def labels(self) -> tuple[str, ...]:
@@ -50,26 +44,15 @@ class MorphologySchema:
 
     def __post_init__(self) -> None:
         if self.version < 1:
-            raise ValueError(
-                "Morphology schema version must be positive."
-            )
+            raise ValueError("Morphology schema version must be positive.")
 
         if not self.features:
-            raise ValueError(
-                "Morphology schema features must not be empty."
-            )
+            raise ValueError("Morphology schema features must not be empty.")
 
-        feature_names = tuple(
-            feature.name
-            for feature in self.features
-        )
+        feature_names = tuple(feature.name for feature in self.features)
 
         if len(set(feature_names)) != len(feature_names):
-            raise ValueError(
-                "Morphology feature names must be unique."
-            )
+            raise ValueError("Morphology feature names must be unique.")
 
         if feature_names != tuple(sorted(feature_names)):
-            raise ValueError(
-                "Morphology features must be sorted by name."
-            )
+            raise ValueError("Morphology features must be sorted by name.")

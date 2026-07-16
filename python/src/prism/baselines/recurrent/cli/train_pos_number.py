@@ -21,30 +21,20 @@ from prism.baselines.recurrent.vocabulary import (
     build_word_vocabulary,
 )
 
+
 def main() -> None:
-    data_root = Path(
-        "data/raw/UD_Norwegian-Bokmaal"
-    )
+    data_root = Path("data/raw/UD_Norwegian-Bokmaal")
 
-    training = read_sentences(
-        data_root / "no_bokmaal-ud-train.conllu"
-    )
+    training = read_sentences(data_root / "no_bokmaal-ud-train.conllu")
 
-    development = read_sentences(
-        data_root / "no_bokmaal-ud-dev.conllu"
-    )
+    development = read_sentences(data_root / "no_bokmaal-ud-dev.conllu")
 
     feature_name = "Number"
-    feature_vocabulary = build_feature_vocabulary(
-        training,
-        feature_name
-    )
+    feature_vocabulary = build_feature_vocabulary(training, feature_name)
 
     word_vocabulary = build_word_vocabulary(training)
     tag_vocabulary = build_tag_vocabulary(training)
-    character_vocabulary = build_character_vocabulary(
-        training
-    )
+    character_vocabulary = build_character_vocabulary(training)
 
     training_loader = DataLoader(
         CharacterFeatureDataset(
@@ -53,7 +43,7 @@ def main() -> None:
             tag_vocabulary,
             character_vocabulary,
             feature_name,
-            feature_vocabulary
+            feature_vocabulary,
         ),
         batch_size=32,
         shuffle=True,
@@ -67,15 +57,13 @@ def main() -> None:
             tag_vocabulary,
             character_vocabulary,
             feature_name,
-            feature_vocabulary
+            feature_vocabulary,
         ),
         batch_size=64,
         collate_fn=collate_character_feature_sentences,
     )
 
-    device = torch.device(
-        "mps" if torch.backends.mps.is_available() else "cpu"
-    )
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
     torch.manual_seed(42)
 
@@ -93,9 +81,7 @@ def main() -> None:
 
     checkpoint_directory = Path("models/norwegian-bokmaal")
     checkpoint_directory.mkdir(parents=True, exist_ok=True)
-    checkpoint_path = (
-        checkpoint_directory / "pos_number_bilstm.pt"
-    )
+    checkpoint_path = checkpoint_directory / "pos_number_bilstm.pt"
 
     best_development_loss = float("inf")
 
@@ -124,10 +110,7 @@ def main() -> None:
             no_feature_id=feature_vocabulary[NO_FEATURE],
         )
 
-        development_loss = (
-            development_pos_loss
-            + development_feature_loss
-        )
+        development_loss = development_pos_loss + development_feature_loss
 
         print(
             f"Epoche {epoch}: "
@@ -162,15 +145,9 @@ def main() -> None:
                     "feature_loss_weight": 1.0,
                     "epoch": epoch,
                     "development_loss": development_loss,
-                    "development_pos_accuracy": (
-                        development_pos_accuracy
-                    ),
-                    "development_feature_accuracy": (
-                        development_feature_accuracy
-                    ),
-                    "development_annotated_accuracy": (
-                        development_annotated_accuracy
-                    ),
+                    "development_pos_accuracy": (development_pos_accuracy),
+                    "development_feature_accuracy": (development_feature_accuracy),
+                    "development_annotated_accuracy": (development_annotated_accuracy),
                 },
                 checkpoint_path,
             )
@@ -188,6 +165,7 @@ def main() -> None:
     print("Zeichenverzeichnis:", len(character_vocabulary))
     print("POS-Klassen:", len(tag_vocabulary))
     print("Gerät:", device)
+
 
 if __name__ == "__main__":
     main()

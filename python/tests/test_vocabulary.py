@@ -9,6 +9,7 @@ from prism.baselines.recurrent.vocabulary import (
     encode_sentence_feature,
 )
 
+
 def make_token(
     text: str,
     features: dict[str, str] | None = None,
@@ -19,6 +20,7 @@ def make_token(
         upos="X",
         features=features or {},
     )
+
 
 def test_character_vocabulary_and_encoding() -> None:
     sentence = [
@@ -36,11 +38,14 @@ def test_character_vocabulary_and_encoding() -> None:
         vocabulary,
     )
 
-    assert encoded == [[
-        vocabulary["p"],
-        vocabulary["å"],
-        vocabulary[UNKNOWN_CHARACTER],
-    ]]
+    assert encoded == [
+        [
+            vocabulary["p"],
+            vocabulary["å"],
+            vocabulary[UNKNOWN_CHARACTER],
+        ]
+    ]
+
 
 def test_feature_vocabulary() -> None:
     sentence = [

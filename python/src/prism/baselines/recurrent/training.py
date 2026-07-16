@@ -28,6 +28,7 @@ MultiTaskBatch = tuple[
     Tensor,
 ]
 
+
 def train_epoch(
     model: BiLSTMPosTagger,
     batches: Iterable[Batch],
@@ -60,11 +61,12 @@ def train_epoch(
 
     return total_loss / batch_count
 
+
 def train_character_epoch(
     model: CharacterBiLSTMPosTagger,
     batches: Iterable[CharacterBatch],
     optimizer: torch.optim.Optimizer,
-    device: torch.device
+    device: torch.device,
 ) -> float:
     model.train()
     loss_function = nn.CrossEntropyLoss()
@@ -103,6 +105,7 @@ def train_character_epoch(
         batch_count += 1
 
     return total_loss / batch_count
+
 
 def train_multitask_epoch(
     model: CharacterBiLSTMMultiTaskTagger,
@@ -156,10 +159,7 @@ def train_multitask_epoch(
             feature_ids.reshape(-1),
         )
 
-        loss = (
-            pos_loss
-            + feature_loss_weight * feature_loss
-        )
+        loss = pos_loss + feature_loss_weight * feature_loss
 
         loss.backward()
         optimizer.step()
@@ -174,6 +174,7 @@ def train_multitask_epoch(
         total_pos_loss / batch_count,
         total_feature_loss / batch_count,
     )
+
 
 @torch.no_grad()
 def evaluate(
@@ -205,8 +206,9 @@ def evaluate(
         total_loss += loss.item() * valid_count
         correct += ((predictions == tag_ids) & valid).sum().item()
         token_count += valid_count
-    
+
     return total_loss / token_count, correct / token_count
+
 
 @torch.no_grad()
 def evaluate_character(
@@ -232,12 +234,7 @@ def evaluate_character(
         character_ids = character_ids.to(device)
         tag_ids = tag_ids.to(device)
 
-        outputs = model(
-            word_ids,
-            character_ids,
-            sentence_lengths,
-            character_lengths
-        )
+        outputs = model(word_ids, character_ids, sentence_lengths, character_lengths)
         loss = loss_function(
             outputs.reshape(-1, outputs.size(-1)),
             tag_ids.reshape(-1),
@@ -248,12 +245,11 @@ def evaluate_character(
 
         valid_count = valid.sum().item()
         total_loss += loss.item() * valid_count
-        correct += (
-            (predictions == tag_ids) & valid
-        ).sum().item()
+        correct += ((predictions == tag_ids) & valid).sum().item()
         token_count += valid_count
 
     return total_loss / token_count, correct / token_count
+
 
 @torch.no_grad()
 def evaluate_character_knownness(
@@ -292,22 +288,14 @@ def evaluate_character_knownness(
         unknown = valid & (word_ids == unknown_word_id)
         known = valid & ~unknown
 
-        known_correct += (
-            (predictions == tag_ids) & known
-        ).sum().item()
+        known_correct += ((predictions == tag_ids) & known).sum().item()
         known_count += known.sum().item()
 
-        unknown_correct += (
-            (predictions == tag_ids) & unknown
-        ).sum().item()
+        unknown_correct += ((predictions == tag_ids) & unknown).sum().item()
         unknown_count += unknown.sum().item()
 
-    return (
-        known_correct,
-        known_count,
-        unknown_correct,
-        unknown_count
-    )
+    return (known_correct, known_count, unknown_correct, unknown_count)
+
 
 @torch.no_grad()
 def evaluate_knownness(
@@ -334,14 +322,10 @@ def evaluate_knownness(
         unknown = valid & (word_ids == unknown_word_id)
         known = valid & ~unknown
 
-        known_correct += (
-            (predictions == tag_ids) & known
-        ).sum().item()
+        known_correct += ((predictions == tag_ids) & known).sum().item()
         known_count += known.sum().item()
 
-        unknown_correct += (
-            (predictions == tag_ids) & unknown
-        ).sum().item()
+        unknown_correct += ((predictions == tag_ids) & unknown).sum().item()
         unknown_count += unknown.sum().item()
 
     return (
@@ -350,6 +334,7 @@ def evaluate_knownness(
         unknown_correct,
         unknown_count,
     )
+
 
 @torch.no_grad()
 def character_confusion_matrix(
@@ -429,10 +414,7 @@ def evaluate_multitask(
         feature_ids = feature_ids.to(device)
 
         pos_outputs, feature_outputs = model(
-            word_ids,
-            character_ids,
-            sentence_lengths,
-            character_lengths
+            word_ids, character_ids, sentence_lengths, character_lengths
         )
 
         pos_loss = loss_function(
@@ -452,10 +434,7 @@ def evaluate_multitask(
 
         pos_valid = tag_ids != -100
         feature_valid = feature_ids != -100
-        annotated = (
-            feature_valid
-            & (feature_ids != no_feature_id)
-        )
+        annotated = feature_valid & (feature_ids != no_feature_id)
 
         pos_predictions = pos_outputs.argmax(dim=-1)
         feature_predictions = feature_outputs.argmax(dim=-1)
@@ -463,28 +442,20 @@ def evaluate_multitask(
         current_pos_count = pos_valid.sum().item()
         current_feature_count = feature_valid.sum().item()
 
-        total_pos_loss += (
-            pos_loss.item() * current_pos_count
-        )
-        total_feature_loss += (
-            feature_loss.item() * current_feature_count
-        )
+        total_pos_loss += pos_loss.item() * current_pos_count
+        total_feature_loss += feature_loss.item() * current_feature_count
 
-        pos_correct += (
-            (pos_predictions == tag_ids) & pos_valid
-        ).sum().item()
+        pos_correct += ((pos_predictions == tag_ids) & pos_valid).sum().item()
         pos_count += current_pos_count
 
         feature_correct += (
-            (feature_predictions == feature_ids)
-            & feature_valid
-        ).sum().item()
+            ((feature_predictions == feature_ids) & feature_valid).sum().item()
+        )
         feature_count += current_feature_count
 
         annotated_correct += (
-            (feature_predictions == feature_ids)
-            & annotated
-        ).sum().item()
+            ((feature_predictions == feature_ids) & annotated).sum().item()
+        )
         annotated_count += annotated.sum().item()
 
     return (
@@ -492,8 +463,9 @@ def evaluate_multitask(
         pos_correct / pos_count,
         total_feature_loss / feature_count,
         feature_correct / feature_count,
-        annotated_correct / annotated_count
+        annotated_correct / annotated_count,
     )
+
 
 @torch.no_grad()
 def multitask_feature_confusion_matrix(
@@ -524,9 +496,7 @@ def multitask_feature_confusion_matrix(
             character_lengths,
         )
 
-        predictions = feature_outputs.argmax(
-            dim=-1
-        ).cpu()
+        predictions = feature_outputs.argmax(dim=-1).cpu()
         valid = feature_ids != -100
 
         actual_values = feature_ids[valid]

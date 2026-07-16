@@ -1,6 +1,6 @@
 # Prism project status
 
-Last updated: 2026-07-15
+Last updated: 2026-07-16
 
 This document is the durable handoff for continuing Prism in a new Codex task.
 Read it together with `README.md`, `docs/benchmarks.md`, and the root
@@ -65,7 +65,9 @@ The complete test suite is run from the repository root:
 python -m pytest python/tests
 ```
 
-At the time of this handoff, the suite contains nine passing tests.
+At the time of this handoff, the suite contains 41 passing tests. Ruff 0.15
+provides repository-wide formatting and linting. Python compatibility is
+explicitly restricted to Python 3.12.
 
 ## Dataset
 
@@ -114,6 +116,22 @@ Together, the current Python code provides:
 - training, checkpointing, evaluation, and prediction entry points;
 - precision, recall, F1, support, vocabulary-status, and annotated-feature
   evaluation.
+
+The next-generation data and output contract now additionally provides:
+
+- an immutable, versioned morphology schema with deterministic feature and
+  atomic-value ordering;
+- explicit `<NONE>` labels and deliberate multi-value support;
+- validated runtime-independent morphology encoding and decoding;
+- deterministic lemma edit rules derived around the longest shared token and
+  lemma substring;
+- Norwegian Bokmål UD lemma normalization that removes the treebank-specific
+  `$` marker without changing the generic lemma-rule contract.
+
+A training/development-only exploratory measurement produced 622 normalized
+lemma edit rules from 243,885 training tokens. These rules cover 36,336 of
+36,369 development-token gold rules, or 99.9093%. This is oracle vocabulary
+coverage, not model accuracy. The test split was not used.
 
 The most-frequent-tag comparison is isolated separately in
 `python/src/prism/baselines/dictionary.py`. Internal baseline code and tests

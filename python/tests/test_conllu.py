@@ -1,9 +1,9 @@
 from prism.conllu import Token, parse_token
 
+
 def test_parse_token() -> None:
     line = (
-        "1\tLam\tlam\tNOUN\tsubst\t"
-        "Definite=Ind|Gender=Neut|Number=Sing\t0\troot\t_\t_"
+        "1\tLam\tlam\tNOUN\tsubst\tDefinite=Ind|Gender=Neut|Number=Sing\t0\troot\t_\t_"
     )
 
     assert parse_token(line) == Token(
@@ -14,5 +14,5 @@ def test_parse_token() -> None:
             "Definite": "Ind",
             "Gender": "Neut",
             "Number": "Sing",
-        }
+        },
     )

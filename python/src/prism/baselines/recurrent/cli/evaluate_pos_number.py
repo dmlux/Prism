@@ -16,6 +16,7 @@ from prism.baselines.recurrent.training import (
 )
 from prism.baselines.recurrent.vocabulary import NO_FEATURE
 
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -26,16 +27,11 @@ def main() -> None:
     parser.add_argument(
         "--checkpoint",
         type=Path,
-        default=Path(
-            "models/norwegian-bokmaal/"
-            "pos_number_bilstm.pt"
-        ),
+        default=Path("models/norwegian-bokmaal/pos_number_bilstm.pt"),
     )
     arguments = parser.parse_args()
 
-    device = torch.device(
-        "mps" if torch.backends.mps.is_available() else "cpu"
-    )
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     (
         model,
         words,
@@ -48,13 +44,9 @@ def main() -> None:
         device,
     )
 
-    filename = (
-        f"no_bokmaal-ud-{arguments.split}.conllu"
-    )
+    filename = f"no_bokmaal-ud-{arguments.split}.conllu"
 
-    sentences = read_sentences(
-        Path("data/raw/UD_Norwegian-Bokmaal") / filename
-    )
+    sentences = read_sentences(Path("data/raw/UD_Norwegian-Bokmaal") / filename)
     loader = DataLoader(
         CharacterFeatureDataset(
             sentences,
@@ -106,13 +98,7 @@ def main() -> None:
     )
 
     print()
-    print(
-        f"{feature_name:<12}"
-        f"{'Precision':>12}"
-        f"{'Recall':>12}"
-        f"{'F1':>12}"
-        f"{'Support':>10}"
-    )
+    print(f"{feature_name:<12}{'Precision':>12}{'Recall':>12}{'F1':>12}{'Support':>10}")
 
     for value, value_id in sorted(
         feature_values.items(),
@@ -122,38 +108,33 @@ def main() -> None:
             value_id,
             value_id,
         ].item()
-        predicted_count = feature_matrix[
-            :,
-            value_id,
-        ].sum().item()
-        actual_count = feature_matrix[
-            value_id,
-            :,
-        ].sum().item()
+        predicted_count = (
+            feature_matrix[
+                :,
+                value_id,
+            ]
+            .sum()
+            .item()
+        )
+        actual_count = (
+            feature_matrix[
+                value_id,
+                :,
+            ]
+            .sum()
+            .item()
+        )
 
-        precision = (
-            true_positive / predicted_count
-            if predicted_count
-            else 0.0
-        )
-        recall = (
-            true_positive / actual_count
-            if actual_count
-            else 0.0
-        )
+        precision = true_positive / predicted_count if predicted_count else 0.0
+        recall = true_positive / actual_count if actual_count else 0.0
         f1 = (
-            2 * precision * recall / (precision + recall)
-            if precision + recall
-            else 0.0
+            2 * precision * recall / (precision + recall) if precision + recall else 0.0
         )
 
         print(
-            f"{value:<12}"
-            f"{precision:>11.2%}"
-            f"{recall:>12.2%}"
-            f"{f1:>12.2%}"
-            f"{actual_count:>10}"
+            f"{value:<12}{precision:>11.2%}{recall:>12.2%}{f1:>12.2%}{actual_count:>10}"
         )
+
 
 if __name__ == "__main__":
     main()

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "prism-nlp"
 version = "0.1.0"
 description = "Training and experimentation tools for Prism NLP models"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "numpy>=2.5,<3",
     "torch>=2.13,<3",
@@ -15,4 +15,5 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8,<10",
+    "ruff>=0.15,<0.16",
 ]
