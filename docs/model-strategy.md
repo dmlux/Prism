@@ -198,25 +198,34 @@ containing at least:
 
 ```text
 prism-no-bokmaal-<version>/
-├── model.pte
+├── model-coreml.pte
+├── model-xnnpack.pte
 ├── manifest.json
 ├── vocabulary.json
 ├── labels.json
 └── LICENSES/
 ```
 
-`model.pte` is the initial target format produced for ExecuTorch. The manifest
-records the model schema version, language, tasks, tensor contract, expected
-normalization, maximum supported shapes, training-data provenance, model
-license, quantization, and benchmark identity. Export must include numerical
-parity tests between PyTorch and the exported model.
+ExecuTorch `.pte` is the initial portable artifact family. Lowering and
+delegation are backend-specific, so a release may contain separate artifacts
+for Core ML, XNNPACK, Metal, CUDA, OpenVINO, or another measured target rather
+than pretending that one optimized binary is universal. The manifest maps each
+artifact to its platform, backend, precision, supported shapes, and fallback
+policy. It also records the model schema version, language, tasks, tensor
+contract, expected normalization, training-data provenance, model license,
+quantization, and benchmark identity. Every artifact requires numerical parity
+tests against the fixed PyTorch model.
 
 ExecuTorch is the first runtime path because it provides a C++ runtime and
 platform integrations for Apple and Android targets. On Apple platforms,
 Prism's Swift package should wrap the runtime and select an appropriate
-ExecuTorch backend such as Core ML, MPS, or XNNPACK based on measured support
-and performance. The public Prism Swift API must not expose ExecuTorch types;
-this keeps the API stable if the runtime implementation changes later.
+ExecuTorch backend such as Core ML, Metal, or XNNPACK based on measured support
+and performance. The legacy ExecuTorch MPS backend is deprecated and is not a
+new Prism target. A direct Core ML artifact, comparable to WhisperKit's Apple-
+specific packaging, remains a valid measured alternative if it has better
+coverage or performance than ExecuTorch delegation. The public Prism Swift API
+must not expose ExecuTorch or Core ML types; this keeps the API stable if the
+runtime implementation changes later.
 
 The intended first package split is:
 

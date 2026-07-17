@@ -9,11 +9,14 @@ description = "Training and experimentation tools for Prism NLP models"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "numpy>=2.5,<3",
-    "torch>=2.13,<3",
+    "torch>=2.12,<2.13",
     "transformers>=5.13,<5.14",
 ]
 
 [project.optional-dependencies]
+export = [
+    "executorch>=1.3.1,<1.4",
+]
 dev = [
     "pytest>=8,<10",
     "ruff>=0.15,<0.16",

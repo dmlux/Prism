@@ -59,6 +59,8 @@ should be explained in beginner-friendly German.
 - Supported development runtime: Python 3.12
 - Confirmed local Python version used for benchmarks: 3.12.13
 - PyTorch version used for benchmarks: 2.13.0
+- Current export-compatible development PyTorch version: 2.12.1
+- Current ExecuTorch version: 1.3.1
 - Primary local accelerator: Apple MPS, with CPU fallback
 - Source license: Apache License 2.0
 
@@ -67,7 +69,7 @@ The editable environment is installed with:
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e './python[dev]'
+python -m pip install -e './python[dev,export]'
 ```
 
 The complete test suite is run from the repository root:
@@ -76,10 +78,11 @@ The complete test suite is run from the repository root:
 python -m pytest python/tests
 ```
 
-The complete suite currently contains 60 passing tests, including the new
-token-spacing, subword-alignment, language-profile, and tokenizer-batch
-coverage. Ruff 0.15 provides repository-wide formatting and linting. Python
-compatibility is explicitly restricted to Python 3.12.
+The complete suite currently contains 67 passing tests, including the new
+token-spacing, subword-alignment, language-profile, tokenizer-batch, backbone
+loading, contextual-output, realignment, and export-adapter coverage. Ruff 0.15
+provides repository-wide formatting and linting. Python compatibility is
+explicitly restricted to Python 3.12.
 
 ## Dataset
 
@@ -152,7 +155,24 @@ The next-generation data and output contract now additionally provides:
   alignment, padded token indices, and token masks;
 - a language-independent adapter from `PretokenizedSentence` batches to the
   typed `TokenizedBatch`, verified with both unit tests and the real pinned
-  NorBERT4 tokenizer.
+  NorBERT4 tokenizer;
+- a generic pretrained-backbone loader and typed contextual subword and token
+  outputs;
+- a language-independent forward adapter from `TokenizedBatch` to contextual
+  subword vectors, followed by first-subword gathering into one contextual
+  vector per externally supplied token;
+- a profile-controlled repair path for custom backbones whose non-persistent
+  buffers are not restored correctly by Transformers' low-memory loading. The
+  pinned NorBERT4-xsmall profile enables this path because its rotary position
+  buffers otherwise contain uninitialized values and produce NaNs;
+- fail-fast validation that rejects non-finite contextual subword vectors at
+  the first Prism output boundary.
+
+The real pinned NorBERT4-xsmall model has completed the full local path from a
+`PretokenizedSentence` through tokenization, backbone inference, and
+subword-to-token alignment. The confirmed shapes for the four-token sentence
+`Jeg så filmen.` are `[1, 5, 192]` at the subword boundary and `[1, 4, 192]` at
+the token boundary, with finite values throughout.
 
 A training/development-only exploratory measurement produced 622 normalized
 lemma edit rules from 243,885 training tokens. These rules cover 36,336 of
@@ -296,10 +316,11 @@ checkpoint was successfully evaluated after the rename.
   compact student. Only the student is distributed to applications. Compare
   the distilled student against the same architecture trained without
   distillation.
-- Export versioned model packages initially around an ExecuTorch `.pte`
-  artifact plus a manifest, vocabularies, labels, provenance, and licenses.
-  Native libraries wrap this artifact without exposing runtime-specific types
-  in their public APIs.
+- Export versioned model packages around a manifest, vocabularies, labels,
+  provenance, licenses, and one or more backend-specific model artifacts.
+  ExecuTorch `.pte` is the first portable path; direct Core ML remains an
+  explicit Apple comparison. Native libraries do not expose runtime-specific
+  types in their public APIs.
 - Treat document inference as a release property. The initial gate uses a
   6,000-token, 200-sentence fixture and requires at most 1.0 second median warm
   latency, 1.5 seconds p95 warm latency, 3.0 seconds cold load plus inference,
@@ -308,12 +329,24 @@ checkpoint was successfully evaluated after the rename.
 
 ## Immediate next milestone
 
-The data and output contract is now in place. The current milestone is the
-language-independent Transformer input boundary:
+The data, Transformer input, contextual-output, and token-alignment contracts
+are now in place. NorBERT4-xsmall is loaded only through the Norwegian profile,
+and a real finite forward pass has been proven.
 
-1. load NorBERT4-xsmall only through the Norwegian profile and prove one
-   forward pass;
-2. perform the early ExecuTorch export feasibility spike.
+The early backend-neutral ExecuTorch feasibility spike is complete. The real
+NorBERT4-xsmall backbone plus the tensor-only export adapter passed strict
+`torch.export`, lowered to a portable ExecuTorch program, and produced an
+85,023,300-byte artifact (approximately 81 MiB) outside the repository. The
+ExecuTorch 1.3.1 Python runtime executed the exported `forward` method with an
+output shape of `[1, 5, 192]`; all values were finite and the maximum absolute
+difference from eager PyTorch was `6.4849853515625e-05`.
+
+The prebuilt ExecuTorch 1.3.1 runtime is binary-compatible with PyTorch 2.12.x,
+not the previously installed PyTorch 2.13.0, despite its open-ended package
+lower bound. Prism therefore pins PyTorch to `>=2.12,<2.13`. Portable runtime
+execution is proven; Core ML, Metal, XNNPACK delegation, dynamic shapes,
+quantization, and full-student export remain separate measured gates. The next
+model milestone is the shared task-head and trainable-student composition.
 
 The generic input, batching, and model code must remain usable by a future
 language profile with a different tokenizer and backbone.

@@ -3,6 +3,12 @@ from torch import Tensor
 
 from collections.abc import Sequence
 
+from prism.modeling.batches import TokenizedBatch
+from prism.modeling.outputs import (
+    ContextualizedTokenBatch,
+    ContextualizedSubwordBatch,
+)
+
 
 def find_first_subword_indices(
     *,
@@ -58,4 +64,35 @@ def build_padded_token_alignment(
     return (
         torch.tensor(padded_indices, dtype=torch.long),
         torch.tensor(token_mask, dtype=torch.bool),
+    )
+
+
+def align_subwords_to_tokens(
+    *,
+    subword_batch: ContextualizedSubwordBatch,
+    tokenized_batch: TokenizedBatch,
+) -> ContextualizedTokenBatch:
+    if subword_batch.batch_size != tokenized_batch.batch_size:
+        raise ValueError("Subword and tokenized batch sizes must match.")
+    if subword_batch.max_subword_count != tokenized_batch.max_subword_count:
+        raise ValueError("Subword counts must match the tokenized batch.")
+
+    gather_indices = tokenized_batch.first_subword_indices.unsqueeze(-1).expand(
+        -1,
+        -1,
+        subword_batch.hidden_size,
+    )
+
+    token_hidden_states = torch.gather(
+        subword_batch.hidden_states,
+        dim=1,
+        index=gather_indices,
+    )
+    token_hidden_states = token_hidden_states.masked_fill(
+        ~tokenized_batch.token_mask.unsqueeze(-1), 0.0
+    )
+
+    return ContextualizedTokenBatch(
+        hidden_states=token_hidden_states,
+        token_mask=tokenized_batch.token_mask,
     )
