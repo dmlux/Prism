@@ -78,7 +78,7 @@ The complete test suite is run from the repository root:
 python -m pytest python/tests
 ```
 
-The complete suite currently contains 74 passing tests, including token
+The complete suite currently contains 85 passing tests, including token
 spacing, subword alignment, language profiles, tokenizer batches, backbone
 loading, contextual outputs, realignment, task heads, student composition,
 target batching, masked multi-task loss, gradient masking, and export-adapter
@@ -185,6 +185,50 @@ The real pinned NorBERT4-xsmall model has completed the full local path from a
 subword-to-token alignment. The confirmed shapes for the four-token sentence
 `Jeg så filmen.` are `[1, 5, 192]` at the subword boundary and `[1, 4, 192]` at
 the token boundary, with finite values throughout.
+
+The real pinned NorBERT4-xsmall student has also completed one supervised
+AdamW optimization step on the first sentence of the pinned Bokmål training
+split. The schema contained 18 morphology features and 622 lemma rules; the
+batch contained five tokens. The initial joint loss was `30.290184020996094`.
+The summed gradient norms were `2084.5696479082108` for the backbone and
+`209.72279049828649` for the task heads, proving that the joint loss propagates
+through both parts of the actual student. This is a smoke test, not a quality
+benchmark.
+
+The same real five-token optimization step also completed on the local Apple
+MPS backend. NorBERT4, token alignment, all schema-sized heads, the joint loss,
+backpropagation, and AdamW ran on `mps` with a finite initial loss of
+`29.2430362701416`. The difference from the CPU smoke-test loss is expected
+with dropout and backend-specific floating-point execution; neither value is a
+quality benchmark. The isolated Codex process could not access MPS, so this
+result was verified in the repository's local Python 3.12 environment.
+
+A two-batch MPS mini-epoch then completed on the first 16 pinned training
+sentences: 258 tokens and 258 usable lemma targets. The token-weighted losses
+were `11.401944160461426` for UPOS, `1.705126166343689` for morphology, and
+`13.548186302185059` for lemma rules, for a joint loss of
+`26.655256628990173`. This proves the integrated shuffling, lazy tokenization,
+device transfer, differential AdamW parameter groups, gradient clipping,
+linear schedule, and epoch aggregation path. It remains a smoke test, not a
+quality benchmark. The unexpectedly large initial task losses must be
+investigated before committing to a long training run, including checking the
+scale of NorBERT4 token representations and whether the shared heads need an
+explicit normalization boundary.
+
+That initial-logit investigation is complete. Fresh NorBERT4 token vectors had
+a standard deviation of `6.82661771774292`, mean token L2 norm of
+`93.08756256103516`, and maximum absolute value of `23.687984466552734`.
+Directly applying default PyTorch linear heads produced UPOS and lemma-logit
+standard deviations of `4.661464691162109` and `3.9709372520446777`, with an
+initial joint loss of `27.334781646728516`. NorBERT4's own token classifier
+also applies a non-affine LayerNorm before its projection. Prism now defines a
+shared, language-independent, non-affine LayerNorm boundary before all task
+heads. After that change, UPOS and lemma-logit standard deviations fell to
+`0.681553065776825` and `0.5837973952293396`; their initial losses fell to
+`3.326749324798584` and `6.77863073348999`, and the joint initial loss fell to
+`10.851276397705078`. These values are close to the expected random-classifier
+scales for 17 UPOS labels and 622 lemma rules. A regression test proves that
+all heads are stable under positive affine rescaling of backbone vectors.
 
 A training/development-only exploratory measurement produced 622 normalized
 lemma edit rules from 243,885 training tokens. These rules cover 36,336 of
@@ -363,9 +407,14 @@ The shared task-head and initial trainable-student composition is now complete:
 the generic `TokenTagger` connects a replaceable backbone, token alignment, and
 schema-sized UPOS, morphology, and lemma-rule heads. Supervised sentences can
 be padded into typed target tensors, and the joint masked loss propagates
-gradients through every task without learning from padding. The next model
-milestone is a paired supervised collator and a minimal reproducible optimizer
-step that proves the full Bokmål student can train end to end.
+gradients through every task without learning from padding. The paired
+supervised collator and minimal optimizer step are implemented, and the full
+Bokmål student has trained for a real two-batch MPS mini-epoch. Device-aware
+batching, reproducible shuffling, differential AdamW policies, gradient
+clipping, warmup/decay scheduling, and token-weighted epoch loss aggregation
+are implemented. The initial-logit scale is resolved through the shared
+normalization boundary. The next model milestone is development evaluation and
+versioned checkpoint metadata before a long training run.
 
 The generic input, batching, and model code must remain usable by a future
 language profile with a different tokenizer and backbone.

@@ -42,3 +42,11 @@ class TokenizedBatch:
     @property
     def max_token_count(self) -> int:
         return self.first_subword_indices.shape[1]
+
+    def to(self, device: torch.device) -> "TokenizedBatch":
+        return TokenizedBatch(
+            input_ids=self.input_ids.to(device),
+            attention_mask=self.attention_mask.to(device),
+            first_subword_indices=self.first_subword_indices.to(device=device),
+            token_mask=self.token_mask.to(device=device),
+        )

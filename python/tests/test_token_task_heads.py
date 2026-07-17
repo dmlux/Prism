@@ -56,7 +56,11 @@ def test_token_task_heads_create_logits_from_schema() -> None:
         dropout_probability=0.1,
     )
 
-    logits = heads(torch.randn((2, 4, 192)))
+    heads.eval()
+    hidden_states = torch.randn((2, 4, 192))
+
+    logits = heads(hidden_states)
+    rescaled_logits = heads(hidden_states * 10.0 + 50.0)
 
     assert logits.upos_logits.shape == (2, 4, 3)
     assert tuple(
@@ -66,3 +70,28 @@ def test_token_task_heads_create_logits_from_schema() -> None:
         (2, 4, 3),
     )
     assert logits.lemma_rule_logits.shape == (2, 4, 2)
+
+    torch.testing.assert_close(
+        logits.upos_logits,
+        rescaled_logits.upos_logits,
+        rtol=1e-4,
+        atol=1e-5,
+    )
+    torch.testing.assert_close(
+        logits.lemma_rule_logits,
+        rescaled_logits.lemma_rule_logits,
+        rtol=1e-4,
+        atol=1e-5,
+    )
+
+    for logits_for_feature, rescaled_for_feature in zip(
+        logits.morphology_logits,
+        rescaled_logits.morphology_logits,
+        strict=True,
+    ):
+        torch.testing.assert_close(
+            logits_for_feature,
+            rescaled_for_feature,
+            rtol=1e-4,
+            atol=1e-5,
+        )

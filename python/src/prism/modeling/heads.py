@@ -41,6 +41,11 @@ class TokenTaskHeads(nn.Module):
     ) -> None:
         super().__init__()
 
+        self.input_normalization = nn.LayerNorm(
+            hidden_size,
+            elementwise_affine=False,
+        )
+
         self.upos_head = TokenClassificationHead(
             hidden_size=hidden_size,
             label_count=len(schema.upos.labels),
@@ -60,11 +65,16 @@ class TokenTaskHeads(nn.Module):
             dropout_probability=dropout_probability,
         )
 
-    def forward(self, hidden_states: Tensor) -> TokenTaskLogits:
+    def forward(
+        self,
+        hidden_states: Tensor,
+    ) -> TokenTaskLogits:
+        normalized_hidden_states = self.input_normalization(hidden_states)
+
         return TokenTaskLogits(
-            upos_logits=self.upos_head(hidden_states),
+            upos_logits=self.upos_head(normalized_hidden_states),
             morphology_logits=tuple(
-                head(hidden_states) for head in self.morphology_heads
+                head(normalized_hidden_states) for head in self.morphology_heads
             ),
-            lemma_rule_logits=self.lemma_rule_head(hidden_states),
+            lemma_rule_logits=self.lemma_rule_head(normalized_hidden_states),
         )

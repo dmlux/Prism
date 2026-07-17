@@ -59,6 +59,17 @@ class TokenTaskTargetBatch:
     def morphology_feature_count(self) -> int:
         return len(self.morphology_targets)
 
+    def to(self, device: torch.device) -> "TokenTaskTargetBatch":
+        return TokenTaskTargetBatch(
+            upos_ids=self.upos_ids.to(device=device),
+            morphology_targets=tuple(
+                targets.to(device=device) for targets in self.morphology_targets
+            ),
+            lemma_rule_ids=self.lemma_rule_ids.to(device=device),
+            lemma_rule_mask=self.lemma_rule_mask.to(device=device),
+            token_mask=self.token_mask.to(device=device),
+        )
+
 
 def build_token_task_target_batch(
     sentences: Sequence[SupervisedSentence],

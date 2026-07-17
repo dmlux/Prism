@@ -22,7 +22,10 @@ from prism.modeling.outputs import (
 )
 from prism.modeling.encoders import contextualize_subwords
 from prism.modeling.heads import TokenClassificationHead, TokenTaskHeads
-from prism.modeling.taggers import TokenTagger
+from prism.modeling.taggers import (
+    TokenTagger,
+    build_pretrained_token_tagger,
+)
 
 __all__ = [
     "TokenizedBatch",
@@ -41,4 +44,5 @@ __all__ = [
     "TokenClassificationHead",
     "TokenTaskHeads",
     "TokenTagger",
+    "build_pretrained_token_tagger",
 ]
