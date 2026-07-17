@@ -15,6 +15,90 @@ This document defines the direction for the next model generation. It does not
 claim that the new model already exists or outperforms the recurrent baseline.
 Every such claim requires a recorded benchmark on the pinned data splits.
 
+## Language-independent core and language profiles
+
+Norwegian Bokmål is the first implementation, not a structural assumption of
+Prism. The architecture is split into a language-independent core and
+replaceable language profiles.
+
+The core owns stable mechanisms:
+
+- typed token, batch, prediction, confidence, and artifact contracts;
+- subword-to-token alignment and document batching;
+- reusable UPOS, per-feature morphology, lemma, and confidence head families;
+- loss calculation, distillation, calibration, evaluation, export, and native
+  runtime integration;
+- the unified Python, Swift, Java/Kotlin, and C++ API semantics.
+
+A language profile supplies replaceable language decisions:
+
+- language and locale identifiers;
+- teacher and student backbone specifications;
+- tokenizer, whitespace, and normalization behavior;
+- dataset adapters and supported annotation schemas;
+- UPOS, morphology, and lemma-rule label inventories;
+- language-specific decoding, provenance, licenses, and benchmark identity.
+
+The head implementations are shared, but their output sizes are configured by
+the selected language schema. For example, every language can use the same
+per-feature morphology classifier implementation while exposing a different
+set of features and values. Generic task heads must therefore never hard-code
+the 18 Norwegian features, 17 UPOS labels, 622 Norwegian lemma rules, or a
+NorBERT hidden size.
+
+Generic batching, alignment, model composition, training, evaluation, and
+export code depend only on typed backbone and language-profile contracts. A
+Norwegian package may select NorBERT4; another language may select a different
+tokenizer, teacher, and student without forking the Prism pipeline. NorBERT4 is
+the first configuration of this boundary, not the boundary itself.
+
+Teacher and student architectures may differ within one language profile, and
+different languages may choose entirely different backbone families. Every
+released student still conforms to the same versioned Prism tensor and
+artifact contract so native clients do not need model-specific APIs.
+
+## Norwegian written-standard expansion
+
+Prism's Norwegian scope is intended to cover both Bokmål (`nb`) and Nynorsk
+(`nn`). NorBERT4 can be shared as a backbone candidate because its official
+model card states that it was pretrained on Bokmål, Nynorsk, and Northern Sámi.
+Shared pretraining is not evidence of equal downstream quality, so every
+written standard requires its own evaluation.
+
+The first end-to-end training path remains Bokmål so the new pipeline can be
+debugged without changing multiple datasets at once. As soon as the first
+Bokmål student can be trained and evaluated reproducibly, and before expensive
+teacher fine-tuning or final student selection, Prism will add the official UD
+Norwegian Nynorsk treebank as a separately pinned dataset.
+
+Bokmål and Nynorsk are separate language profiles even when they reference the
+same tokenizer and backbone. Each profile owns its own:
+
+- BCP 47 language tag;
+- pinned datasets and split identities;
+- observed morphology and lemma-rule schemas;
+- decoding and confidence calibration;
+- per-task quality and document-performance reports.
+
+The reusable task-head implementations remain shared. The Norwegian
+experiments must compare at least:
+
+1. separate Bokmål and Nynorsk students;
+2. one jointly trained encoder with shared configurable heads;
+3. one jointly trained encoder with small written-standard-specific heads or
+   an equivalent explicit written-standard signal.
+
+Selection is based on separate Bokmål and Nynorsk development metrics, model
+size, and document inference performance. A combined Norwegian score must not
+hide a regression in either written standard. The first Nynorsk target is the
+standard written-language treebank; the spoken/dialectal NynorskLIA corpus is a
+separate later decision.
+
+Primary references:
+
+- [NorBERT4 model card](https://huggingface.co/ltg/norbert4-base)
+- [UD Norwegian Nynorsk](https://github.com/UniversalDependencies/UD_Norwegian-Nynorsk)
+
 ## Why the current model is not the final architecture
 
 The current word-and-character BiLSTM is a useful baseline. It learns directly
@@ -76,9 +160,10 @@ an ablation benchmark is required.
 
 ## First production task bundle
 
-The first new model generation operates on sentences of externally supplied
-tokens and returns one result per input token. It shares one contextual encoder
-and uses task-specific output heads.
+The first Norwegian model generation operates on sentences of externally
+supplied tokens and returns one result per input token. It shares one
+contextual encoder and uses the language-independent task-head families with
+Norwegian label schemas.
 
 The first production bundle contains:
 
@@ -133,15 +218,20 @@ ExecuTorch backend such as Core ML, MPS, or XNNPACK based on measured support
 and performance. The public Prism Swift API must not expose ExecuTorch types;
 this keeps the API stable if the runtime implementation changes later.
 
-The intended package split is:
+The intended first package split is:
 
 - `PrismCore`: stable token, sentence, result, confidence, and error types;
 - `PrismRuntime`: internal model loading, batching, and tensor execution;
-- `PrismNorwegian`: Norwegian artifact metadata and decoding behavior;
+- `PrismNorwegian`: the first language profile, artifact metadata, and decoding
+  behavior;
 - `PrismKit`: convenient public Swift entry point.
 
 Future Java/Kotlin and C++ libraries consume the same model manifest and tensor
 contract instead of defining separate model semantics.
+
+Future language packages follow the same boundary as `PrismNorwegian`. Adding
+a language must not require copying the runtime, batching, task-head, or public
+API implementations.
 
 ## Document inference contract
 

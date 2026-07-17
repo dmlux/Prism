@@ -1,6 +1,6 @@
 # Prism project status
 
-Last updated: 2026-07-16
+Last updated: 2026-07-17
 
 This document is the durable handoff for continuing Prism in a new Codex task.
 Read it together with `README.md`, `docs/benchmarks.md`, and the root
@@ -19,10 +19,19 @@ local, and privacy-friendly linguistic analysis. The long-term feature set is:
 - language-specific models behind a unified API;
 - native Swift packages suitable for applications such as LexKeep.
 
-Only Norwegian Bokmål is currently in scope. The accepted next-generation
-direction is a teacher-student architecture: a high-capacity pretrained
-Norwegian teacher is used during training, while only a compact student is
-shipped for fast local inference. The full decision and release gates are in
+Norwegian Bokmål is the only current implementation target, but the
+architecture is explicitly designed for many languages. A
+language-independent core owns batching, alignment, reusable task-head
+families, training, evaluation, distillation, export, and unified native API
+contracts. Replaceable language profiles select the teacher and student
+backbones, tokenizer behavior, normalization, annotation and label schemas,
+decoding, provenance, and licenses. NorBERT4 is the first Norwegian
+configuration, not a dependency of the generic pipeline.
+
+The accepted next-generation direction is a teacher-student architecture: a
+high-capacity language-specific teacher is used during training, while only a
+compact student is shipped for fast local inference. The first profile uses
+Norwegian models and data. The full decision and release gates are in
 `docs/model-strategy.md`. The detailed data flow from external tokens through
 the Transformer, task heads, distillation, export, and LexKeep inference is
 documented in `docs/ARCHITECTURE.md`.
@@ -67,9 +76,10 @@ The complete test suite is run from the repository root:
 python -m pytest python/tests
 ```
 
-At the time of this handoff, the suite contains 48 passing tests. Ruff 0.15
-provides repository-wide formatting and linting. Python compatibility is
-explicitly restricted to Python 3.12.
+The complete suite currently contains 60 passing tests, including the new
+token-spacing, subword-alignment, language-profile, and tokenizer-batch
+coverage. Ruff 0.15 provides repository-wide formatting and linting. Python
+compatibility is explicitly restricted to Python 3.12.
 
 ## Dataset
 
@@ -89,9 +99,10 @@ The ignored local dataset path is:
 data/raw/UD_Norwegian-Bokmaal/
 ```
 
-CoNLL-U loading currently retains token text, lemma, UPOS, and morphology as a
-dictionary of feature names to values. Dependency information is present in
-the source data but is not currently used by the models.
+CoNLL-U loading currently retains token text, lemma, UPOS, morphology as a
+dictionary of feature names to values, and the `SpaceAfter=No` whitespace
+signal needed to reproduce original token boundaries. Dependency information
+is present in the source data but is not currently used by the models.
 
 The dataset is not committed. Any separately distributed trained model must
 carry dataset provenance, attribution, share-alike review, configuration, and
@@ -128,7 +139,20 @@ The next-generation data and output contract now additionally provides:
 - deterministic lemma edit rules derived around the longest shared token and
   lemma substring;
 - Norwegian Bokmål UD lemma normalization that removes the treebank-specific
-  `$` marker without changing the generic lemma-rule contract.
+  `$` marker without changing the generic lemma-rule contract;
+- a versioned UPOS schema and bundled `TokenTaskSchema`;
+- a typed `TokenizedBatch` contract;
+- a generic pinned `PretrainedBackboneSpec` with NorBERT4-xsmall as the first
+  Norwegian configuration;
+- a generic `LanguageProfileSpec` that connects a BCP 47 language tag and
+  display name to a replaceable student backbone;
+- a `prism.languages.norwegian` package that exclusively owns the concrete
+  NorBERT4-xsmall configuration and the first Bokmål profile;
+- a Fast-Tokenizer loader, byte-level whitespace preparation, first-subword
+  alignment, padded token indices, and token masks;
+- a language-independent adapter from `PretokenizedSentence` batches to the
+  typed `TokenizedBatch`, verified with both unit tests and the real pinned
+  NorBERT4 tokenizer.
 
 A training/development-only exploratory measurement produced 622 normalized
 lemma edit rules from 243,885 training tokens. These rules cover 36,336 of
@@ -238,6 +262,14 @@ checkpoint was successfully evaluated after the rename.
 
 - Keep externally supplied token support because LexKeep already tokenizes and
   tracks original offsets.
+- Keep the Prism core language-independent. Generic batching, alignment,
+  task-head construction, losses, distillation, calibration, evaluation,
+  export, and native APIs depend on typed contracts rather than NorBERT4 or a
+  concrete language.
+- Put backbones, tokenizers, normalization, dataset adapters, schemas, label
+  inventories, decoding, provenance, and licenses behind replaceable language
+  profiles. The head families remain shared while their dimensions are derived
+  from each language schema.
 - Treat tokenization, sentence segmentation, phrase recognition, named-entity
   recognition, and multiword-expression recognition as separate future tasks.
 - Use one shared contextual encoder with separate task heads for related token
@@ -276,17 +308,30 @@ checkpoint was successfully evaluated after the rename.
 
 ## Immediate next milestone
 
-The next milestone is the data and output contract for the first
-next-generation production bundle. Before selecting or fine-tuning a teacher,
-define and test the complete Norwegian morphology representation and lemma
-edit-rule representation consumed by both teacher and student.
+The data and output contract is now in place. The current milestone is the
+language-independent Transformer input boundary:
 
-Morphology uses one head per feature with an explicit `<NONE>` value. The
-representation must handle genuinely multi-valued annotations deliberately
-instead of encoding a rare comma-joined class by accident. Lemmatization begins
-with learned edit rules and must report coverage and unknown-token accuracy.
-The resulting schema is versioned and becomes part of checkpoint and exported
-artifact metadata.
+1. load NorBERT4-xsmall only through the Norwegian profile and prove one
+   forward pass;
+2. perform the early ExecuTorch export feasibility spike.
+
+The generic input, batching, and model code must remain usable by a future
+language profile with a different tokenizer and backbone.
+
+### Deferred trigger: Nynorsk
+
+Once the first Bokmål student trains and evaluates end to end reproducibly,
+the next scope expansion is Nynorsk (`nn`). This happens before expensive
+teacher fine-tuning and final student selection, not before the initial Bokmål
+pipeline works.
+
+The Nynorsk work will pin the official UD Norwegian Nynorsk treebank and keep
+separate `nb` and `nn` profiles, schemas, lemma rules, calibration, and metrics.
+Both profiles may share the NorBERT4 tokenizer and backbone. Development
+experiments will compare separate students, a jointly trained encoder with
+shared configurable heads, and a jointly trained encoder with
+written-standard-specific heads or an equivalent explicit standard signal.
+No architecture is selected from a combined Norwegian score alone.
 
 ## Longer-term roadmap
 
@@ -299,4 +344,7 @@ Once the output contract is stable:
 5. benchmark document inference and integrate the artifact through a Swift
    runtime wrapper for LexKeep;
 6. decide on dependency parsing separately after the token tasks are stable;
-7. add further languages as separate modules after Norwegian is stable.
+7. add Nynorsk after the first reproducible Bokmål student and compare shared
+   versus written-standard-specific Norwegian model variants;
+8. add further languages as separate profiles after Norwegian is stable,
+   without copying the core pipeline or changing the unified public API.

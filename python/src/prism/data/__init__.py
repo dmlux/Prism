@@ -7,6 +7,7 @@ from prism.data.norwegian_bokmaal import (
     build_norwegian_bokmaal_schema,
 )
 from prism.data.examples import (
+    PretokenizedSentence,
     SupervisedSentence,
     SupervisedCorpus,
     TokenTargets,
@@ -16,6 +17,7 @@ __all__ = [
     "normalize_norwegian_bokmaal_ud_lemma",
     "encode_norwegian_bokmaal_sentence",
     "encode_norwegian_bokmaal_sentences",
+    "PretokenizedSentence",
     "SupervisedSentence",
     "SupervisedCorpus",
     "TokenTargets",

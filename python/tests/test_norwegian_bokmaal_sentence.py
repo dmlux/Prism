@@ -9,6 +9,7 @@ from prism.schema import (
     build_upos_schema,
     TokenTaskSchema,
 )
+from prism.data import PretokenizedSentence
 
 
 def test_encode_norwegian_bokmaal_sentence_builds_targets() -> None:
@@ -43,6 +44,7 @@ def test_encode_norwegian_bokmaal_sentence_builds_targets() -> None:
                 lemma="hus",
                 upos="NOUN",
                 features={"Number": "Plur"},
+                space_after=False,
             ),
             Token(
                 text=".",
@@ -54,7 +56,10 @@ def test_encode_norwegian_bokmaal_sentence_builds_targets() -> None:
         schema=schema,
     )
 
-    assert sentence.tokens == ("husene", ".")
+    assert sentence.model_input == PretokenizedSentence(
+        tokens=("husene", "."),
+        has_space_before=(False, False),
+    )
     assert sentence.targets[0].upos_id == 0
     assert sentence.targets[0].morphology == ((False, True),)
     assert sentence.targets[0].lemma_rule_id == 1

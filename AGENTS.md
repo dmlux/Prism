@@ -30,7 +30,23 @@
 
 - Prism is a modular, open-source NLP toolkit with local, privacy-friendly
   inference. Norwegian Bokmål is the only current language target.
-- Keep language-specific models separable behind a future unified API.
+- Design the architecture for many languages from the start even though
+  Norwegian Bokmål is the only current implementation target. Keep the public
+  data, training, inference, evaluation, export, and native API contracts
+  language-independent.
+- Put every replaceable language decision behind an explicit language profile
+  or similarly narrow interface. This includes teacher and student backbones,
+  tokenizer behavior, normalization, dataset adapters, morphology and lemma
+  schemas, label inventories, decoding, artifact metadata, and licenses.
+- Treat NorBERT4 as one Norwegian backbone configuration, never as an
+  assumption of the generic Prism model pipeline. Generic batching,
+  subword-to-token alignment, task-head construction, losses, distillation,
+  calibration, evaluation, and export code must not import or branch on a
+  concrete language model.
+- Reuse the same UPOS, per-feature morphology, lemma, and confidence head
+  implementations across languages. Their output dimensions and labels come
+  from the selected language artifact schema; do not hard-code the Norwegian
+  feature inventory or label counts into shared heads.
 - Preserve a path toward native Swift packages and integration into LexKeep.
   LexKeep already owns tokenization and source offsets, so future APIs should
   support externally supplied tokens as well as an eventual high-level raw-text
@@ -74,6 +90,10 @@
   definitions, model components, training, evaluation, export, and artifact
   loading. Keep dependencies directed: lower-level schema and task contracts
   must not import CLI, training orchestration, or a specific native runtime.
+- Make generic model code depend on typed backbone and language-profile
+  contracts rather than concrete NorBERT, Norwegian, or future language
+  implementations. Language packages may depend on the generic core; the
+  generic core must not depend on a language package.
 - Keep `python -m prism.<module>` entry points thin. They may parse arguments,
   construct configuration, call reusable services, and render results; model,
   data, training, evaluation, and checkpoint logic belongs in importable

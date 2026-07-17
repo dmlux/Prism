@@ -2,6 +2,20 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class PretokenizedSentence:
+    tokens: tuple[str, ...]
+    has_space_before: tuple[bool, ...]
+
+    def __post_init__(self) -> None:
+        if not self.tokens:
+            raise ValueError("Pretokenized sentence must contain tokens.")
+        if len(self.tokens) != len(self.has_space_before):
+            raise ValueError("Token and spacing counts must match.")
+        if self.has_space_before[0]:
+            raise ValueError("The first token cannot have preceding whitespace.")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class TokenTargets:
     upos_id: int
     morphology: tuple[tuple[bool, ...], ...]
@@ -25,13 +39,11 @@ class TokenTargets:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SupervisedSentence:
-    tokens: tuple[str, ...]
+    model_input: PretokenizedSentence
     targets: tuple[TokenTargets, ...]
 
     def __post_init__(self) -> None:
-        if not self.tokens:
-            raise ValueError("Supervised sentence must contain tokens.")
-        if len(self.tokens) != len(self.targets):
+        if len(self.model_input.tokens) != len(self.targets):
             raise ValueError("Token and targets counts must match.")
 
 
@@ -45,7 +57,7 @@ class SupervisedCorpus:
 
     @property
     def token_count(self) -> int:
-        return sum(len(sentence.tokens) for sentence in self.sentences)
+        return sum(len(sentence.model_input.tokens) for sentence in self.sentences)
 
     @property
     def lemma_annotation_count(self) -> int:

@@ -16,3 +16,14 @@ def test_parse_token() -> None:
             "Number": "Sing",
         },
     )
+
+
+def test_parse_token_preserves_space_after() -> None:
+    line = (
+        "1\tKamskjell\tkamskjell\tNOUN\tsubst\t"
+        "Definite=Ind|Gender=Neut|Number=Plur\t0\troot\t_\tSpaceAfter=No"
+    )
+
+    token = parse_token(line)
+
+    assert token.space_after is False

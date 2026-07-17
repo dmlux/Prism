@@ -39,6 +39,9 @@ Der Motor besitzt allgemeines norwegisches Sprachwissen. Der UPOS-Head fragt
 nach der Wortart, die Morphologie-Heads nach grammatischen Eigenschaften und
 der Lemma-Head nach der Regel, die aus der Wortform das Lemma erzeugt.
 
+Norwegisch ist dabei die erste konkrete Konfiguration. Allgemein besitzt der
+Motor das Sprachwissen des jeweils geladenen Sprachprofils.
+
 ```plantuml
 @startuml prism-overview
 skinparam backgroundColor transparent
@@ -46,7 +49,7 @@ skinparam componentStyle rectangle
 skinparam shadowing false
 
 rectangle "Extern gelieferte Tokens\nmit stabiler Reihenfolge" as Tokens
-rectangle "NorBERT-Tokenizer\nTokens -> Subwords -> IDs" as Tokenizer
+rectangle "Tokenizer des Sprachprofils\nTokens -> Subwords -> IDs" as Tokenizer
 rectangle "Kompakter Transformer-Motor\nkontextualisierte Subword-Vektoren" as Encoder
 rectangle "Zuordnung zu Original-Tokens\nSubwords -> ein Vektor pro Token" as Alignment
 
@@ -69,6 +72,84 @@ Lemma --> Decode
 Decode --> Results
 @enduml
 ```
+
+## Sprachunabhängiger Kern und austauschbare Sprachprofile
+
+Prism soll langfristig viele Sprachen unter derselben API bedienen. Deshalb
+darf NorBERT4 nicht zum fest eingebauten Motor der gesamten Bibliothek werden.
+NorBERT4 ist lediglich die erste norwegische Backbone-Konfiguration.
+
+Die Architektur trennt zwei Ebenen:
+
+### Sprachunabhängiger Prism-Kern
+
+Der Kern kennt keine konkrete Sprache und kein konkretes vortrainiertes
+Modell. Er stellt wiederverwendbare Mechanismen bereit:
+
+- typisierte Token-, Batch-, Vorhersage- und Artefaktverträge;
+- Subword-zu-Token-Alignment und Dokument-Batching;
+- UPOS-, Morphologie-, Lemma- und Konfidenz-Head-Familien;
+- Loss-Funktionen, Distillation und Kalibrierung;
+- Evaluation, Export und native Runtime-Anbindung;
+- einheitliche API-Semantik für Python, Swift, Java/Kotlin und C++.
+
+### Sprachprofil
+
+Ein Sprachprofil konfiguriert alle Entscheidungen, die zwischen Sprachen
+ausgetauscht werden müssen:
+
+- Sprach- und Locale-Kennung;
+- Teacher- und Student-Backbone;
+- Tokenizer, Leerzeichenbehandlung und Normalisierung;
+- Dataset-Adapter und unterstützte Annotationsschemata;
+- UPOS-, Morphologie- und Lemma-Regel-Inventare;
+- sprachspezifisches Decoding, Provenienz, Lizenzen und Benchmarks.
+
+Die Arten der Task-Heads bleiben gleich. Ihre konkrete Größe ist jedoch Teil
+des Sprachschemas. Der Morphologie-Code kann beispielsweise für jede Sprache
+einen Klassifikator pro Feature aufbauen, ohne die 18 norwegischen Features
+fest einzuprogrammieren. Ebenso darf ein gemeinsamer Lemma-Head nicht an die
+622 norwegischen Editierregeln gekoppelt sein.
+
+```plantuml
+@startuml language-profiles
+skinparam backgroundColor transparent
+skinparam componentStyle rectangle
+skinparam shadowing false
+
+package "Sprachunabhängiger Prism-Kern" {
+  rectangle "Token- und Batch-Verträge" as Contracts
+  rectangle "Alignment und Dokument-Batching" as Batching
+  rectangle "Wiederverwendbare Task-Heads" as Heads
+  rectangle "Training, Distillation,\nEvaluation und Export" as Pipeline
+  rectangle "Einheitliche native API" as API
+}
+
+package "Norwegisches Sprachprofil" {
+  rectangle "NorBERT4 Teacher/Student\nund Tokenizer" as NorwegianBackbone
+  rectangle "Norwegische Schemata,\nNormalisierung und Decoding" as NorwegianSchema
+}
+
+package "Weiteres Sprachprofil" {
+  rectangle "Anderer Teacher/Student\nund Tokenizer" as OtherBackbone
+  rectangle "Andere Schemata,\nNormalisierung und Decoding" as OtherSchema
+}
+
+NorwegianBackbone --> Contracts
+NorwegianSchema --> Heads
+OtherBackbone --> Contracts
+OtherSchema --> Heads
+Contracts --> Batching
+Batching --> Heads
+Heads --> Pipeline
+Pipeline --> API
+@enduml
+```
+
+Die Abhängigkeitsrichtung ist entscheidend: Ein Sprachprofil verwendet den
+Prism-Kern. Der Prism-Kern importiert niemals ein konkretes Sprachprofil. So
+kann später ein anderes Modell ausgewählt werden, ohne Batching, Heads,
+Training, Export oder native Bibliotheken zu duplizieren.
 
 ## Was ist der Motor?
 
@@ -140,9 +221,9 @@ Aktuelle Kandidaten sind:
   Aufwand einen messbaren Development-Gewinn bringt;
 - `ltg/norbert4-xsmall` als erster Student-Kandidat.
 
-NorBERT4-xsmall ist nur der vortrainierte Student-Backbone, nicht das fertige
-Prism-Modell. Prism baut seine eigenen Eingabe-, Alignment- und
-Ausgabeschichten darum.
+NorBERT4-xsmall ist nur der vortrainierte Student-Backbone des ersten
+norwegischen Sprachprofils, nicht das fertige Prism-Modell. Prism baut seine
+sprachunabhängigen Eingabe-, Alignment- und Ausgabeschichten darum.
 
 Die aktuelle xsmall-Konfiguration besitzt unter anderem:
 
@@ -858,17 +939,19 @@ Nein:
 Der geplante Entwicklungsablauf ist:
 
 1. Daten- und Output-Vertrag stabilisieren.
-2. Tokenizer-Alignment und Batch-Tensoren implementieren.
-3. NorBERT4-xsmall laden und einen Forward-Pass beweisen.
-4. Früh die Exportierbarkeit untersuchen.
-5. Prism-Task-Heads und Loss-Funktionen implementieren.
-6. Einen Student nur auf Gold-Daten trainieren.
-7. Den Teacher auf denselben Aufgaben fine-tunen.
-8. Den Student mit Distillation trainieren.
-9. Student mit und ohne Distillation vergleichen.
-10. Konfidenzen kalibrieren.
-11. Quantisieren und PyTorch-zu-ExecuTorch-Parität prüfen.
-12. Dokument-Inferenz messen.
+2. Den typisierten Sprachprofil- und Backbone-Vertrag festlegen.
+3. Tokenizer-Alignment und Batch-Tensoren sprachunabhängig implementieren.
+4. NorBERT4-xsmall über das norwegische Sprachprofil laden und einen
+   Forward-Pass beweisen.
+5. Früh die Exportierbarkeit untersuchen.
+6. Sprachunabhängige Prism-Task-Heads und Loss-Funktionen implementieren.
+7. Einen Student nur auf Gold-Daten trainieren.
+8. Den Teacher auf denselben Aufgaben fine-tunen.
+9. Den Student mit Distillation trainieren.
+10. Student mit und ohne Distillation vergleichen.
+11. Konfidenzen kalibrieren.
+12. Quantisieren und PyTorch-zu-ExecuTorch-Parität prüfen.
+13. Dokument-Inferenz messen.
 
 ## Was bereits implementiert ist
 
@@ -883,7 +966,19 @@ Der nächste Datenvertrag enthält aktuell:
 - Unterscheidung zwischen fehlendem Lemma und unbekannter Lemma-Regel;
 - ein gebündeltes `TokenTaskSchema`;
 - modellunabhängige Sätze und Corpora;
-- Development-Abdeckungsmetriken.
+- Development-Abdeckungsmetriken;
+- einen typisierten `TokenizedBatch`;
+- einen gepinnten, typisierten Backbone-Vertrag mit NorBERT4-xsmall als erster
+  norwegischer Konfiguration;
+- einen generischen `LanguageProfileSpec` und ein separates
+  `prism.languages.norwegian`-Paket, das die konkrete NorBERT4-Konfiguration
+  besitzt;
+- einen Fast-Tokenizer-Loader, der nur vom Backbone-Vertrag abhängt;
+- Erhalt originaler Tokenabstände aus CoNLL-U `SpaceAfter=No`;
+- Subword-zu-Token-Alignment und gepaddete Tokenmasken;
+- einen sprachunabhängigen Adapter von `PretokenizedSentence` zum
+  `TokenizedBatch`, der mit dem echten gepinnten NorBERT4-Tokenizer verifiziert
+  wurde.
 
 Der echte Development-Split lässt sich vollständig mit dem Trainingsschema
 kodieren:
@@ -898,21 +993,19 @@ kodieren:
 
 Vor dem ersten trainierbaren Student fehlen:
 
-1. der typisierte `TokenizedBatch`;
-2. die Subword-zu-Token-Zuordnung;
-3. ein reproduzierbar gepinnter Backbone;
-4. der Forward-Pass des Motors;
-5. die Task-Heads;
-6. die Loss-Funktionen;
-7. Training und Development-Evaluation.
+1. der Forward-Pass des Motors;
+2. die konfigurierbaren Task-Heads;
+3. die Loss-Funktionen;
+4. Training und Development-Evaluation.
 
-Der nächste konkrete Implementierungsschritt ist der Batch-Vertrag zwischen
-dem modellunabhängigen Corpus und dem Transformer-Motor.
+Der nächste konkrete Implementierungsschritt ist, NorBERT4-xsmall über das
+norwegische Sprachprofil zu laden und den ersten Forward-Pass vom
+`TokenizedBatch` zu kontextualisierten Subword-Vektoren zu beweisen.
 
 ## Quellen
 
 - [NorBERT4-small model card](https://huggingface.co/ltg/norbert4-small)
-- [NorBERT4-xsmall configuration](https://huggingface.co/ltg/norbert4-xsmall/blob/bdc490daead4c56832375e211a75b5cc419254bb/config.json)
+- [NorBERT4-xsmall configuration](https://huggingface.co/ltg/norbert4-xsmall/blob/7483327d36a2daa5dbe936c68aa277149c6f9632/config.json)
 - [Prism model strategy](model-strategy.md)
 - [Confirmed project status](PROJECT_STATUS.md)
 - [Benchmarks](benchmarks.md)

@@ -8,6 +8,7 @@ class Token:
     lemma: str
     upos: str
     features: dict[str, str]
+    space_after: bool = True
 
 
 def parse_token(line: str) -> Token:
@@ -22,6 +23,7 @@ def parse_token(line: str) -> Token:
             if columns[5] == "_"
             else dict(feature.split("=", 1) for feature in columns[5].split("|"))
         ),
+        space_after="SpaceAfter=No" not in columns[9].split("|"),
     )
 
 

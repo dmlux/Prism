@@ -4,6 +4,7 @@ from collections.abc import Sequence
 
 from prism.conllu import Token
 from prism.data.examples import (
+    PretokenizedSentence,
     SupervisedSentence,
     SupervisedCorpus,
     TokenTargets,
@@ -30,9 +31,12 @@ def encode_norwegian_bokmaal_sentence(
     schema: TokenTaskSchema,
 ) -> SupervisedSentence:
     token_texts: list[str] = []
+    has_space_before: list[bool] = []
     token_targets: list[TokenTargets] = []
+    previous_token_has_space_after = False
 
     for token in tokens:
+        has_space_before.append(previous_token_has_space_after)
         upos_id = schema.upos.label_id_for(token.upos)
         if upos_id is None:
             raise ValueError(f"Unknown UPOS label: {token.upos}")
@@ -62,8 +66,13 @@ def encode_norwegian_bokmaal_sentence(
             )
         )
 
+        previous_token_has_space_after = token.space_after
+
     return SupervisedSentence(
-        tokens=tuple(token_texts),
+        model_input=PretokenizedSentence(
+            tokens=tuple(token_texts),
+            has_space_before=tuple(has_space_before),
+        ),
         targets=tuple(token_targets),
     )
 
