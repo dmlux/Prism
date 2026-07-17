@@ -12,6 +12,10 @@ from prism.data.examples import (
     SupervisedCorpus,
     TokenTargets,
 )
+from prism.data.batches import (
+    TokenTaskTargetBatch,
+    build_token_task_target_batch,
+)
 
 __all__ = [
     "normalize_norwegian_bokmaal_ud_lemma",
@@ -22,4 +26,6 @@ __all__ = [
     "SupervisedCorpus",
     "TokenTargets",
     "build_norwegian_bokmaal_schema",
+    "TokenTaskTargetBatch",
+    "build_token_task_target_batch",
 ]

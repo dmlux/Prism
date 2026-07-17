@@ -1,5 +1,4 @@
-from torch import Tensor
-from transformers import PreTrainedModel
+from torch import Tensor, nn
 
 from prism.modeling.batches import TokenizedBatch
 from prism.modeling.outputs import ContextualizedSubwordBatch
@@ -7,7 +6,7 @@ from prism.modeling.outputs import ContextualizedSubwordBatch
 
 def contextualize_subwords(
     *,
-    model: PreTrainedModel,
+    model: nn.Module,
     batch: TokenizedBatch,
 ) -> ContextualizedSubwordBatch:
     raw_output = model(

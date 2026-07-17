@@ -78,11 +78,12 @@ The complete test suite is run from the repository root:
 python -m pytest python/tests
 ```
 
-The complete suite currently contains 67 passing tests, including the new
-token-spacing, subword-alignment, language-profile, tokenizer-batch, backbone
-loading, contextual-output, realignment, and export-adapter coverage. Ruff 0.15
-provides repository-wide formatting and linting. Python compatibility is
-explicitly restricted to Python 3.12.
+The complete suite currently contains 74 passing tests, including token
+spacing, subword alignment, language profiles, tokenizer batches, backbone
+loading, contextual outputs, realignment, task heads, student composition,
+target batching, masked multi-task loss, gradient masking, and export-adapter
+coverage. Ruff 0.15 provides repository-wide formatting and linting. Python
+compatibility is explicitly restricted to Python 3.12.
 
 ## Dataset
 
@@ -166,7 +167,18 @@ The next-generation data and output contract now additionally provides:
   pinned NorBERT4-xsmall profile enables this path because its rotary position
   buffers otherwise contain uninitialized values and produce NaNs;
 - fail-fast validation that rejects non-finite contextual subword vectors at
-  the first Prism output boundary.
+  the first Prism output boundary;
+- a schema-configured `TokenTaskHeads` module with shared UPOS, per-feature
+  morphology, and lemma-rule head implementations whose dimensions come from
+  the selected language schema;
+- a language-independent `TokenTagger` composition that connects any
+  compatible PyTorch backbone to first-subword alignment and the shared task
+  heads;
+- typed, padded `TokenTaskTargetBatch` construction for variable-length
+  supervised sentences, including separate token and usable-lemma masks;
+- a differentiable joint loss using masked cross-entropy for UPOS and lemma
+  rules plus masked binary cross-entropy for morphology. Tests prove that all
+  three tasks receive gradients while padding positions receive zero gradient.
 
 The real pinned NorBERT4-xsmall model has completed the full local path from a
 `PretokenizedSentence` through tokenization, backbone inference, and
@@ -345,8 +357,15 @@ The prebuilt ExecuTorch 1.3.1 runtime is binary-compatible with PyTorch 2.12.x,
 not the previously installed PyTorch 2.13.0, despite its open-ended package
 lower bound. Prism therefore pins PyTorch to `>=2.12,<2.13`. Portable runtime
 execution is proven; Core ML, Metal, XNNPACK delegation, dynamic shapes,
-quantization, and full-student export remain separate measured gates. The next
-model milestone is the shared task-head and trainable-student composition.
+quantization, and full-student export remain separate measured gates.
+
+The shared task-head and initial trainable-student composition is now complete:
+the generic `TokenTagger` connects a replaceable backbone, token alignment, and
+schema-sized UPOS, morphology, and lemma-rule heads. Supervised sentences can
+be padded into typed target tensors, and the joint masked loss propagates
+gradients through every task without learning from padding. The next model
+milestone is a paired supervised collator and a minimal reproducible optimizer
+step that proves the full Bokmål student can train end to end.
 
 The generic input, batching, and model code must remain usable by a future
 language profile with a different tokenizer and backbone.

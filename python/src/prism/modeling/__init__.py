@@ -18,8 +18,11 @@ from prism.modeling.alignment import (
 from prism.modeling.outputs import (
     ContextualizedSubwordBatch,
     ContextualizedTokenBatch,
+    TokenTaskLogits,
 )
 from prism.modeling.encoders import contextualize_subwords
+from prism.modeling.heads import TokenClassificationHead, TokenTaskHeads
+from prism.modeling.taggers import TokenTagger
 
 __all__ = [
     "TokenizedBatch",
@@ -33,5 +36,9 @@ __all__ = [
     "find_first_subword_indices",
     "ContextualizedSubwordBatch",
     "ContextualizedTokenBatch",
+    "TokenTaskLogits",
     "contextualize_subwords",
+    "TokenClassificationHead",
+    "TokenTaskHeads",
+    "TokenTagger",
 ]
