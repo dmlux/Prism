@@ -105,3 +105,47 @@ class TokenTaskLogits:
     @property
     def morphology_feature_count(self) -> int:
         return len(self.morphology_logits)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TokenTaskPredictionBatch:
+    upos_ids: Tensor
+    morphology_predictions: tuple[Tensor, ...]
+    lemma_rule_ids: Tensor
+    token_mask: Tensor
+
+    def __post_init__(self) -> None:
+        if self.upos_ids.ndim != 2:
+            raise ValueError("UPOS prediction IDs must have two dimensions.")
+        if self.upos_ids.dtype != torch.long:
+            raise ValueError("UPOS prediction IDs must use torch.long.")
+
+        token_dimensions = self.upos_ids.shape
+
+        if not self.morphology_predictions:
+            raise ValueError("Predictions must contain morphology features.")
+
+        if any(predictions.ndim != 3 for predictions in self.morphology_predictions):
+            raise ValueError("Morphology predictions must have three dimensions.")
+
+        if any(
+            predictions.shape[:2] != token_dimensions
+            for predictions in self.morphology_predictions
+        ):
+            raise ValueError("Morphology predictions must share token dimensions.")
+
+        if any(
+            predictions.dtype != torch.bool
+            for predictions in self.morphology_predictions
+        ):
+            raise ValueError("Morphology predictions must use torch.bool.")
+
+        if self.lemma_rule_ids.shape != token_dimensions:
+            raise ValueError("Lemma-rule predictions must match token dimensions.")
+        if self.lemma_rule_ids.dtype != torch.long:
+            raise ValueError("Lemma-rule prediction IDs must use torch.long.")
+
+        if self.token_mask.shape != token_dimensions:
+            raise ValueError("Prediction mask must match token dimensions.")
+        if self.token_mask.dtype != torch.bool:
+            raise ValueError("Prediction mask must use torch.bool.")

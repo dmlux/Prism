@@ -1,3 +1,5 @@
+import math
+
 import torch
 from torch import nn
 
@@ -8,6 +10,8 @@ from prism.modeling import (
 )
 from prism.training import (
     SupervisedTokenTaskBatch,
+    TokenTaskLossWeights,
+    evaluate_supervised_token_task_step,
     train_supervised_token_task_step,
 )
 
@@ -89,11 +93,21 @@ def test_training_step_updates_model_parameters() -> None:
     )
     previous_upos = model.upos.detach().clone()
 
+    loss_weights = TokenTaskLossWeights(
+        morphology_positive_weights=(torch.tensor([1.0, 3.0]),),
+    )
+
     losses = train_supervised_token_task_step(
         model=model,
         batch=batch,
         optimizer=optimizer,
         max_gradient_norm=0.01,
+        loss_weights=loss_weights,
+    )
+
+    torch.testing.assert_close(
+        losses.morphology_loss,
+        torch.tensor(2.0 * math.log(2.0)),
     )
 
     assert torch.isfinite(losses.total_loss)
@@ -113,3 +127,25 @@ def test_training_step_updates_model_parameters() -> None:
         model.upos.detach(),
         previous_upos,
     )
+
+    parameters_before_evaluation = tuple(
+        parameter.detach().clone() for parameter in model.parameters()
+    )
+    optimizer.zero_grad(set_to_none=True)
+
+    evaluation_logits, evaluation_losses = evaluate_supervised_token_task_step(
+        model=model,
+        batch=batch,
+    )
+
+    assert isinstance(evaluation_logits, TokenTaskLogits)
+    assert not model.training
+    assert not evaluation_losses.total_loss.requires_grad
+    assert all(parameter.grad is None for parameter in model.parameters())
+
+    for parameter, previous_parameter in zip(
+        model.parameters(),
+        parameters_before_evaluation,
+        strict=True,
+    ):
+        torch.testing.assert_close(parameter, previous_parameter)

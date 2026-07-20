@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 from torch.optim import Optimizer
 
@@ -6,6 +7,7 @@ from prism.training.batches import SupervisedTokenTaskBatch
 from prism.training.losses import (
     TokenTaskLosses,
     compute_token_task_loss,
+    TokenTaskLossWeights,
 )
 
 
@@ -15,6 +17,7 @@ def train_supervised_token_task_step(
     batch: SupervisedTokenTaskBatch,
     optimizer: Optimizer,
     max_gradient_norm: float,
+    loss_weights: TokenTaskLossWeights | None = None,
 ) -> TokenTaskLosses:
     if max_gradient_norm <= 0.0:
         raise ValueError("Maximum gradient norm must be positive.")
@@ -30,6 +33,7 @@ def train_supervised_token_task_step(
     losses = compute_token_task_loss(
         logits=logits,
         targets=batch.targets,
+        loss_weights=loss_weights,
     )
 
     losses.total_loss.backward()
@@ -45,3 +49,24 @@ def train_supervised_token_task_step(
         lemma_rule_loss=losses.lemma_rule_loss.detach(),
         total_loss=losses.total_loss.detach(),
     )
+
+
+def evaluate_supervised_token_task_step(
+    *,
+    model: nn.Module,
+    batch: SupervisedTokenTaskBatch,
+) -> tuple[TokenTaskLogits, TokenTaskLosses]:
+    model.eval()
+
+    with torch.inference_mode():
+        logits = model(batch.model_inputs)
+
+        if not isinstance(logits, TokenTaskLogits):
+            raise TypeError("Token-task model must return TokenTaskLogits.")
+
+        losses = compute_token_task_loss(
+            logits=logits,
+            targets=batch.targets,
+        )
+
+        return logits, losses

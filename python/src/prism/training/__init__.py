@@ -1,22 +1,36 @@
 """Training policies and loss calculations for Prism models."""
 
-from prism.training.losses import (
-    TokenTaskLosses,
-    compute_token_task_loss,
-)
 from prism.training.batches import (
     SupervisedTokenTaskBatch,
     build_supervised_sentence_batches,
     build_supervised_token_task_batch,
     iter_supervised_token_task_batches,
 )
-from prism.training.steps import train_supervised_token_task_step
+from prism.training.class_weights import (
+    build_token_task_loss_weights,
+)
 from prism.training.config import SupervisedTrainingConfig
-from prism.training.optimizers import build_supervised_adamw_optimizer
-from prism.training.schedulers import build_linear_warmup_decay_scheduler
 from prism.training.epochs import (
     SupervisedEpochMetrics,
+    SupervisedEvaluationMetrics,
+    evaluate_supervised_token_task_epoch,
     train_supervised_token_task_epoch,
+)
+from prism.training.losses import (
+    TokenTaskLosses,
+    TokenTaskLossWeights,
+    compute_token_task_loss,
+)
+from prism.training.optimizers import build_supervised_adamw_optimizer
+from prism.training.runner import (
+    SupervisedTrainingEpochResult,
+    SupervisedTrainingRunResult,
+    run_supervised_training_epochs,
+)
+from prism.training.schedulers import build_linear_warmup_decay_scheduler
+from prism.training.steps import (
+    evaluate_supervised_token_task_step,
+    train_supervised_token_task_step,
 )
 
 __all__ = [
@@ -26,10 +40,18 @@ __all__ = [
     "build_supervised_sentence_batches",
     "build_supervised_token_task_batch",
     "iter_supervised_token_task_batches",
+    "evaluate_supervised_token_task_step",
     "train_supervised_token_task_step",
     "SupervisedTrainingConfig",
     "build_supervised_adamw_optimizer",
     "build_linear_warmup_decay_scheduler",
     "SupervisedEpochMetrics",
+    "SupervisedEvaluationMetrics",
+    "evaluate_supervised_token_task_epoch",
     "train_supervised_token_task_epoch",
+    "SupervisedTrainingEpochResult",
+    "SupervisedTrainingRunResult",
+    "run_supervised_training_epochs",
+    "TokenTaskLossWeights",
+    "build_token_task_loss_weights",
 ]

@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 import torch
@@ -6,8 +6,16 @@ from torch import nn
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
 
+from prism.evaluation.metrics import count_token_task_predictions
+from prism.modeling.decoding import decode_token_task_logits
+from prism.schema import MorphologySchema
 from prism.training.batches import SupervisedTokenTaskBatch
+from prism.training.losses import (
+    TokenTaskLosses,
+    TokenTaskLossWeights,
+)
 from prism.training.steps import (
+    evaluate_supervised_token_task_step,
     train_supervised_token_task_step,
 )
 
@@ -26,14 +34,40 @@ class SupervisedEpochMetrics:
         return self.upos_loss + self.morphology_loss + self.lemma_rule_loss
 
 
-def train_supervised_token_task_epoch(
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SupervisedEvaluationMetrics:
+    losses: SupervisedEpochMetrics
+    upos_accuracy: float
+    morphology_accuracies: tuple[float, ...]
+    morphology_annotated_accuracies: tuple[
+        float | None,
+        ...,
+    ]
+    lemma_rule_accuracy: float | None
+    morphology_true_positive_counts: tuple[
+        tuple[int, ...],
+        ...,
+    ]
+    morphology_false_positive_counts: tuple[
+        tuple[int, ...],
+        ...,
+    ]
+    morphology_false_negative_counts: tuple[
+        tuple[int, ...],
+        ...,
+    ]
+
+
+def _run_supervised_token_task_epoch(
     *,
     model: nn.Module,
     batches: Iterable[SupervisedTokenTaskBatch],
-    optimizer: Optimizer,
-    scheduler: LRScheduler,
     device: torch.device,
-    max_gradient_norm: float,
+    process_batch: Callable[
+        [SupervisedTokenTaskBatch],
+        TokenTaskLosses,
+    ],
+    empty_epoch_message: str,
 ) -> SupervisedEpochMetrics:
     model.to(device)
 
@@ -54,13 +88,7 @@ def train_supervised_token_task_epoch(
 
     for batch in batches:
         device_batch = batch.to(device)
-        losses = train_supervised_token_task_step(
-            model=model,
-            batch=device_batch,
-            optimizer=optimizer,
-            max_gradient_norm=max_gradient_norm,
-        )
-        scheduler.step()
+        losses = process_batch(device_batch)
 
         current_token_count = device_batch.targets.token_mask.sum()
         current_lemma_target_count = (
@@ -75,7 +103,7 @@ def train_supervised_token_task_epoch(
         lemma_rule_loss_sum += losses.lemma_rule_loss * current_lemma_target_count
 
     if batch_count == 0:
-        raise ValueError("Training epoch must contain batches.")
+        raise ValueError(empty_epoch_message)
 
     token_count_value = int(token_count.item())
     lemma_target_count_value = int(lemma_target_count.item())
@@ -92,4 +120,196 @@ def train_supervised_token_task_epoch(
         upos_loss=(upos_loss_sum / token_count).item(),
         morphology_loss=(morphology_loss_sum / token_count).item(),
         lemma_rule_loss=lemma_rule_loss,
+    )
+
+
+def train_supervised_token_task_epoch(
+    *,
+    model: nn.Module,
+    batches: Iterable[SupervisedTokenTaskBatch],
+    optimizer: Optimizer,
+    scheduler: LRScheduler,
+    device: torch.device,
+    max_gradient_norm: float,
+    loss_weights: TokenTaskLossWeights | None = None,
+) -> SupervisedEpochMetrics:
+    def process_batch(
+        batch: SupervisedTokenTaskBatch,
+    ) -> TokenTaskLosses:
+        losses = train_supervised_token_task_step(
+            model=model,
+            batch=batch,
+            optimizer=optimizer,
+            max_gradient_norm=max_gradient_norm,
+            loss_weights=loss_weights,
+        )
+        scheduler.step()
+        return losses
+
+    return _run_supervised_token_task_epoch(
+        model=model,
+        batches=batches,
+        device=device,
+        process_batch=process_batch,
+        empty_epoch_message=("Training epoch must contain batches."),
+    )
+
+
+def evaluate_supervised_token_task_epoch(
+    *,
+    model: nn.Module,
+    batches: Iterable[SupervisedTokenTaskBatch],
+    device: torch.device,
+    morphology_schema: MorphologySchema,
+) -> SupervisedEvaluationMetrics:
+    upos_correct_count = torch.zeros(
+        (),
+        dtype=torch.long,
+        device=device,
+    )
+    morphology_correct_counts = tuple(
+        torch.zeros((), dtype=torch.long, device=device)
+        for _ in morphology_schema.features
+    )
+    morphology_annotated_counts = tuple(
+        torch.zeros((), dtype=torch.long, device=device)
+        for _ in morphology_schema.features
+    )
+    morphology_annotated_correct_counts = tuple(
+        torch.zeros((), dtype=torch.long, device=device)
+        for _ in morphology_schema.features
+    )
+    lemma_rule_correct_count = torch.zeros(
+        (),
+        dtype=torch.long,
+        device=device,
+    )
+    morphology_true_positive_counts = tuple(
+        torch.zeros(len(feature.labels), dtype=torch.long, device=device)
+        for feature in morphology_schema.features
+    )
+    morphology_false_positive_counts = tuple(
+        torch.zeros(len(feature.labels), dtype=torch.long, device=device)
+        for feature in morphology_schema.features
+    )
+    morphology_false_negative_counts = tuple(
+        torch.zeros(
+            len(feature.labels),
+            dtype=torch.long,
+            device=device,
+        )
+        for feature in morphology_schema.features
+    )
+
+    def process_batch(
+        batch: SupervisedTokenTaskBatch,
+    ) -> TokenTaskLosses:
+        logits, losses = evaluate_supervised_token_task_step(
+            model=model,
+            batch=batch,
+        )
+        predictions = decode_token_task_logits(
+            logits=logits,
+            token_mask=batch.targets.token_mask,
+            morphology_schema=morphology_schema,
+        )
+        counts = count_token_task_predictions(
+            predictions=predictions,
+            targets=batch.targets,
+        )
+
+        upos_correct_count.add_(counts.upos_correct_count)
+        lemma_rule_correct_count.add_(counts.lemma_rule_correct_count)
+
+        for total, current in zip(
+            morphology_correct_counts,
+            counts.morphology_correct_counts,
+            strict=True,
+        ):
+            total.add_(current)
+
+        for total, current in zip(
+            morphology_annotated_counts,
+            counts.morphology_annotated_counts,
+            strict=True,
+        ):
+            total.add_(current)
+
+        for total, current in zip(
+            morphology_annotated_correct_counts,
+            counts.morphology_annotated_correct_counts,
+            strict=True,
+        ):
+            total.add_(current)
+
+        for total, current in zip(
+            morphology_true_positive_counts,
+            counts.morphology_true_positive_counts,
+            strict=True,
+        ):
+            total.add_(current)
+
+        for total, current in zip(
+            morphology_false_positive_counts,
+            counts.morphology_false_positive_counts,
+            strict=True,
+        ):
+            total.add_(current)
+
+        for total, current in zip(
+            morphology_false_negative_counts,
+            counts.morphology_false_negative_counts,
+            strict=True,
+        ):
+            total.add_(current)
+
+        return losses
+
+    losses = _run_supervised_token_task_epoch(
+        model=model,
+        batches=batches,
+        device=device,
+        process_batch=process_batch,
+        empty_epoch_message=("Evaluation epoch must contain batches."),
+    )
+
+    morphology_annotated_accuracies = tuple(
+        None
+        if annotated_count.item() == 0
+        else (correct_count / annotated_count).item()
+        for correct_count, annotated_count in zip(
+            morphology_annotated_correct_counts,
+            morphology_annotated_counts,
+            strict=True,
+        )
+    )
+
+    if losses.lemma_target_count == 0:
+        lemma_rule_accuracy = None
+    else:
+        lemma_rule_accuracy = (
+            lemma_rule_correct_count / losses.lemma_target_count
+        ).item()
+
+    return SupervisedEvaluationMetrics(
+        losses=losses,
+        upos_accuracy=(upos_correct_count / losses.token_count).item(),
+        morphology_accuracies=tuple(
+            (correct_count / losses.token_count).item()
+            for correct_count in morphology_correct_counts
+        ),
+        morphology_annotated_accuracies=morphology_annotated_accuracies,
+        lemma_rule_accuracy=lemma_rule_accuracy,
+        morphology_true_positive_counts=tuple(
+            tuple(int(value) for value in counts.detach().cpu().tolist())
+            for counts in morphology_true_positive_counts
+        ),
+        morphology_false_positive_counts=tuple(
+            tuple(int(value) for value in counts.detach().cpu().tolist())
+            for counts in morphology_false_positive_counts
+        ),
+        morphology_false_negative_counts=tuple(
+            tuple(int(value) for value in counts.detach().cpu().tolist())
+            for counts in morphology_false_negative_counts
+        ),
     )

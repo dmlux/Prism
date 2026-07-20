@@ -412,9 +412,58 @@ supervised collator and minimal optimizer step are implemented, and the full
 Bokmål student has trained for a real two-batch MPS mini-epoch. Device-aware
 batching, reproducible shuffling, differential AdamW policies, gradient
 clipping, warmup/decay scheduling, and token-weighted epoch loss aggregation
-are implemented. The initial-logit scale is resolved through the shared
-normalization boundary. The next model milestone is development evaluation and
-versioned checkpoint metadata before a long training run.
+are implemented. Training and evaluation now use separate model steps while
+sharing one token-weighted epoch aggregation path; evaluation runs without
+gradients or parameter updates. The initial-logit scale is resolved through the
+shared normalization boundary. Development task metrics are now implemented;
+the next model milestone is versioned checkpoint metadata and the first full
+training run.
+
+Development evaluation now decodes the shared task-head logits and reports
+token-weighted UPOS accuracy, per-feature morphology accuracy, per-feature
+accuracy restricted to annotated morphology targets, and lemma-rule accuracy.
+Losses and prediction counts reuse the same backbone forward pass. Focused
+regression tests cover schema-aware morphology decoding, padding exclusion, and
+epoch-level metric aggregation. The first complete one-epoch student baseline
+has now trained on all 15,696 Bokmål training sentences and evaluated on all
+2,409 development sentences in approximately 2 minutes 7 seconds on Apple MPS.
+It used gold UD targets only, without a teacher. Development UPOS accuracy was
+96.89%, lemma-rule accuracy was 91.03%, and the joint development loss was
+0.535158. Per-feature morphology results are recorded in `docs/benchmarks.md`;
+several sparse features remain at 0% annotated accuracy after one epoch.
+
+The ignored 68,427,851-byte checkpoint at
+`runs/nb-first-baseline/epoch-001.pt` uses checkpoint format version 1 and was
+successfully reloaded with `weights_only=True`. It contains the CPU model state,
+resolved training configuration, explicit JSON-compatible task schema,
+backbone identity and revision, and training/development metrics. It remains as
+the historical one-epoch smoke baseline beside the selected multi-epoch run.
+
+That multi-epoch runner is now implemented and covered by a focused regression
+test. A fresh five-epoch gold-target-only student run evaluated development
+quality after every epoch and atomically retained each improvement. Joint
+development loss decreased monotonically from 0.448856 in epoch 1 to 0.208129
+in epoch 5, so the selected checkpoint is epoch 5 at
+`runs/nb-student-baseline/best.pt`. The 68,384,923-byte checkpoint reloads with
+`weights_only=True`, contains all 298 state tensors, and records five training
+epochs. Selected development UPOS accuracy is 98.51% and lemma-rule accuracy is
+96.20%. Per-value diagnostics exposed a decoder defect rather than a general
+morphology-learning failure: multi-valued outputs were compared with the
+`<NONE>` logit even though they are trained as independent binary targets.
+Using the binary-cross-entropy decision boundary at logit zero raises exact
+annotated accuracy without retraining: Case 96.62%, Definite 93.31%, Gender
+62.44%, Number 92.88%, PronType 91.86%, and VerbForm 93.53%. The unchanged
+development loss of 0.208129 confirms that this is a decoding correction, not
+a new checkpoint. Remaining weaknesses are concentrated in rare-label recall,
+especially `Abbr=Yes`, `Mood=Imp`, `NumType=Ord`, `Voice=Pass`, rare PronType
+values, and `Gender=Fem`. The full Python suite contains 91 passing tests.
+
+Before teacher distillation, the immediate quality task is a controlled
+rare-label treatment for the remaining supervised-baseline errors. Decoder
+threshold calibration must use only the development split and become explicit
+language-artifact metadata; it must not be tuned against the untouched test
+split. Any loss weighting or sampling change requires a fresh comparable
+student run rather than being mixed into the existing checkpoint result.
 
 The generic input, batching, and model code must remain usable by a future
 language profile with a different tokenizer and backbone.
