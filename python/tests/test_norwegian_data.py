@@ -1,8 +1,6 @@
 import pytest
 
-from prism.data.norwegian_bokmaal import (
-    normalize_norwegian_bokmaal_ud_lemma,
-)
+from prism.data.norwegian import normalize_norwegian_ud_lemma
 
 
 @pytest.mark.parametrize(
@@ -14,8 +12,8 @@ from prism.data.norwegian_bokmaal import (
         ("$$", "$"),
     ],
 )
-def test_normalize_norwegian_bokmaal_ud_lemma_removes_marker(
+def test_normalize_norwegian_ud_lemma_removes_marker(
     raw_lemma: str,
     expected_lemma: str,
 ) -> None:
-    assert normalize_norwegian_bokmaal_ud_lemma(raw_lemma) == expected_lemma
+    assert normalize_norwegian_ud_lemma(raw_lemma) == expected_lemma

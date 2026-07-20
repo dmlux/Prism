@@ -81,6 +81,13 @@ same tokenizer and backbone. Each profile owns its own:
 - decoding and confidence calibration;
 - per-task quality and document-performance reports.
 
+These profiles are data and evaluation boundaries, not a requirement to ship
+two sets of weights. The production target is one shared Norwegian teacher and
+one shared compact student that can process Bokmål, Nynorsk, and mixed written
+input without a required document-level standard selector. Separately trained
+students remain necessary reference experiments for detecting whether joint
+training harms either written standard.
+
 The reusable task-head implementations remain shared. The Norwegian
 experiments must compare at least:
 
@@ -234,6 +241,16 @@ contract instead of defining separate model semantics.
 Future language packages follow the same boundary as `PrismNorwegian`. Adding
 a language must not require copying the runtime, batching, task-head, or public
 API implementations.
+
+Applications with many learning languages must remain fully functional
+without a model server or runtime network access. Every language exposed by an
+installation must have its versioned artifacts in local storage. The runtime
+loads only the currently used artifacts into memory and may release inactive
+ones, but it must not fetch them. Closely related written standards may share
+one artifact when separate evaluation proves that sharing is beneficial.
+Broader multilingual backbones, compact language-specific adapters,
+distillation, quantization, and installation packaging must be compared before
+Prism scales toward dozens of locally available languages.
 
 ## Document inference contract
 

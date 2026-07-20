@@ -1,31 +1,29 @@
-"""Norwegian Bokmål dataset-specific transformations."""
+"""Shared transformations for Norwegian UD treebanks."""
 
 from collections.abc import Sequence
 
 from prism.conllu import Token
 from prism.data.examples import (
     PretokenizedSentence,
-    SupervisedSentence,
     SupervisedCorpus,
+    SupervisedSentence,
     TokenTargets,
 )
 from prism.schema import (
     TokenTaskSchema,
-    derive_lemma_edit_rule,
-    encode_morphology_targets,
     build_lemma_rule_schema,
     build_morphology_schema,
     build_upos_schema,
+    derive_lemma_edit_rule,
+    encode_morphology_targets,
 )
 
 
-def normalize_norwegian_bokmaal_ud_lemma(
-    raw_lemma: str,
-) -> str:
+def normalize_norwegian_ud_lemma(raw_lemma: str) -> str:
     return raw_lemma.removeprefix("$")
 
 
-def encode_norwegian_bokmaal_sentence(
+def encode_norwegian_sentence(
     tokens: Sequence[Token],
     *,
     schema: TokenTaskSchema,
@@ -46,7 +44,7 @@ def encode_norwegian_bokmaal_sentence(
             lemma_rule_id = None
         else:
             lemma_is_annotated = True
-            normalized_lemma = normalize_norwegian_bokmaal_ud_lemma(token.lemma)
+            normalized_lemma = normalize_norwegian_ud_lemma(token.lemma)
             lemma_rule = derive_lemma_edit_rule(
                 token.text,
                 normalized_lemma,
@@ -77,20 +75,19 @@ def encode_norwegian_bokmaal_sentence(
     )
 
 
-def encode_norwegian_bokmaal_sentences(
+def encode_norwegian_sentences(
     sentences: Sequence[Sequence[Token]],
     *,
     schema: TokenTaskSchema,
 ) -> SupervisedCorpus:
     return SupervisedCorpus(
         sentences=tuple(
-            encode_norwegian_bokmaal_sentence(sentence, schema=schema)
-            for sentence in sentences
+            encode_norwegian_sentence(sentence, schema=schema) for sentence in sentences
         )
     )
 
 
-def build_norwegian_bokmaal_schema(
+def build_norwegian_schema(
     sentences: Sequence[Sequence[Token]],
 ) -> TokenTaskSchema:
     upos_schema = build_upos_schema(
@@ -102,7 +99,7 @@ def build_norwegian_bokmaal_schema(
     lemma_rule_schema = build_lemma_rule_schema(
         (
             token.text,
-            normalize_norwegian_bokmaal_ud_lemma(token.lemma),
+            normalize_norwegian_ud_lemma(token.lemma),
         )
         for sentence in sentences
         for token in sentence

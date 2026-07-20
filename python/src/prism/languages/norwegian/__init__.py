@@ -1,6 +1,17 @@
 """Norwegian Prism language profiles."""
 
 from prism.languages.norwegian.backbones import NORBERT4_XSMALL_BACKBONE
-from prism.languages.norwegian.profile import NORWEGIAN_BOKMAAL_PROFILE
+from prism.languages.norwegian.profile import (
+    NORWEGIAN_BOKMAAL_PROFILE,
+    NORWEGIAN_NYNORSK_PROFILE,
+    NORWEGIAN_WRITTEN_STANDARD_PROFILES,
+    norwegian_profile_for_language_tag,
+)
 
-__all__ = ["NORBERT4_XSMALL_BACKBONE", "NORWEGIAN_BOKMAAL_PROFILE"]
+__all__ = [
+    "NORBERT4_XSMALL_BACKBONE",
+    "NORWEGIAN_BOKMAAL_PROFILE",
+    "NORWEGIAN_NYNORSK_PROFILE",
+    "NORWEGIAN_WRITTEN_STANDARD_PROFILES",
+    "norwegian_profile_for_language_tag",
+]

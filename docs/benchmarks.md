@@ -208,3 +208,46 @@ gains include `Mood=Imp` from 11.24% to 46.97%, `NumType=Ord` from 69.38% to
 88.63%. This makes the capped class-weighted checkpoint the stronger
 supervised student baseline for subsequent Nynorsk and teacher-distillation
 comparisons, while final output calibration remains deferred.
+
+## Norwegian Nynorsk Transformer student
+
+### Five-epoch class-weighted single-standard reference
+
+This reference optimizes model parameters only on the official Nynorsk
+training split. Its task heads use the shared Norwegian schema built from the
+pinned Bokmål and Nynorsk training splits, so later separate and joint models
+have directly compatible output inventories. No development labels contribute
+to the schema or class weights, and the test split remains unused.
+
+- Source: UniversalDependencies/UD_Norwegian-Nynorsk
+- Commit: `aaeb9d90c748c2bd9e272f180b599484f9f05ac6`
+- License: CC BY-SA 4.0
+- Training sentences/tokens: 14,174 / 245,330
+- Development sentences/tokens: 1,890 / 31,250
+- Shared-schema sentences: 29,870
+- Shared morphology features: 18
+- Shared lemma edit rules: 1,059
+- Epochs: 5
+- Batch size: 16
+- Morphology positive-weight cap: 10.0
+- End-to-end wall time: approximately 9 minutes 1 second
+- Selected checkpoint: epoch 5
+- Checkpoint: `runs/nn-student-weighted/best.pt`
+- Checkpoint size: 68,739,291 bytes
+- Weighted training joint loss at selected epoch: 0.264932
+- Unweighted development joint loss: 0.239937
+- Development UPOS accuracy: 98.13%
+- Development lemma-rule accuracy: 96.19%
+- Supported real morphology labels: 36 of 40
+- Supported-label micro precision/recall/F1: 82.27% / 93.96% / 87.73%
+- Supported-label macro F1: 81.94%
+- Supported-label macro Average Precision: 87.17%
+
+The main controlled weakness is `Gender=Com`: it has 733 development examples
+but no positive Nynorsk training example, producing 0% F1 and 2.32% Average
+Precision. The Bokmål training split contains 4,806 positive examples, so this
+label is a direct transfer test for the upcoming balanced joint model. Other
+low-AP supported labels include `Number=Sing` at 0.02% with only two examples,
+`Gender=Fem` at 46.68%, `Foreign=Yes` at 53.90%, and `Mood=Imp` at 53.97%.
+Labels without Nynorsk development support have undefined Average Precision
+and are excluded from the supported-label macro summaries.

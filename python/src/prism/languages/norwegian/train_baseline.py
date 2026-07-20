@@ -7,10 +7,13 @@ import torch
 
 from prism.conllu import read_sentences
 from prism.data import (
-    build_norwegian_bokmaal_schema,
-    encode_norwegian_bokmaal_sentences,
+    build_norwegian_schema,
+    encode_norwegian_sentences,
 )
-from prism.languages.norwegian import NORWEGIAN_BOKMAAL_PROFILE
+from prism.languages.norwegian import (
+    NORWEGIAN_WRITTEN_STANDARD_PROFILES,
+    norwegian_profile_for_language_tag,
+)
 from prism.modeling import (
     build_pretrained_token_tagger,
     load_backbone_tokenizer,
@@ -25,11 +28,11 @@ from prism.training import (
     build_linear_warmup_decay_scheduler,
     build_supervised_adamw_optimizer,
     build_supervised_sentence_batches,
+    build_token_task_loss_weights,
     evaluate_supervised_token_task_epoch,
     iter_supervised_token_task_batches,
     run_supervised_training_epochs,
     train_supervised_token_task_epoch,
-    build_token_task_loss_weights,
 )
 
 
@@ -37,13 +40,19 @@ from prism.training import (
 class BaselineTrainingArguments:
     checkpoint_path: Path
     morphology_positive_weight_cap: float | None
+    language_tag: str
 
 
 def parse_training_arguments(
     arguments: Sequence[str] | None = None,
 ) -> BaselineTrainingArguments:
     parser = argparse.ArgumentParser(
-        description="Train the Norwegian Bokmål student baseline.",
+        description="Train a Norwegian student baseline.",
+    )
+    parser.add_argument(
+        "--language-tag",
+        choices=("nb", "nn"),
+        default="nb",
     )
     parser.add_argument(
         "--checkpoint",
@@ -60,6 +69,7 @@ def parse_training_arguments(
     parsed_arguments = parser.parse_args(arguments)
 
     return BaselineTrainingArguments(
+        language_tag=parsed_arguments.language_tag,
         checkpoint_path=parsed_arguments.checkpoint_path,
         morphology_positive_weight_cap=(
             parsed_arguments.morphology_positive_weight_cap
@@ -85,9 +95,19 @@ def _report_progress(
 
 def main() -> None:
     arguments = parse_training_arguments()
-    data_root = Path("data/raw/UD_Norwegian-Bokmaal")
-    training_tokens = read_sentences(data_root / "no_bokmaal-ud-train.conllu")
-    development_tokens = read_sentences(data_root / "no_bokmaal-ud-dev.conllu")
+    profile = norwegian_profile_for_language_tag(arguments.language_tag)
+    treebank = profile.gold_treebank
+
+    training_tokens = read_sentences(treebank.training_path)
+    development_tokens = read_sentences(treebank.development_path)
+
+    schema_training_tokens = tuple(
+        sentence
+        for written_standard_profile in (NORWEGIAN_WRITTEN_STANDARD_PROFILES)
+        for sentence in read_sentences(
+            written_standard_profile.gold_treebank.training_path
+        )
+    )
 
     print("Training sentences:", len(training_tokens))
     print(
@@ -95,12 +115,12 @@ def main() -> None:
         len(development_tokens),
     )
 
-    schema = build_norwegian_bokmaal_schema(training_tokens)
-    training_corpus = encode_norwegian_bokmaal_sentences(
+    schema = build_norwegian_schema(schema_training_tokens)
+    training_corpus = encode_norwegian_sentences(
         training_tokens,
         schema=schema,
     )
-    development_corpus = encode_norwegian_bokmaal_sentences(
+    development_corpus = encode_norwegian_sentences(
         development_tokens,
         schema=schema,
     )
@@ -132,7 +152,7 @@ def main() -> None:
     if loss_weights is not None:
         loss_weights = loss_weights.to(device)
 
-    backbone_spec = NORWEGIAN_BOKMAAL_PROFILE.student_backbone
+    backbone_spec = profile.student_backbone
     tokenizer = load_backbone_tokenizer(backbone_spec)
     model = build_pretrained_token_tagger(
         backbone_spec=backbone_spec,
@@ -260,9 +280,13 @@ def main() -> None:
 
         torch.save(
             {
-                "checkpoint_format_version": 1,
+                "checkpoint_format_version": 2,
                 "epoch_index": epoch.epoch_index,
-                "language_tag": (NORWEGIAN_BOKMAAL_PROFILE.language_tag),
+                "language_tag": profile.language_tag,
+                "schema_language_tags": tuple(
+                    schema_profile.language_tag
+                    for schema_profile in NORWEGIAN_WRITTEN_STANDARD_PROFILES
+                ),
                 "backbone_model_id": (backbone_spec.model_id),
                 "backbone_revision": (backbone_spec.revision),
                 "training_config": asdict(config),

@@ -10,10 +10,11 @@ language-specific models through a unified, versioned API for tokenization,
 sentence segmentation, part-of-speech tagging, lemmatization, and
 morphological analysis across Python and native platforms.
 
-The current implementation focuses on Norwegian. Bokmål (`nb`) is the first
-trained language profile; Nynorsk (`nn`) is the active second profile. Prism's
-shared model, training, evaluation, export, and artifact contracts remain
-language-independent.
+The current implementation focuses on Norwegian. Bokmål (`nb`) and Nynorsk
+(`nn`) now have separately measured gold-only student references over a shared
+Norwegian schema. The production target is a single balanced Norwegian model.
+Prism's shared model, training, evaluation, export, and artifact contracts
+remain language-independent.
 
 ## Current status
 
@@ -199,17 +200,19 @@ are excluded through `.gitignore`.
 
 ## Roadmap
 
-1. Add the separately pinned Nynorsk profile and establish its gold-only
-   student baseline.
-2. Fine-tune a high-capacity Norwegian teacher under a commercially compatible
+1. Add the separately pinned Nynorsk data profile and establish its gold-only
+   student reference.
+2. Train a balanced shared Norwegian student and compare separate Bokmål and
+   Nynorsk development quality with the single-standard references.
+3. Fine-tune a shared high-capacity Norwegian teacher under a commercially compatible
    license and record separate Bokmål and Nynorsk quality.
-3. Distill the teacher into the same compact student and compare it with the
+4. Distill the teacher into the same compact student and compare it with the
    gold-only ablation.
-4. Calibrate confidence, freeze the language artifact schema, and evaluate the
+5. Calibrate confidence, freeze the language artifact schema, and evaluate the
    untouched test splits.
-5. Export the selected student and measure the 6,000-token document fixture on
+6. Export the selected student and measure the 6,000-token document fixture on
    production runtimes.
-6. Provide stable Swift, Java/Kotlin, and C++ packages over the versioned model
+7. Provide stable Swift, Java/Kotlin, and C++ packages over the versioned model
    artifact contract.
 
 ## Licensing

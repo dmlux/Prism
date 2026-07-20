@@ -5,17 +5,20 @@ from prism.languages.norwegian.evaluate_baseline import (
 )
 
 
-def test_parse_evaluation_arguments_accepts_weighted_checkpoint() -> None:
+def test_parse_evaluation_arguments_accepts_language_profile() -> None:
     arguments = parse_evaluation_arguments(
         (
+            "--language-tag",
+            "nn",
             "--checkpoint",
-            "runs/nb-student-weighted/best.pt",
+            "runs/nn-student-weighted/best.pt",
             "--analysis",
-            "runs/nb-student-weighted/development-analysis.json",
+            "runs/nn-student-weighted/development-analysis.json",
         )
     )
 
-    assert arguments.checkpoint_path == Path("runs/nb-student-weighted/best.pt")
+    assert arguments.language_tag == "nn"
+    assert arguments.checkpoint_path == Path("runs/nn-student-weighted/best.pt")
     assert arguments.analysis_path == Path(
-        "runs/nb-student-weighted/development-analysis.json"
+        "runs/nn-student-weighted/development-analysis.json"
     )

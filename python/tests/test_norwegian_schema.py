@@ -1,16 +1,17 @@
 from prism.conllu import Token
-from prism.data.norwegian_bokmaal import (
-    build_norwegian_bokmaal_schema,
-)
+from prism.data.norwegian import build_norwegian_schema
 from prism.schema import LemmaEditRule, MorphologyFeatureSchema
 
 
-def test_build_norwegian_bokmaal_schema_uses_training_data() -> None:
-    schema = build_norwegian_bokmaal_schema(
+def test_build_norwegian_schema_uses_training_data() -> None:
+    schema = build_norwegian_schema(
         [
             [
                 Token(
-                    text="husene", lemma="hus", upos="NOUN", features={"Number": "Plur"}
+                    text="husene",
+                    lemma="hus",
+                    upos="NOUN",
+                    features={"Number": "Plur"},
                 ),
                 Token(text=".", lemma="$.", upos="PUNCT", features={}),
             ]

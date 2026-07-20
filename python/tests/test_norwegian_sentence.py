@@ -1,7 +1,7 @@
 from prism.conllu import Token
-from prism.data.norwegian_bokmaal import (
-    encode_norwegian_bokmaal_sentence,
-    encode_norwegian_bokmaal_sentences,
+from prism.data.norwegian import (
+    encode_norwegian_sentence,
+    encode_norwegian_sentences,
 )
 from prism.schema import (
     build_lemma_rule_schema,
@@ -12,7 +12,7 @@ from prism.schema import (
 from prism.data import PretokenizedSentence
 
 
-def test_encode_norwegian_bokmaal_sentence_builds_targets() -> None:
+def test_encode_norwegian_sentence_builds_targets() -> None:
     upos_schema = build_upos_schema(
         [
             "NOUN",
@@ -37,7 +37,7 @@ def test_encode_norwegian_bokmaal_sentence_builds_targets() -> None:
         lemma_rules=lemma_rule_schema,
     )
 
-    sentence = encode_norwegian_bokmaal_sentence(
+    sentence = encode_norwegian_sentence(
         [
             Token(
                 text="husene",
@@ -89,7 +89,7 @@ def test_encode_sentence_distinguishes_missing_and_unknown_lemmas() -> None:
         ),
     )
 
-    sentence = encode_norwegian_bokmaal_sentence(
+    sentence = encode_norwegian_sentence(
         [
             Token(
                 text="gikk",
@@ -136,7 +136,7 @@ def test_encode_sentences_reports_lemma_rule_coverage() -> None:
         ),
     )
 
-    corpus = encode_norwegian_bokmaal_sentences(
+    corpus = encode_norwegian_sentences(
         [
             [
                 Token(

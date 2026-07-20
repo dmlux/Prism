@@ -9,6 +9,22 @@ linguistic analysis. The first production family is Norwegian, with separate
 Bokmål (`nb`) and Nynorsk (`nn`) language profiles behind shared model,
 training, evaluation, export, artifact, and native API contracts.
 
+The production target is one shared Norwegian teacher and one shared compact
+Norwegian student for Bokmål, Nynorsk, and mixed written input. The separate
+profiles preserve dataset provenance, schemas, sampling, and per-standard
+evaluation; they do not require separate shipped model weights. A shared model
+must still match or improve the separately trained references on both
+development splits.
+
+Prism is intended to support many future languages while preserving LexKeep's
+offline-first contract. There is no model server: every language advertised by
+an installation must already be available in local storage and inference must
+never require a network connection. The runtime may load only the currently
+used local artifacts into memory. Closely related written standards may share
+a measured model family; broader multilingual sharing, distillation,
+quantization, and packaging must keep the complete local installation
+practical without weakening per-language quality reporting.
+
 The shipped model must remain compact enough for complete LexKeep documents
 of roughly 200 sentences and 6,000 tokens. A high-capacity teacher is a
 development dependency only; the released runtime contains the measured
@@ -58,7 +74,8 @@ python -m pip install -e './python[dev]'
 - commit: `aaeb9d90c748c2bd9e272f180b599484f9f05ac6`
 - license: CC BY-SA 4.0
 - local path: `data/raw/UD_Norwegian-Nynorsk`
-- status: downloaded and pinned; Prism profile and adapter are the next task
+- status: downloaded and pinned; language profile and shared Norwegian UD
+  adapter are implemented
 - target: standard written-language treebank, not NynorskLIA
 
 Both local dataset repositories use the local branch `prism-pinned` at their
@@ -92,6 +109,9 @@ dimensions from the selected language schema.
 Implemented shared components include:
 
 - typed pretrained-backbone and language-profile contracts;
+- separate Bokmål and Nynorsk profiles over the shared NorBERT4-xsmall
+  backbone specification;
+- one shared Norwegian UD normalizer, sentence encoder, and schema builder;
 - tokenizer loading and whitespace-preserving pretokenized input;
 - subword-to-token alignment;
 - contextual backbone execution;
@@ -164,6 +184,34 @@ deferred.
 
 Complete feature and label results are recorded in `docs/benchmarks.md`.
 
+## Nynorsk gold-only student
+
+The Nynorsk-only parameter reference uses the same class-weighting policy and
+the shared Norwegian schema derived exclusively from the Bokmål and Nynorsk
+training splits. It receives only Nynorsk sentences during optimization.
+
+- checkpoint: `runs/nn-student-weighted/best.pt`
+- checkpoint format: 2
+- schema language tags: `nb`, `nn`
+- selected epoch: 5
+- checkpoint size: 68,739,291 bytes
+- development joint loss: 0.239937
+- development UPOS accuracy: 98.13%
+- development lemma-rule accuracy: 96.19%
+- supported non-`<NONE>` morphology micro precision/recall/F1:
+  82.27% / 93.96% / 87.73%
+- supported non-`<NONE>` morphology macro F1: 81.94%
+- supported non-`<NONE>` morphology macro Average Precision: 87.17%
+
+The Nynorsk training split contains no positive `Gender=Com` example, while
+the development split contains 733. The reference therefore reaches 0% F1
+and 2.32% Average Precision for that value. Bokmål training contains 4,806
+positive examples, making this the clearest predeclared test of whether shared
+training transfers useful information across the written standards. Four of
+the 40 real shared-schema labels have no Nynorsk development support and are
+excluded from supported-label macro summaries. Both Norwegian test splits
+remain untouched.
+
 ## Repeatable commands
 
 Train the unweighted Bokmål control:
@@ -198,12 +246,13 @@ with the Transformer student generation.
 
 ## Immediate next step
 
-Add the Nynorsk language profile and dataset adapter while keeping all shared
-model, batching, loss, metric, checkpoint, and export code independent of the
-written standard. Build the Nynorsk schema from its pinned training split and
-record separate development metrics. Do not combine Bokmål and Nynorsk scores
-or touch either test split.
+Train one shared Norwegian student with balanced Bokmål and Nynorsk batches,
+the existing shared schema, and the selected class-weighting policy. Evaluate
+the fixed checkpoint separately on Bokmål-Dev and Nynorsk-Dev; do not combine
+the scores or touch either test split.
 
-After the separate Nynorsk gold-only baseline exists, compare separate and
-shared Norwegian student variants. Teacher fine-tuning and distillation follow
-that written-standard baseline, not before it.
+After the separate Nynorsk gold-only reference exists, train the shared
+Norwegian student on balanced Bokmål and Nynorsk data and evaluate it
+separately on both development splits. The shared model is the production
+target unless it causes a measured regression. Teacher fine-tuning and
+distillation follow that comparison, not before it.

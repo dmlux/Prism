@@ -8,14 +8,14 @@ import torch
 
 from prism.conllu import read_sentences
 from prism.data import (
-    build_norwegian_bokmaal_schema,
-    encode_norwegian_bokmaal_sentences,
+    build_norwegian_schema,
+    encode_norwegian_sentences,
 )
 from prism.evaluation.classification import (
     calculate_classification_metrics,
 )
 from prism.languages.norwegian import (
-    NORWEGIAN_BOKMAAL_PROFILE,
+    norwegian_profile_for_language_tag,
 )
 from prism.modeling import (
     build_pretrained_token_tagger,
@@ -34,13 +34,19 @@ from prism.training import (
 class BaselineEvaluationArguments:
     checkpoint_path: Path
     analysis_path: Path
+    language_tag: str
 
 
 def parse_evaluation_arguments(
     arguments: Sequence[str] | None = None,
 ) -> BaselineEvaluationArguments:
     parser = argparse.ArgumentParser(
-        description="Evaluate a Norwegian Bokmål student baseline.",
+        description="Evaluate a Norwegian student baseline.",
+    )
+    parser.add_argument(
+        "--language-tag",
+        choices=("nb", "nn"),
+        default="nb",
     )
     parser.add_argument(
         "--checkpoint",
@@ -58,6 +64,7 @@ def parse_evaluation_arguments(
     parsed_arguments = parser.parse_args(arguments)
 
     return BaselineEvaluationArguments(
+        language_tag=parsed_arguments.language_tag,
         checkpoint_path=parsed_arguments.checkpoint_path,
         analysis_path=parsed_arguments.analysis_path,
     )
@@ -72,23 +79,52 @@ def main() -> None:
         weights_only=True,
     )
 
-    data_root = Path("data/raw/UD_Norwegian-Bokmaal")
-    training_tokens = read_sentences(data_root / "no_bokmaal-ud-train.conllu")
-    development_tokens = read_sentences(data_root / "no_bokmaal-ud-dev.conllu")
+    profile = norwegian_profile_for_language_tag(arguments.language_tag)
 
-    schema = build_norwegian_bokmaal_schema(training_tokens)
+    checkpoint_language_tag = checkpoint.get("language_tag")
+    if checkpoint_language_tag != profile.language_tag:
+        raise ValueError(
+            "Checkpoint language tag does not match "
+            f"the selected profile: {checkpoint_language_tag!r}"
+        )
+
+    raw_schema_language_tags = checkpoint.get("schema_language_tags")
+
+    if raw_schema_language_tags is None:
+        schema_language_tags = (profile.language_tag,)
+    elif isinstance(raw_schema_language_tags, (list, tuple)) and all(
+        isinstance(language_tag, str) for language_tag in raw_schema_language_tags
+    ):
+        schema_language_tags = tuple(raw_schema_language_tags)
+    else:
+        raise ValueError("Checkpoint schema language tags are invalid.")
+
+    schema_profiles = tuple(
+        norwegian_profile_for_language_tag(language_tag)
+        for language_tag in schema_language_tags
+    )
+
+    schema_training_tokens = tuple(
+        sentence
+        for schema_profile in schema_profiles
+        for sentence in read_sentences(schema_profile.gold_treebank.training_path)
+    )
+
+    development_tokens = read_sentences(profile.gold_treebank.development_path)
+
+    schema = build_norwegian_schema(schema_training_tokens)
 
     if checkpoint["schema"] != (serialize_token_task_schema(schema)):
         raise ValueError("Checkpoint schema does not match the pinned training data.")
 
-    backbone_spec = NORWEGIAN_BOKMAAL_PROFILE.student_backbone
+    backbone_spec = profile.student_backbone
 
     if checkpoint["backbone_model_id"] != (backbone_spec.model_id):
         raise ValueError("Checkpoint backbone model does not match.")
     if checkpoint["backbone_revision"] != (backbone_spec.revision):
         raise ValueError("Checkpoint backbone revision does not match.")
 
-    development_corpus = encode_norwegian_bokmaal_sentences(
+    development_corpus = encode_norwegian_sentences(
         development_tokens,
         schema=schema,
     )
