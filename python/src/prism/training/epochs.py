@@ -7,6 +7,9 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
 
 from prism.evaluation.metrics import count_token_task_predictions
+from prism.evaluation.ranking import (
+    calculate_average_precision,
+)
 from prism.modeling.decoding import decode_token_task_logits
 from prism.schema import MorphologySchema
 from prism.training.batches import SupervisedTokenTaskBatch
@@ -54,6 +57,10 @@ class SupervisedEvaluationMetrics:
     ]
     morphology_false_negative_counts: tuple[
         tuple[int, ...],
+        ...,
+    ]
+    morphology_average_precisions: tuple[
+        tuple[float | None, ...],
         ...,
     ]
 
@@ -200,6 +207,14 @@ def evaluate_supervised_token_task_epoch(
         )
         for feature in morphology_schema.features
     )
+    morphology_score_batches: tuple[
+        list[torch.Tensor],
+        ...,
+    ] = tuple([] for _ in morphology_schema.features)
+    morphology_target_batches: tuple[
+        list[torch.Tensor],
+        ...,
+    ] = tuple([] for _ in morphology_schema.features)
 
     def process_batch(
         batch: SupervisedTokenTaskBatch,
@@ -217,6 +232,25 @@ def evaluate_supervised_token_task_epoch(
             predictions=predictions,
             targets=batch.targets,
         )
+
+        for (
+            score_batches,
+            target_batches,
+            feature_logits,
+            feature_targets,
+        ) in zip(
+            morphology_score_batches,
+            morphology_target_batches,
+            logits.morphology_logits,
+            batch.targets.morphology_targets,
+            strict=True,
+        ):
+            score_batches.append(
+                feature_logits[batch.targets.token_mask].detach().cpu()
+            )
+            target_batches.append(
+                feature_targets[batch.targets.token_mask].detach().cpu()
+            )
 
         upos_correct_count.add_(counts.upos_correct_count)
         lemma_rule_correct_count.add_(counts.lemma_rule_correct_count)
@@ -273,6 +307,32 @@ def evaluate_supervised_token_task_epoch(
         empty_epoch_message=("Evaluation epoch must contain batches."),
     )
 
+    morphology_average_precisions: list[tuple[float | None, ...]] = []
+
+    for score_batches, target_batches in zip(
+        morphology_score_batches,
+        morphology_target_batches,
+        strict=True,
+    ):
+        feature_scores = torch.cat(
+            score_batches,
+            dim=0,
+        )
+        feature_targets = torch.cat(
+            target_batches,
+            dim=0,
+        )
+
+        morphology_average_precisions.append(
+            tuple(
+                calculate_average_precision(
+                    scores=feature_scores[:, label_index],
+                    targets=feature_targets[:, label_index],
+                )
+                for label_index in range(feature_scores.shape[-1])
+            )
+        )
+
     morphology_annotated_accuracies = tuple(
         None
         if annotated_count.item() == 0
@@ -312,4 +372,5 @@ def evaluate_supervised_token_task_epoch(
             tuple(int(value) for value in counts.detach().cpu().tolist())
             for counts in morphology_false_negative_counts
         ),
+        morphology_average_precisions=tuple(morphology_average_precisions),
     )

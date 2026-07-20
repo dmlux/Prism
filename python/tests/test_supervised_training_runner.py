@@ -30,6 +30,7 @@ def _evaluation_metrics(
         morphology_true_positive_counts=((1, 0),),
         morphology_false_positive_counts=((0, 0),),
         morphology_false_negative_counts=((0, 1),),
+        morphology_average_precisions=((0.5, 0.5),),
     )
 
 

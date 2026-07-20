@@ -160,6 +160,7 @@ def test_evaluation_epoch_reports_task_accuracies() -> None:
     assert metrics.morphology_true_positive_counts == ((1, 0),)
     assert metrics.morphology_false_positive_counts == ((1, 0),)
     assert metrics.morphology_false_negative_counts == ((0, 1),)
+    assert metrics.morphology_average_precisions == ((0.5, 0.5),)
 
     assert not model.training
 

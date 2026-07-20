@@ -145,9 +145,9 @@
   `<NONE>` class otherwise inflates the headline score.
 - Preserve existing checkpoint compatibility when practical. If a format must
   change, document the migration or explicitly version the new format.
-- Keep the current recurrent models as reproducible baselines until a
-  replacement passes the documented quality and document-inference gates. Do
-  not delete old training paths merely to make the repository look cleaner.
+- Treat the selected class-weighted Transformer student as the gold-only
+  reference for teacher-distillation ablations. Do not reintroduce the removed
+  recurrent or dictionary experiment paths.
 - For teacher-student work, report an ablation against the same student trained
   without distillation. A larger teacher is not evidence that the shipped
   student improved.
@@ -155,11 +155,9 @@
 ## Verification
 
 - After Python changes, run `python -m pytest python/tests`.
-- For changes to inference, checkpoint loading, or model structure, also run a
-  representative `python -m prism.baselines.recurrent.cli.evaluate_*` or
-  `python -m prism.baselines.recurrent.cli.predict_*` command when verifying
-  the recurrent baseline and the required local data and checkpoint are
-  available.
+- For changes to inference, checkpoint loading, or model structure, also run
+  the relevant language-specific training or evaluation smoke command when
+  its local data and checkpoint are available.
 - For model export, verify numerical parity between PyTorch and the exported
   artifact. For production-runtime changes, measure the 6,000-token,
   200-sentence document fixture using the protocol in

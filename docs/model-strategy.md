@@ -1,7 +1,7 @@
 # Prism model and runtime strategy
 
-Status: accepted architectural direction, implementation not yet started  
-Date: 2026-07-15
+Status: active architectural direction with trained Bokmål student
+Last updated: 2026-07-20
 
 ## Purpose
 
@@ -11,9 +11,10 @@ remains Norwegian Bokmål, externally tokenized by a caller such as LexKeep.
 The architecture must later allow separate language packages behind the same
 public API.
 
-This document defines the direction for the next model generation. It does not
-claim that the new model already exists or outperforms the recurrent baseline.
-Every such claim requires a recorded benchmark on the pinned data splits.
+This document defines the active Transformer, teacher-student, and native
+runtime direction. The gold-only Bokmål student is implemented and measured;
+every further quality claim still requires a recorded benchmark on pinned
+data splits.
 
 ## Language-independent core and language profiles
 
@@ -99,28 +100,20 @@ Primary references:
 - [NorBERT4 model card](https://huggingface.co/ltg/norbert4-base)
 - [UD Norwegian Nynorsk](https://github.com/UniversalDependencies/UD_Norwegian-Nynorsk)
 
-## Why the current model is not the final architecture
+## Current student and remaining production gap
 
-The current word-and-character BiLSTM is a useful baseline. It learns directly
-from the annotated Universal Dependencies training split and jointly predicts
-UPOS and the single morphology feature `Number`. It is small, fast, and has
-already demonstrated that character information helps unknown Norwegian
-words.
+The implemented NorBERT4-xsmall student already predicts UPOS, the observed
+Norwegian UD morphology inventory, and lemma edit rules through shared task
+heads. Its gold-only, class-weighted checkpoint is the reproducible control for
+later distillation. Threshold-independent development evaluation confirms that
+class weighting improves label ranking rather than merely increasing output
+volume.
 
-Its limitations are structural:
-
-- it receives no broad Norwegian language knowledge learned from unannotated
-  text;
-- morphology is hard-coded to one feature head;
-- combined feature values are represented as rare monolithic classes;
-- there is no lemmatization objective;
-- there is no stable export artifact or native runtime contract;
-- evaluation currently measures sentences from a treebank, not complete
-  LexKeep-sized documents through a production API.
-
-The recurrent model remains a reproducible baseline until a replacement has
-been shown to be both better and fast enough. Existing results must not be
-deleted merely because a newer architecture is being developed.
+It is not yet a production release because Nynorsk, teacher distillation,
+confidence calibration, frozen artifact metadata, native runtime packaging,
+and the 6,000-token document benchmark remain incomplete. These are the active
+gaps; removed historical experiment architectures are not part of the current
+runtime or comparison contract.
 
 ## Teacher and student
 
@@ -282,31 +275,18 @@ At minimum, every candidate report includes:
   accuracy at documented abstention thresholds;
 - model size, peak memory, cold latency, warm latency, and tokens per second.
 
-The student must be compared with the current BiLSTM baseline, the same student
-trained without distillation, its teacher, and an independently reproduced
-external pipeline such as UDPipe on compatible data and input conditions.
-Gold-token and raw-text evaluations must never be mixed. Prism can claim to
-match or beat another system only when the dataset revision, splits,
-tokenization condition, tasks, and metrics are genuinely comparable.
+The distilled student must be compared with the same student trained without
+distillation, its teacher, and an independently reproduced external pipeline
+such as UDPipe on compatible data and input conditions. Gold-token and
+raw-text evaluations must never be mixed. Prism can claim to match or beat
+another system only when the dataset revision, splits, tokenization condition,
+tasks, and metrics are genuinely comparable.
 
-## Repository transition
+## Repository structure
 
-The completed recurrent implementation is isolated under
-`prism.baselines.recurrent`, including its tensor datasets, vocabularies,
-models, training, evaluation, inference, and CLI implementations. The original
-top-level model and command modules have been removed; baseline commands use
-the explicit `prism.baselines.recurrent.cli` namespace. Recurrent checkpoint
-reconstruction continues to work. The dictionary comparison lives separately
-under `prism.baselines.dictionary`.
-
-The next-generation path can now introduce cleanly separated data/schema, task
-heads, teacher experiments, student models, training, evaluation, export, and
-artifact tooling without extending the recurrent baseline modules.
-
-No old training entry point or checkpoint format should be removed before:
-
-- its documented benchmark remains reproducible;
-- the replacement has passed the quality and runtime gates;
-- any required checkpoint migration is documented;
-- `README.md`, `docs/PROJECT_STATUS.md`, and `docs/benchmarks.md` reflect the
-  transition.
+Production Python code is organized by stable concerns under data/schema,
+language profiles, model components, training, evaluation, export, and
+artifact loading. Historical recurrent and dictionary experiments were
+removed after the Transformer student surpassed their documented scope and
+became the gold-only distillation reference. New work extends the shared typed
+pipeline rather than creating a parallel experiment namespace.

@@ -1,5 +1,7 @@
-from dataclasses import asdict
+import argparse
 import json
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import torch
@@ -28,8 +30,42 @@ from prism.training import (
 )
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class BaselineEvaluationArguments:
+    checkpoint_path: Path
+    analysis_path: Path
+
+
+def parse_evaluation_arguments(
+    arguments: Sequence[str] | None = None,
+) -> BaselineEvaluationArguments:
+    parser = argparse.ArgumentParser(
+        description="Evaluate a Norwegian Bokmål student baseline.",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=Path,
+        default=Path("runs/nb-student-baseline/best.pt"),
+        dest="checkpoint_path",
+    )
+    parser.add_argument(
+        "--analysis",
+        type=Path,
+        default=Path("runs/nb-student-baseline/development-analysis-logit-zero.json"),
+        dest="analysis_path",
+    )
+
+    parsed_arguments = parser.parse_args(arguments)
+
+    return BaselineEvaluationArguments(
+        checkpoint_path=parsed_arguments.checkpoint_path,
+        analysis_path=parsed_arguments.analysis_path,
+    )
+
+
 def main() -> None:
-    checkpoint_path = Path("runs/nb-student-baseline/best.pt")
+    arguments = parse_evaluation_arguments()
+    checkpoint_path = arguments.checkpoint_path
     checkpoint = torch.load(
         checkpoint_path,
         map_location="cpu",
@@ -104,21 +140,30 @@ def main() -> None:
         true_positive_counts,
         false_positive_counts,
         false_negative_counts,
+        average_precisions,
     ) in zip(
         schema.morphology.features,
         metrics.morphology_true_positive_counts,
         metrics.morphology_false_positive_counts,
         metrics.morphology_false_negative_counts,
+        metrics.morphology_average_precisions,
         strict=True,
     ):
         print()
         print(feature.name)
 
-        for label, true_positive, false_positive, false_negative in zip(
+        for (
+            label,
+            true_positive,
+            false_positive,
+            false_negative,
+            average_precision,
+        ) in zip(
             feature.labels,
             true_positive_counts,
             false_positive_counts,
             false_negative_counts,
+            average_precisions,
             strict=True,
         ):
             label_metrics = calculate_classification_metrics(
@@ -127,16 +172,23 @@ def main() -> None:
                 false_negative_count=(false_negative),
             )
 
+            average_precision_text = (
+                "undefined" if average_precision is None else f"{average_precision:.4f}"
+            )
+
             print(
                 f"  {label}: "
                 f"support={label_metrics.support}, "
                 f"precision={label_metrics.precision:.4f}, "
                 f"recall={label_metrics.recall:.4f}, "
-                f"f1={label_metrics.f1:.4f}"
+                f"f1={label_metrics.f1:.4f}, "
+                f"average_precision={average_precision_text}"
             )
 
-    analysis_path = Path(
-        "runs/nb-student-baseline/development-analysis-logit-zero.json"
+    analysis_path = arguments.analysis_path
+    analysis_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
     )
     analysis_path.write_text(
         json.dumps(

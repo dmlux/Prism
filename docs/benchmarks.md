@@ -1,6 +1,6 @@
 # Prism Benchmarks
 
-## Norwegian Bokmål POS tagging
+## Norwegian Bokmål Transformer student
 
 All results use the official gold tokenization and the original
 train, development, and test splits.
@@ -14,97 +14,10 @@ train, development, and test splits.
 - Development sentences: 2,409
 - Test sentences: 1,939
 
-### Shared training configuration
+The test split remains reserved for final evaluation after architecture,
+training policy, confidence calibration, and artifact configuration are fixed.
 
-- Python: 3.12.13
-- PyTorch: 2.13.0
-- Device: Apple MPS
-- Optimizer: Adam
-- Learning rate: 0.001
-- Epochs: 5 for the initial POS experiments; up to 10 for the
-  extended character and multi-task experiments
-- Training batch size: 32
-- Random seed: 42
-- Minimum word frequency: 2
-- Word vocabulary size: 12,390
-- POS classes: 17
-
-### Word-only BiLSTM
-
-- Word embedding size: 64
-- Sentence BiLSTM hidden size: 128 per direction
-- Development accuracy: 91.91%
-- Test accuracy: 91.22%
-
-### Word and character BiLSTM
-
-- Word embedding size: 64
-- Character embedding size: 32
-- Character BiLSTM hidden size: 32 per direction
-- Sentence BiLSTM hidden size: 128 per direction
-- Character vocabulary size: 115
-- Development accuracy: 96.43%
-- Test accuracy: 95.75%
-
-### Extended word and character BiLSTM
-
-The same architecture was trained for up to 10 epochs while retaining
-the checkpoint with the best development accuracy. The selected checkpoint
-was saved after epoch 9.
-
-- Development accuracy: 96.76%
-- Test accuracy: 96.00%
-- Test accuracy on known tokens: 97.18%
-- Test accuracy on `<UNK>` tokens: 88.87%
-
-Adding character representations reduced the test error rate
-from 8.78% to 4.25%, a relative reduction of approximately 52%.
-
-The test split must not be used for model selection or
-hyperparameter tuning.
-
-### Accuracy by word-vocabulary status
-
-The test split contains 25,706 known tokens and 4,260 tokens
-mapped to `<UNK>`.
-
-| Model | Known tokens | `<UNK>` tokens |
-| --- | ---: | ---: |
-| Word-only BiLSTM | 95.25% | 66.85% |
-| Word and character BiLSTM | 96.87% | 88.94% |
-
-Character representations improved accuracy on `<UNK>` tokens
-by 22.09 percentage points and reduced their error rate by
-approximately 67%.
-
-### POS and Number multi-task BiLSTM
-
-The multi-task model shares its word, character, and sentence
-encoder between POS tagging and Number prediction. Separate
-output layers predict the two tasks.
-
-The checkpoint was selected by the lowest combined development
-loss and was saved after epoch 6.
-
-| Metric | Development | Test |
-| --- | ---: | ---: |
-| POS accuracy | 96.49% | 95.96% |
-| Number accuracy | 97.50% | 97.27% |
-| Number accuracy on annotated tokens | 95.78% | 95.69% |
-
-Number results by value on the test split:
-
-| Value | Precision | Recall | F1 | Support |
-| --- | ---: | ---: | ---: | ---: |
-| `<NONE>` | 98.76% | 98.19% | 98.47% | 18,869 |
-| `Plur` | 94.31% | 94.31% | 94.31% | 3,145 |
-| `Plur,Sing` | 0.00% | 0.00% | 0.00% | 2 |
-| `Sing` | 94.95% | 96.26% | 95.60% | 7,950 |
-
-The multi-task model retains nearly the same POS accuracy as the
-best POS-only model while additionally predicting Number.
-
-## NorBERT4-xsmall student without distillation
+### NorBERT4-xsmall student without distillation
 
 This is the first end-to-end Transformer student baseline. It was trained only
 from the gold UD targets; no teacher or distillation loss was used. It is the
@@ -227,3 +140,71 @@ several rare PronType values. `Gender=Fem` also has only 4.88% recall despite
 substantial development support. These per-value failures, rather than a
 general `<NONE>` or multi-value failure, are the next supervised-baseline
 quality target before teacher distillation.
+
+### Five-epoch class-weighted ablation
+
+A fresh student used the same seed, data, architecture, optimizer, schedule,
+and five-epoch policy as the selected unweighted baseline. Only morphology
+positive examples were reweighted by the square root of the training-split
+negative-to-positive ratio. Weights were fixed from training data alone and
+capped at 10.0 before the run; no development or test labels selected the cap.
+Development loss remained unweighted and comparable. The test split remained
+unused.
+
+- End-to-end wall time: approximately 9 minutes 34 seconds
+- Selected checkpoint: epoch 5
+- Checkpoint: `runs/nb-student-weighted/best.pt`
+- Checkpoint size: 68,386,651 bytes (approximately 65.2 MiB)
+- Weighted training joint loss at selected epoch: 0.239275
+- Unweighted development joint loss: 0.209187
+- Development UPOS accuracy: 98.49%
+- Development lemma-rule accuracy: 96.16%
+
+| Feature | Overall | Annotated |
+| --- | ---: | ---: |
+| Abbr | 99.62% | 70.63% |
+| Animacy | 99.96% | 99.40% |
+| Case | 99.71% | 99.11% |
+| Definite | 97.77% | 96.76% |
+| Degree | 99.04% | 96.53% |
+| Foreign | 99.93% | 84.00% |
+| Gender | 85.63% | 58.33% |
+| Mood | 99.68% | 98.52% |
+| NumType | 99.90% | 98.45% |
+| Number | 96.19% | 93.53% |
+| Person | 99.87% | 99.19% |
+| Polarity | 99.99% | 100.00% |
+| Poss | 99.97% | 98.42% |
+| PronType | 99.09% | 94.60% |
+| Reflex | 100.00% | 100.00% |
+| Tense | 99.68% | 98.59% |
+| VerbForm | 98.44% | 94.88% |
+| Voice | 99.93% | 94.93% |
+
+Across all non-`<NONE>` morphology labels, micro precision changes from 93.53%
+to 87.32%, recall from 88.87% to 96.12%, and micro F1 from 91.14% to 91.51%.
+Macro F1 rises substantially from 77.99% to 89.64%, showing that rare labels
+benefit rather than merely increasing prediction volume. In particular,
+`Abbr=Yes` F1 rises from 19.15% to 62.09%, `Mood=Imp` from 0% to 47.62%,
+`NumType=Ord` from 48.82% to 91.49%, `PronType=Rcp` from 0% to 92.31%, and
+`Voice=Pass` from 53.33% to 90.97%.
+
+Gender exact annotated accuracy falls from 62.44% to 58.33%, but every real
+Gender label improves in F1: Com 68.02% to 68.42%, Fem 9.19% to 44.82%, Masc
+76.55% to 81.18%, and Neut 78.23% to 83.28%. The exact-match regression is
+therefore caused by additional simultaneous value activations, especially the
+low-precision `Gender=Fem` output, not by worse per-label recognition. The
+weighted checkpoint is a strong rare-label candidate, but its precision-recall
+tradeoff must remain explicit when selecting a production model.
+
+The threshold-independent ranking result confirms that the gain is learned
+rather than merely caused by activating more labels. Macro Average Precision
+over all 40 real, non-`<NONE>` morphology labels increases from 86.42% to
+93.01%. The weighted student improves Average Precision for 37 labels, leaves
+`Reflex=Yes` perfect, changes `Person=1` only by numerical noise, and decreases
+only `PronType=Prs` materially, from 99.62% to 99.39%. Strong rare-label AP
+gains include `Mood=Imp` from 11.24% to 46.97%, `NumType=Ord` from 69.38% to
+97.06%, `PronType=Rcp` from 0.59% to 85.74%, and `Voice=Pass` from 79.98% to
+88.63%. This makes the capped class-weighted checkpoint the stronger
+supervised student baseline for subsequent Nynorsk and teacher-distillation
+comparisons, while final output calibration remains deferred.

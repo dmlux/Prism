@@ -5,10 +5,10 @@ Detail. Es ist zugleich technische Referenz und Lerntext: Es beschreibt nicht
 nur, aus welchen Modulen das Modell besteht, sondern auch, wie sich die Daten
 vom extern gelieferten Token bis zur fertigen Vorhersage verändern.
 
-Die hier beschriebene Transformer-Architektur ist der Zielpfad für die erste
-Produktionsgeneration. Die vorhandenen BiLSTM-Modelle bleiben als
-reproduzierbare Baselines erhalten, bis ein neues Modell die dokumentierten
-Qualitäts-, Export- und Laufzeitgrenzen nachweislich erfüllt.
+Die hier beschriebene Transformer-Architektur ist der implementierte Kernpfad
+für die erste Produktionsgeneration. Der trainierte Gold-only-Student bildet
+die reproduzierbare Referenz für spätere Teacher-Distillation; historische
+rekurrente Experimente gehören nicht mehr zur aktiven Architektur.
 
 ## Das wichtigste mentale Modell
 
