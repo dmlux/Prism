@@ -1,5 +1,5 @@
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import torch
 from torch import nn
@@ -19,6 +19,7 @@ from prism.training.losses import (
 )
 from prism.training.steps import (
     evaluate_supervised_token_task_step,
+    train_distilled_token_task_step,
     train_supervised_token_task_step,
 )
 
@@ -65,6 +66,89 @@ class SupervisedEvaluationMetrics:
     ]
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DistilledEpochMetrics:
+    supervised_metrics: SupervisedEpochMetrics
+    distillation_metrics: SupervisedEpochMetrics
+    combined_loss: float
+
+
+@dataclass(slots=True, kw_only=True)
+class _EpochLossAccumulator:
+    device: torch.device
+    batch_count: int = 0
+    token_count: torch.Tensor = field(init=False)
+    lemma_target_count: torch.Tensor = field(init=False)
+    upos_loss_sum: torch.Tensor = field(init=False)
+    morphology_loss_sum: torch.Tensor = field(init=False)
+    lemma_rule_loss_sum: torch.Tensor = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.token_count = torch.zeros(
+            (),
+            dtype=torch.long,
+            device=self.device,
+        )
+        self.lemma_target_count = torch.zeros(
+            (),
+            dtype=torch.long,
+            device=self.device,
+        )
+        self.upos_loss_sum = torch.zeros((), device=self.device)
+        self.morphology_loss_sum = torch.zeros(
+            (),
+            device=self.device,
+        )
+        self.lemma_rule_loss_sum = torch.zeros(
+            (),
+            device=self.device,
+        )
+
+    def add(
+        self,
+        *,
+        batch: SupervisedTokenTaskBatch,
+        losses: TokenTaskLosses,
+    ) -> None:
+        current_token_count = batch.targets.token_mask.sum()
+        current_lemma_target_count = (
+            batch.targets.token_mask & batch.targets.lemma_rule_mask
+        ).sum()
+
+        self.batch_count += 1
+        self.token_count += current_token_count
+        self.lemma_target_count += current_lemma_target_count
+        self.upos_loss_sum += losses.upos_loss * current_token_count
+        self.morphology_loss_sum += losses.morphology_loss * current_token_count
+        self.lemma_rule_loss_sum += losses.lemma_rule_loss * current_lemma_target_count
+
+    def finish(
+        self,
+        *,
+        empty_epoch_message: str,
+    ) -> SupervisedEpochMetrics:
+        if self.batch_count == 0:
+            raise ValueError(empty_epoch_message)
+
+        token_count = int(self.token_count.item())
+        lemma_target_count = int(self.lemma_target_count.item())
+
+        lemma_rule_loss = (
+            0.0
+            if lemma_target_count == 0
+            else (self.lemma_rule_loss_sum / self.lemma_target_count).item()
+        )
+
+        return SupervisedEpochMetrics(
+            batch_count=self.batch_count,
+            token_count=token_count,
+            lemma_target_count=lemma_target_count,
+            upos_loss=(self.upos_loss_sum / self.token_count).item(),
+            morphology_loss=(self.morphology_loss_sum / self.token_count).item(),
+            lemma_rule_loss=lemma_rule_loss,
+        )
+
+
 def _run_supervised_token_task_epoch(
     *,
     model: nn.Module,
@@ -77,56 +161,18 @@ def _run_supervised_token_task_epoch(
     empty_epoch_message: str,
 ) -> SupervisedEpochMetrics:
     model.to(device)
-
-    batch_count = 0
-    token_count = torch.zeros(
-        (),
-        dtype=torch.long,
-        device=device,
-    )
-    lemma_target_count = torch.zeros(
-        (),
-        dtype=torch.long,
-        device=device,
-    )
-    upos_loss_sum = torch.zeros((), device=device)
-    morphology_loss_sum = torch.zeros((), device=device)
-    lemma_rule_loss_sum = torch.zeros((), device=device)
+    accumulator = _EpochLossAccumulator(device=device)
 
     for batch in batches:
         device_batch = batch.to(device)
         losses = process_batch(device_batch)
+        accumulator.add(
+            batch=device_batch,
+            losses=losses,
+        )
 
-        current_token_count = device_batch.targets.token_mask.sum()
-        current_lemma_target_count = (
-            device_batch.targets.token_mask & device_batch.targets.lemma_rule_mask
-        ).sum()
-
-        batch_count += 1
-        token_count += current_token_count
-        lemma_target_count += current_lemma_target_count
-        upos_loss_sum += losses.upos_loss * current_token_count
-        morphology_loss_sum += losses.morphology_loss * current_token_count
-        lemma_rule_loss_sum += losses.lemma_rule_loss * current_lemma_target_count
-
-    if batch_count == 0:
-        raise ValueError(empty_epoch_message)
-
-    token_count_value = int(token_count.item())
-    lemma_target_count_value = int(lemma_target_count.item())
-
-    if lemma_target_count_value == 0:
-        lemma_rule_loss = 0.0
-    else:
-        lemma_rule_loss = (lemma_rule_loss_sum / lemma_target_count).item()
-
-    return SupervisedEpochMetrics(
-        batch_count=batch_count,
-        token_count=token_count_value,
-        lemma_target_count=lemma_target_count_value,
-        upos_loss=(upos_loss_sum / token_count).item(),
-        morphology_loss=(morphology_loss_sum / token_count).item(),
-        lemma_rule_loss=lemma_rule_loss,
+    return accumulator.finish(
+        empty_epoch_message=empty_epoch_message,
     )
 
 
@@ -159,6 +205,66 @@ def train_supervised_token_task_epoch(
         device=device,
         process_batch=process_batch,
         empty_epoch_message=("Training epoch must contain batches."),
+    )
+
+
+def train_distilled_token_task_epoch(
+    *,
+    student: nn.Module,
+    teacher: nn.Module,
+    batches: Iterable[SupervisedTokenTaskBatch],
+    optimizer: Optimizer,
+    scheduler: LRScheduler,
+    device: torch.device,
+    max_gradient_norm: float,
+    temperature: float,
+    distillation_weight: float,
+    loss_weights: TokenTaskLossWeights | None = None,
+) -> DistilledEpochMetrics:
+    student.to(device)
+    teacher.to(device)
+
+    supervised_accumulator = _EpochLossAccumulator(device=device)
+    distillation_accumulator = _EpochLossAccumulator(device=device)
+
+    for batch in batches:
+        device_batch = batch.to(device)
+
+        losses = train_distilled_token_task_step(
+            student=student,
+            teacher=teacher,
+            batch=device_batch,
+            optimizer=optimizer,
+            max_gradient_norm=max_gradient_norm,
+            temperature=temperature,
+            distillation_weight=distillation_weight,
+            loss_weights=loss_weights,
+        )
+        scheduler.step()
+
+        supervised_accumulator.add(
+            batch=device_batch,
+            losses=losses.supervised_losses,
+        )
+        distillation_accumulator.add(
+            batch=device_batch,
+            losses=losses.distillation_losses,
+        )
+
+    supervised_metrics = supervised_accumulator.finish(
+        empty_epoch_message=("Distillation epoch must contain batches."),
+    )
+    distillation_metrics = distillation_accumulator.finish(
+        empty_epoch_message=("Distillation epoch must contain batches."),
+    )
+
+    return DistilledEpochMetrics(
+        supervised_metrics=supervised_metrics,
+        distillation_metrics=distillation_metrics,
+        combined_loss=(
+            supervised_metrics.total_loss
+            + distillation_weight * distillation_metrics.total_loss
+        ),
     )
 
 

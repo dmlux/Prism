@@ -2,6 +2,7 @@ import argparse
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import cast
 
 import torch
 
@@ -10,14 +11,19 @@ from prism.data import (
     build_norwegian_schema,
     encode_norwegian_sentences,
 )
+from prism.languages import ModelRole
 from prism.languages.norwegian import (
     NORWEGIAN_WRITTEN_STANDARD_PROFILES,
-    norwegian_profile_for_language_tag,
+    norwegian_model_supports_language_tag,
+    norwegian_training_profiles_for_language_tag,
 )
 from prism.modeling import (
+    PretrainedBackboneSpec,
+    TokenTagger,
     build_pretrained_token_tagger,
     load_backbone_tokenizer,
 )
+from prism.schema import TokenTaskSchema
 from prism.schema.serialization import serialize_token_task_schema
 from prism.training import (
     SupervisedEpochMetrics,
@@ -33,6 +39,8 @@ from prism.training import (
     iter_supervised_token_task_batches,
     run_supervised_training_epochs,
     train_supervised_token_task_epoch,
+    DistilledEpochMetrics,
+    train_distilled_token_task_epoch,
 )
 
 
@@ -41,6 +49,10 @@ class BaselineTrainingArguments:
     checkpoint_path: Path
     morphology_positive_weight_cap: float | None
     language_tag: str
+    model_role: ModelRole
+    teacher_checkpoint_path: Path | None
+    distillation_temperature: float
+    distillation_weight: float
 
 
 def parse_training_arguments(
@@ -51,14 +63,35 @@ def parse_training_arguments(
     )
     parser.add_argument(
         "--language-tag",
-        choices=("nb", "nn"),
+        choices=("nb", "nn", "no"),
         default="nb",
+    )
+    parser.add_argument(
+        "--model-role",
+        choices=("student", "teacher"),
+        default="student",
     )
     parser.add_argument(
         "--checkpoint",
         type=Path,
         default=Path("runs/nb-student-baseline/best.pt"),
         dest="checkpoint_path",
+    )
+    parser.add_argument(
+        "--teacher-checkpoint",
+        type=Path,
+        default=None,
+        dest="teacher_checkpoint_path",
+    )
+    parser.add_argument(
+        "--distillation-temperature",
+        type=float,
+        default=2.0,
+    )
+    parser.add_argument(
+        "--distillation-weight",
+        type=float,
+        default=0.5,
     )
     parser.add_argument(
         "--morphology-positive-weight-cap",
@@ -68,12 +101,29 @@ def parse_training_arguments(
 
     parsed_arguments = parser.parse_args(arguments)
 
+    if parsed_arguments.distillation_temperature <= 0.0:
+        parser.error("--distillation-temperature must be greater than zero")
+    if parsed_arguments.distillation_weight < 0.0:
+        parser.error("--distillation-weight must be non-negative")
+    if (
+        parsed_arguments.teacher_checkpoint_path is not None
+        and parsed_arguments.model_role != "student"
+    ):
+        parser.error("--teacher-checkpoint can only be used while training a student")
+
     return BaselineTrainingArguments(
         language_tag=parsed_arguments.language_tag,
         checkpoint_path=parsed_arguments.checkpoint_path,
         morphology_positive_weight_cap=(
             parsed_arguments.morphology_positive_weight_cap
         ),
+        model_role=cast(
+            ModelRole,
+            parsed_arguments.model_role,
+        ),
+        teacher_checkpoint_path=parsed_arguments.teacher_checkpoint_path,
+        distillation_temperature=parsed_arguments.distillation_temperature,
+        distillation_weight=parsed_arguments.distillation_weight,
     )
 
 
@@ -93,13 +143,80 @@ def _report_progress(
         yield batch
 
 
+def _load_distillation_teacher(
+    *,
+    checkpoint_path: Path | None,
+    backbone_spec: PretrainedBackboneSpec,
+    schema: TokenTaskSchema,
+    requested_language_tag: str,
+) -> TokenTagger | None:
+    if checkpoint_path is None:
+        return None
+
+    checkpoint = torch.load(
+        checkpoint_path,
+        map_location="cpu",
+        weights_only=True,
+    )
+
+    checkpoint_language_tag = checkpoint.get("language_tag")
+    if not isinstance(
+        checkpoint_language_tag,
+        str,
+    ) or not norwegian_model_supports_language_tag(
+        checkpoint_language_tag,
+        requested_language_tag,
+    ):
+        raise ValueError(
+            "Teacher checkpoint does not support "
+            f"language tag {requested_language_tag!r}."
+        )
+
+    if checkpoint.get("model_role") != "teacher":
+        raise ValueError("Distillation requires a teacher checkpoint.")
+
+    if checkpoint.get("schema") != serialize_token_task_schema(schema):
+        raise ValueError(
+            "Teacher checkpoint schema does not match the student training schema."
+        )
+
+    if checkpoint.get("backbone_model_id") != backbone_spec.model_id:
+        raise ValueError("Teacher checkpoint backbone model does not match.")
+
+    if checkpoint.get("backbone_revision") != backbone_spec.revision:
+        raise ValueError("Teacher checkpoint backbone revision does not match.")
+
+    teacher = build_pretrained_token_tagger(
+        backbone_spec=backbone_spec,
+        schema=schema,
+        dropout_probability=0.1,
+    )
+    teacher.load_state_dict(
+        checkpoint["model_state_dict"],
+        strict=True,
+    )
+    teacher.requires_grad_(False)
+    teacher.eval()
+
+    return teacher
+
+
 def main() -> None:
     arguments = parse_training_arguments()
-    profile = norwegian_profile_for_language_tag(arguments.language_tag)
-    treebank = profile.gold_treebank
+    training_profiles = norwegian_training_profiles_for_language_tag(
+        arguments.language_tag
+    )
 
-    training_tokens = read_sentences(treebank.training_path)
-    development_tokens = read_sentences(treebank.development_path)
+    training_tokens = tuple(
+        sentence
+        for training_profile in training_profiles
+        for sentence in read_sentences(training_profile.gold_treebank.training_path)
+    )
+    development_tokens = tuple(
+        sentence
+        for training_profile in training_profiles
+        for sentence in read_sentences(training_profile.gold_treebank.development_path)
+    )
 
     schema_training_tokens = tuple(
         sentence
@@ -109,6 +226,7 @@ def main() -> None:
         )
     )
 
+    print("Model role:", arguments.model_role)
     print("Training sentences:", len(training_tokens))
     print(
         "Development sentences:",
@@ -152,12 +270,19 @@ def main() -> None:
     if loss_weights is not None:
         loss_weights = loss_weights.to(device)
 
-    backbone_spec = profile.student_backbone
+    backbone_spec = training_profiles[0].backbone_for_role(arguments.model_role)
     tokenizer = load_backbone_tokenizer(backbone_spec)
     model = build_pretrained_token_tagger(
         backbone_spec=backbone_spec,
         schema=schema,
         dropout_probability=0.1,
+    )
+
+    teacher = _load_distillation_teacher(
+        checkpoint_path=arguments.teacher_checkpoint_path,
+        backbone_spec=training_profiles[0].teacher_backbone,
+        schema=schema,
+        requested_language_tag=arguments.language_tag,
     )
 
     training_batch_count = (
@@ -192,7 +317,7 @@ def main() -> None:
 
     def train_epoch(
         epoch_index: int,
-    ) -> SupervisedEpochMetrics:
+    ) -> SupervisedEpochMetrics | DistilledEpochMetrics:
         sentence_batches = build_supervised_sentence_batches(
             sentences=training_corpus.sentences,
             batch_size=config.batch_size,
@@ -206,20 +331,36 @@ def main() -> None:
             flush=True,
         )
 
-        return train_supervised_token_task_epoch(
-            model=model,
-            batches=_report_progress(
-                iter_supervised_token_task_batches(
-                    tokenizer=tokenizer,
-                    sentence_batches=sentence_batches,
-                ),
-                label="Training",
-                total=len(sentence_batches),
+        batches = _report_progress(
+            iter_supervised_token_task_batches(
+                tokenizer=tokenizer,
+                sentence_batches=sentence_batches,
             ),
+            label="Training",
+            total=len(sentence_batches),
+        )
+
+        if teacher is None:
+            return train_supervised_token_task_epoch(
+                model=model,
+                batches=batches,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                device=device,
+                max_gradient_norm=config.max_gradient_norm,
+                loss_weights=loss_weights,
+            )
+
+        return train_distilled_token_task_epoch(
+            student=model,
+            teacher=teacher,
+            batches=batches,
             optimizer=optimizer,
             scheduler=scheduler,
             device=device,
-            max_gradient_norm=(config.max_gradient_norm),
+            max_gradient_norm=config.max_gradient_norm,
+            temperature=arguments.distillation_temperature,
+            distillation_weight=arguments.distillation_weight,
             loss_weights=loss_weights,
         )
 
@@ -282,7 +423,29 @@ def main() -> None:
             {
                 "checkpoint_format_version": 2,
                 "epoch_index": epoch.epoch_index,
-                "language_tag": profile.language_tag,
+                "language_tag": arguments.language_tag,
+                "model_role": arguments.model_role,
+                "teacher_checkpoint_path": (
+                    None
+                    if arguments.teacher_checkpoint_path is None
+                    else str(arguments.teacher_checkpoint_path)
+                ),
+                "teacher_backbone_model_id": (
+                    None
+                    if teacher is None
+                    else training_profiles[0].teacher_backbone.model_id
+                ),
+                "teacher_backbone_revision": (
+                    None
+                    if teacher is None
+                    else training_profiles[0].teacher_backbone.revision
+                ),
+                "distillation_temperature": (
+                    None if teacher is None else arguments.distillation_temperature
+                ),
+                "distillation_weight": (
+                    None if teacher is None else arguments.distillation_weight
+                ),
                 "schema_language_tags": tuple(
                     schema_profile.language_tag
                     for schema_profile in NORWEGIAN_WRITTEN_STANDARD_PROFILES

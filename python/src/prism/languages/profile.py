@@ -1,13 +1,18 @@
 from dataclasses import dataclass
+from typing import Literal
 
 from prism.data.treebanks import UniversalDependenciesTreebankSpec
 from prism.modeling.backbones import PretrainedBackboneSpec
+
+
+ModelRole = Literal["student", "teacher"]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class LanguageProfileSpec:
     language_tag: str
     display_name: str
+    teacher_backbone: PretrainedBackboneSpec
     student_backbone: PretrainedBackboneSpec
     gold_treebank: UniversalDependenciesTreebankSpec
 
@@ -21,3 +26,14 @@ class LanguageProfileSpec:
                 "Language display name must be non-empty "
                 "and have no surrounding whitespace."
             )
+
+    def backbone_for_role(
+        self,
+        role: ModelRole,
+    ) -> PretrainedBackboneSpec:
+        if role == "student":
+            return self.student_backbone
+        if role == "teacher":
+            return self.teacher_backbone
+
+        raise ValueError(f"Unsupported model role: {role}")

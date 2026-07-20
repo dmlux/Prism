@@ -10,10 +10,19 @@ from prism.training.class_weights import (
     build_token_task_loss_weights,
 )
 from prism.training.config import SupervisedTrainingConfig
+from prism.training.distillation import (
+    CombinedTokenTaskLosses,
+    calculate_binary_distillation_loss,
+    calculate_categorical_distillation_loss,
+    combine_token_task_losses,
+    compute_token_task_distillation_loss,
+)
 from prism.training.epochs import (
+    DistilledEpochMetrics,
     SupervisedEpochMetrics,
     SupervisedEvaluationMetrics,
     evaluate_supervised_token_task_epoch,
+    train_distilled_token_task_epoch,
     train_supervised_token_task_epoch,
 )
 from prism.training.losses import (
@@ -30,6 +39,7 @@ from prism.training.runner import (
 from prism.training.schedulers import build_linear_warmup_decay_scheduler
 from prism.training.steps import (
     evaluate_supervised_token_task_step,
+    train_distilled_token_task_step,
     train_supervised_token_task_step,
 )
 
@@ -49,9 +59,17 @@ __all__ = [
     "SupervisedEvaluationMetrics",
     "evaluate_supervised_token_task_epoch",
     "train_supervised_token_task_epoch",
+    "train_distilled_token_task_step",
     "SupervisedTrainingEpochResult",
     "SupervisedTrainingRunResult",
     "run_supervised_training_epochs",
     "TokenTaskLossWeights",
     "build_token_task_loss_weights",
+    "calculate_binary_distillation_loss",
+    "calculate_categorical_distillation_loss",
+    "compute_token_task_distillation_loss",
+    "CombinedTokenTaskLosses",
+    "combine_token_task_losses",
+    "DistilledEpochMetrics",
+    "train_distilled_token_task_epoch",
 ]

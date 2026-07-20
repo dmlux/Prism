@@ -1,14 +1,20 @@
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
-import math
 
-from prism.training.epochs import SupervisedEpochMetrics, SupervisedEvaluationMetrics
+from prism.training.epochs import (
+    DistilledEpochMetrics,
+    SupervisedEpochMetrics,
+    SupervisedEvaluationMetrics,
+)
+
+type TrainingEpochMetrics = SupervisedEpochMetrics | DistilledEpochMetrics
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SupervisedTrainingEpochResult:
     epoch_index: int
-    training_metrics: SupervisedEpochMetrics
+    training_metrics: TrainingEpochMetrics
     development_metrics: SupervisedEvaluationMetrics
 
 
@@ -26,7 +32,7 @@ def run_supervised_training_epochs(
     epoch_count: int,
     train_epoch: Callable[
         [int],
-        SupervisedEpochMetrics,
+        TrainingEpochMetrics,
     ],
     evaluate_epoch: Callable[
         [int],

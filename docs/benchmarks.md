@@ -251,3 +251,115 @@ low-AP supported labels include `Number=Sing` at 0.02% with only two examples,
 `Gender=Fem` at 46.68%, `Foreign=Yes` at 53.90%, and `Mood=Imp` at 53.97%.
 Labels without Nynorsk development support have undefined Average Precision
 and are excluded from the supported-label macro summaries.
+
+## Shared Norwegian Transformer student
+
+### Five-epoch class-weighted joint reference
+
+This reference trains one NorBERT4-xsmall student on the concatenated Bokmål
+and Nynorsk training splits. The two corpora contain similar token counts, and
+the shared schema and class weights are derived exclusively from their
+training data. Checkpoint selection uses the combined development loss;
+reported quality remains separate for each written standard.
+
+- Training sentences: 29,870
+- Combined development sentences: 4,299
+- Shared morphology features: 18
+- Shared lemma edit rules: 1,059
+- Epochs: 5
+- Batch size: 16
+- Morphology positive-weight cap: 10.0
+- End-to-end wall time: approximately 18 minutes 28 seconds
+- Selected checkpoint: epoch 5
+- Checkpoint: `runs/no-student-weighted/best.pt`
+- Checkpoint size: 68,739,419 bytes
+
+| Development metric | Bokmål | Nynorsk |
+| --- | ---: | ---: |
+| Joint loss | 0.176108 | 0.216549 |
+| UPOS accuracy | 98.64% | 98.30% |
+| Lemma-rule accuracy | 96.70% | 96.64% |
+| Morphology micro precision | 89.01% | 83.75% |
+| Morphology micro recall | 96.72% | 95.13% |
+| Morphology micro F1 | 92.70% | 89.08% |
+| Morphology macro F1 | 91.67% | 86.18% |
+| Morphology macro Average Precision | 94.07% | 90.44% |
+
+Nynorsk macro values exclude the four real labels without development
+support. All 40 shared-schema labels have Bokmål development support. The
+joint student improves UPOS and lemma-rule accuracy over both corresponding
+single-standard controls. `Gender=Com` on Nynorsk improves from 0% to 9.77%
+F1 and from 2.32% to 58.44% Average Precision, demonstrating useful transfer
+from Bokmål training data. Both official test splits remain untouched.
+
+## Shared Norwegian NorBERT4-Base teacher
+
+The first teacher uses the same supervised data, schema, task heads, and
+class-weighting policy as the selected joint student, but replaces the
+17-million-parameter xsmall backbone with the 149-million-parameter Base
+backbone. The Apache-2.0 checkpoint is pinned at
+`386ba2dc5ae5f95fec86d580c5fc4af34d380126`.
+
+- Selected checkpoint: epoch 4
+- Checkpoint: `runs/no-teacher-base/best.pt`
+- Checkpoint size: 598,665,563 bytes
+- End-to-end wall time: approximately 2 hours 20 minutes 31 seconds
+
+| Development metric | Bokmål | Nynorsk |
+| --- | ---: | ---: |
+| Joint loss | 0.077641 | 0.118087 |
+| UPOS accuracy | 99.20% | 98.90% |
+| Lemma-rule accuracy | 98.97% | 98.87% |
+| Morphology micro precision | 96.17% | 92.66% |
+| Morphology micro recall | 98.65% | 97.13% |
+| Morphology micro F1 | 97.40% | 94.84% |
+| Morphology macro F1 | 96.84% | 90.58% |
+| Morphology macro Average Precision | 98.74% | 93.42% |
+
+The teacher exceeds the shared gold-only student on both written standards
+and is therefore accepted for the first logit-distillation experiment.
+NorBERT4-large remains deferred until Base has demonstrated a measurable gain
+in the shipped xsmall student. Both test splits remain untouched.
+
+## Shared Norwegian distilled student
+
+The first distillation ablation keeps the selected NorBERT4-Base teacher
+frozen and trains a fresh NorBERT4-xsmall student from the same pretrained
+backbone initialization, joint gold data, schema, seed, optimizer policy, and
+five-epoch schedule as the gold-only reference. The training objective adds
+temperature-scaled logit distillation for UPOS, every morphology feature, and
+lemma rules. Checkpoint selection continues to use the supervised combined
+development loss.
+
+Two initial policies did not beat the gold-only student:
+
+| Temperature | Distillation weight | Wall time | Result |
+| ---: | ---: | ---: | --- |
+| 2.0 | 0.5 | 32m 24s | Rejected: distillation dominated the objective and reduced lemma quality and morphology recall. |
+| 2.0 | 0.1 | 32m 27s | Rejected: closer to gold-only, but still lower on both written standards. |
+| 1.0 | 0.1 | 32m 10s | Selected: first controlled gain over gold-only on both written standards. |
+
+The selected checkpoint is
+`runs/no-student-distilled-w010-t100/best.pt`, selected at epoch 5. It is
+68,740,059 bytes and records the teacher checkpoint, pinned teacher backbone,
+temperature, weight, supervised losses, and distillation losses.
+
+| Development metric | Bokmål gold-only | Bokmål distilled | Nynorsk gold-only | Nynorsk distilled |
+| --- | ---: | ---: | ---: | ---: |
+| Joint loss | 0.176108 | **0.175509** | 0.216549 | **0.215845** |
+| UPOS accuracy | 98.64% | **98.66%** | **98.30%** | 98.29% |
+| Lemma-rule accuracy | 96.70% | **96.71%** | 96.64% | **96.65%** |
+| Morphology micro precision | 89.01% | **89.26%** | 83.32% | **83.65%** |
+| Morphology micro recall | **96.72%** | 96.61% | **95.13%** | 95.03% |
+| Morphology micro F1 | 92.70% | **92.79%** | 88.84% | **88.98%** |
+| Morphology macro F1 | 91.67% | **91.81%** | 86.18% | **86.19%** |
+| Morphology macro Average Precision | **94.07%** | 94.04% | **90.44%** | 90.41% |
+
+The gain is small but controlled: the selected student improves development
+loss, lemma accuracy, morphology precision, micro F1, and macro F1 across both
+written standards. Bokmål also improves UPOS; Nynorsk UPOS and morphology
+ranking quality remain effectively flat. The temperature ablation shows that
+one global temperature of 2.0 over-softens the binary morphology outputs and
+the 1,059-way lemma-rule distribution. Future work should therefore use
+task-specific distillation policies rather than further blind global-weight
+sweeps. Both official test splits remain untouched.

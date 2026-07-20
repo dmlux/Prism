@@ -11,6 +11,7 @@ from prism.training import (
     evaluate_supervised_token_task_epoch,
     train_supervised_token_task_epoch,
     TokenTaskLossWeights,
+    train_distilled_token_task_epoch,
 )
 from prism.schema import (
     MorphologyFeatureSchema,
@@ -205,3 +206,42 @@ def test_training_epoch_forwards_loss_weights() -> None:
         2.0 * math.log(2.0),
         rel_tol=1e-6,
     )
+
+
+def test_distilled_epoch_reports_both_learning_signals() -> None:
+    student = TinyEpochModel()
+    teacher = TinyEpochModel()
+
+    with torch.no_grad():
+        teacher.upos.copy_(torch.tensor([2.0, -2.0]))
+        teacher.morphology.copy_(torch.tensor([1.0, -1.0]))
+        teacher.lemma_rules.copy_(torch.tensor([-2.0, 2.0]))
+
+    optimizer = torch.optim.SGD(
+        student.parameters(),
+        lr=0.1,
+    )
+    scheduler = build_linear_warmup_decay_scheduler(
+        optimizer=optimizer,
+        total_step_count=1,
+        warmup_ratio=0.0,
+    )
+
+    metrics = train_distilled_token_task_epoch(
+        student=student,
+        teacher=teacher,
+        batches=(_training_batch(1),),
+        optimizer=optimizer,
+        scheduler=scheduler,
+        device=torch.device("cpu"),
+        max_gradient_norm=1.0,
+        temperature=2.0,
+        distillation_weight=0.5,
+    )
+
+    assert metrics.supervised_metrics.batch_count == 1
+    assert metrics.distillation_metrics.batch_count == 1
+    assert math.isfinite(metrics.supervised_metrics.total_loss)
+    assert math.isfinite(metrics.distillation_metrics.total_loss)
+    assert math.isfinite(metrics.combined_loss)
+    assert optimizer.param_groups[0]["lr"] == 0.0

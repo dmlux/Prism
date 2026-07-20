@@ -11,10 +11,10 @@ sentence segmentation, part-of-speech tagging, lemmatization, and
 morphological analysis across Python and native platforms.
 
 The current implementation focuses on Norwegian. Bokmål (`nb`) and Nynorsk
-(`nn`) now have separately measured gold-only student references over a shared
-Norwegian schema. The production target is a single balanced Norwegian model.
-Prism's shared model, training, evaluation, export, and artifact contracts
-remain language-independent.
+(`nn`) share one measured gold-only student over a common Norwegian schema,
+while retaining separate data profiles and quality reports. Prism's shared
+model, training, evaluation, export, and artifact contracts remain
+language-independent.
 
 ## Current status
 
@@ -31,10 +31,12 @@ Prism currently provides:
 - explicit language profiles so another language can replace its tokenizer,
   backbone, schemas, decoding policy, and artifact metadata.
 
-The selected Bokmål gold-only student reaches 98.49% development UPOS
-accuracy and 96.16% lemma-rule accuracy. Its class-weighted morphology model
-reaches 93.01% macro Average Precision across the 40 real morphology labels.
-The official test split remains untouched while model development continues.
+The selected shared gold-only student reaches 98.64% Bokmål and 98.30%
+Nynorsk development UPOS accuracy. Lemma-rule accuracy is 96.70% and 96.64%,
+respectively. The selected NorBERT4-Base teacher raises those development
+scores to 99.20%/98.90% UPOS and 98.97%/98.87% lemma-rule accuracy. Both
+official test splits remain untouched while distillation development
+continues.
 See [the benchmark notes](docs/benchmarks.md) for the complete, comparable
 results.
 
@@ -200,19 +202,14 @@ are excluded through `.gitignore`.
 
 ## Roadmap
 
-1. Add the separately pinned Nynorsk data profile and establish its gold-only
-   student reference.
-2. Train a balanced shared Norwegian student and compare separate Bokmål and
-   Nynorsk development quality with the single-standard references.
-3. Fine-tune a shared high-capacity Norwegian teacher under a commercially compatible
-   license and record separate Bokmål and Nynorsk quality.
-4. Distill the teacher into the same compact student and compare it with the
+1. Distill the selected shared NorBERT4-Base teacher into the same compact
+   student and compare it with the
    gold-only ablation.
-5. Calibrate confidence, freeze the language artifact schema, and evaluate the
+2. Calibrate confidence, freeze the language artifact schema, and evaluate the
    untouched test splits.
-6. Export the selected student and measure the 6,000-token document fixture on
+3. Export the selected student and measure the 6,000-token document fixture on
    production runtimes.
-7. Provide stable Swift, Java/Kotlin, and C++ packages over the versioned model
+4. Provide stable Swift, Java/Kotlin, and C++ packages over the versioned model
    artifact contract.
 
 ## Licensing

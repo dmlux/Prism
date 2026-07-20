@@ -212,6 +212,148 @@ the 40 real shared-schema labels have no Nynorsk development support and are
 excluded from supported-label macro summaries. Both Norwegian test splits
 remain untouched.
 
+## Selected shared Norwegian gold-only student
+
+The shared model optimizes one NorBERT4-xsmall student over the concatenated,
+nearly balanced Bokmål and Nynorsk training splits. It uses the shared schema
+and the same capped class-weighting policy as the single-standard controls.
+Checkpoint selection uses the combined development loss, while quality is
+reported separately for each written standard.
+
+- checkpoint: `runs/no-student-weighted/best.pt`
+- checkpoint format: 2
+- model language tag: `no`
+- schema language tags: `nb`, `nn`
+- training sentences: 29,870
+- combined development sentences: 4,299
+- selected epoch: 5
+- checkpoint size: 68,739,419 bytes
+- end-to-end wall time: approximately 18 minutes 28 seconds
+
+Bokmål development:
+
+- joint loss: 0.176108
+- UPOS accuracy: 98.64%
+- lemma-rule accuracy: 96.70%
+- morphology micro precision/recall/F1: 89.01% / 96.72% / 92.70%
+- morphology macro F1: 91.67%
+- morphology macro Average Precision: 94.07%
+
+Nynorsk development:
+
+- joint loss: 0.216549
+- UPOS accuracy: 98.30%
+- lemma-rule accuracy: 96.64%
+- supported-label morphology micro precision/recall/F1:
+  83.75% / 95.13% / 89.08%
+- supported-label morphology macro F1: 86.18%
+- supported-label morphology macro Average Precision: 90.44%
+
+The shared student improves UPOS and lemma-rule accuracy over both
+single-standard weighted controls. On Nynorsk, `Gender=Com` improves from 0%
+F1 and 2.32% Average Precision to 9.77% F1 and 58.44% Average Precision. This
+confirms useful cross-standard transfer without a measured Bokmål regression.
+Final thresholds and confidence calibration remain deferred, and both test
+splits remain untouched.
+
+## Selected shared Norwegian teacher
+
+The first quality-oriented teacher fine-tunes the Apache-2.0-licensed
+`ltg/norbert4-base` backbone on the same joint gold data, schema, task heads,
+and capped morphology weighting policy as the shared student. The backbone is
+pinned at commit `386ba2dc5ae5f95fec86d580c5fc4af34d380126`.
+
+- checkpoint: `runs/no-teacher-base/best.pt`
+- model role: `teacher`
+- parameters: 148,899,624 before Prism task heads
+- hidden size: 640
+- selected epoch: 4
+- checkpoint size: 598,665,563 bytes
+- end-to-end wall time: approximately 2 hours 20 minutes 31 seconds
+
+Bokmål development:
+
+- joint loss: 0.077641
+- UPOS accuracy: 99.20%
+- lemma-rule accuracy: 98.97%
+- morphology micro precision/recall/F1: 96.17% / 98.65% / 97.40%
+- morphology macro F1: 96.84%
+- morphology macro Average Precision: 98.74%
+
+Nynorsk development:
+
+- joint loss: 0.118087
+- UPOS accuracy: 98.90%
+- lemma-rule accuracy: 98.87%
+- supported-label morphology micro precision/recall/F1:
+  92.66% / 97.13% / 94.84%
+- supported-label morphology macro F1: 90.58%
+- supported-label morphology macro Average Precision: 93.42%
+
+The teacher improves both written standards over the selected shared student
+and is accepted as the first distillation source. `Gender=Com` on Nynorsk has
+62.67% Average Precision; its low fixed-threshold F1 remains a later decoding
+and calibration concern. NorBERT4-large is deferred unless base distillation
+fails to improve the compact student.
+
+## Selected shared Norwegian distilled student
+
+The first on-the-fly logit-distillation prototype is complete. It freezes the
+selected NorBERT4-Base teacher and trains a fresh NorBERT4-xsmall student on
+the same shared gold corpus. Teacher logits supplement, but do not replace,
+the supervised UPOS, morphology, and lemma targets.
+
+The first two policies were rejected:
+
+- temperature 2.0, weight 0.5: the weighted teacher loss contributed about
+  58% of the final training objective and reduced lemma quality and morphology
+  recall;
+- temperature 2.0, weight 0.1: the teacher contribution fell to about 26%,
+  but both written standards still remained just below gold-only.
+
+The selected first distilled reference uses:
+
+- checkpoint: `runs/no-student-distilled-w010-t100/best.pt`
+- teacher: `runs/no-teacher-base/best.pt`
+- temperature: 1.0
+- distillation weight: 0.1
+- selected epoch: 5
+- checkpoint size: 68,740,059 bytes
+- end-to-end wall time: approximately 32 minutes 10 seconds
+
+Bokmål development:
+
+- joint loss: 0.175509
+- UPOS accuracy: 98.66%
+- lemma-rule accuracy: 96.71%
+- morphology micro precision/recall/F1: 89.26% / 96.61% / 92.79%
+- morphology macro F1: 91.81%
+- morphology macro Average Precision: 94.04%
+
+Nynorsk development:
+
+- joint loss: 0.215845
+- UPOS accuracy: 98.29%
+- lemma-rule accuracy: 96.65%
+- supported-label morphology micro precision/recall/F1:
+  83.65% / 95.03% / 88.98%
+- supported-label morphology macro F1: 86.19%
+- supported-label morphology macro Average Precision: 90.41%
+
+This is the first controlled evidence that the teacher can improve the compact
+student. The gain is small and primarily shifts morphology toward higher
+precision with slightly lower recall. A single temperature is not an adequate
+long-term policy for 17-way UPOS, binary morphology decisions, and the
+1,059-way lemma-rule head. Both official test splits remain untouched.
+
+Class-balanced morphology distillation is now implemented but not yet
+benchmarked. It reuses the positive-label weights derived exclusively from the
+training split and applies them to positive gold morphology targets in both
+the supervised and teacher-distillation objectives. The UPOS and lemma
+distillation losses remain unweighted, and the task heads remain unchanged.
+The selected temperature-1.0, weight-0.1 checkpoint remains the distilled
+reference until a controlled run demonstrates an improvement.
+
 ## Repeatable commands
 
 Train the unweighted Bokmål control:
@@ -246,13 +388,9 @@ with the Transformer student generation.
 
 ## Immediate next step
 
-Train one shared Norwegian student with balanced Bokmål and Nynorsk batches,
-the existing shared schema, and the selected class-weighting policy. Evaluate
-the fixed checkpoint separately on Bokmål-Dev and Nynorsk-Dev; do not combine
-the scores or touch either test split.
-
-After the separate Nynorsk gold-only reference exists, train the shared
-Norwegian student on balanced Bokmål and Nynorsk data and evaluate it
-separately on both development splits. The shared model is the production
-target unless it causes a measured regression. Teacher fine-tuning and
-distillation follow that comparison, not before it.
+Run and evaluate the implemented class-balanced morphology-distillation
+ablation. Compare it against both the selected gold-only student and the
+selected temperature-1.0, weight-0.1 distilled reference. If it is useful,
+continue by separating task-specific distillation settings for UPOS,
+morphology, and lemmas. Do not evaluate either official test split until the
+model and calibration policy are fixed.

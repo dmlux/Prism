@@ -24,10 +24,12 @@ def test_language_profile_references_replaceable_student_backbone() -> None:
         language_tag="nb",
         display_name="Norwegian Bokmål",
         student_backbone=backbone,
+        teacher_backbone=backbone,
         gold_treebank=treebank,
     )
 
     assert profile.language_tag == "nb"
     assert profile.display_name == "Norwegian Bokmål"
     assert profile.student_backbone is backbone
+    assert profile.teacher_backbone is backbone
     assert profile.gold_treebank is treebank

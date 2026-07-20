@@ -3,6 +3,7 @@ import json
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import cast
 
 import torch
 
@@ -14,7 +15,9 @@ from prism.data import (
 from prism.evaluation.classification import (
     calculate_classification_metrics,
 )
+from prism.languages import ModelRole
 from prism.languages.norwegian import (
+    norwegian_model_supports_language_tag,
     norwegian_profile_for_language_tag,
 )
 from prism.modeling import (
@@ -82,11 +85,29 @@ def main() -> None:
     profile = norwegian_profile_for_language_tag(arguments.language_tag)
 
     checkpoint_language_tag = checkpoint.get("language_tag")
-    if checkpoint_language_tag != profile.language_tag:
+    if not isinstance(
+        checkpoint_language_tag,
+        str,
+    ) or not norwegian_model_supports_language_tag(
+        checkpoint_language_tag,
+        profile.language_tag,
+    ):
         raise ValueError(
-            "Checkpoint language tag does not match "
+            "Checkpoint language tag does not support "
             f"the selected profile: {checkpoint_language_tag!r}"
         )
+
+    raw_model_role = checkpoint.get(
+        "model_role",
+        "student",
+    )
+    if raw_model_role not in ("student", "teacher"):
+        raise ValueError(f"Checkpoint model role is invalid: {raw_model_role!r}")
+
+    model_role = cast(
+        ModelRole,
+        raw_model_role,
+    )
 
     raw_schema_language_tags = checkpoint.get("schema_language_tags")
 
@@ -117,7 +138,7 @@ def main() -> None:
     if checkpoint["schema"] != (serialize_token_task_schema(schema)):
         raise ValueError("Checkpoint schema does not match the pinned training data.")
 
-    backbone_spec = profile.student_backbone
+    backbone_spec = profile.backbone_for_role(model_role)
 
     if checkpoint["backbone_model_id"] != (backbone_spec.model_id):
         raise ValueError("Checkpoint backbone model does not match.")
