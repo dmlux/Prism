@@ -114,7 +114,7 @@ def parse_training_arguments(
     parser.add_argument(
         "--task-head-architecture",
         choices=tuple(architecture.value for architecture in TokenTaskHeadArchitecture),
-        default=TokenTaskHeadArchitecture.SHARED_MLP.value,
+        default=TokenTaskHeadArchitecture.WIDE_SHARED_MLP.value,
     )
     parser.add_argument(
         "--epoch-count",

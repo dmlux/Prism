@@ -24,6 +24,8 @@ Prism currently provides:
 - language-owned UPOS, morphology, and lemma-rule schemas;
 - a compact NorBERT4-xsmall Transformer student for Norwegian;
 - shared UPOS, per-feature morphology, and lemma edit-rule heads;
+- checkpoint-compatible linear, shared-MLP, and wider shared-MLP head
+  architectures for controlled capacity comparisons;
 - schema-driven categorical and multi-label morphology objectives;
 - supervised Apple MPS training with reproducible checkpoints;
 - class-weighted morphology training derived only from the training split;
@@ -32,13 +34,14 @@ Prism currently provides:
 - explicit language profiles so another language can replace its tokenizer,
   backbone, schemas, decoding policy, and artifact metadata.
 
-The selected twelve-epoch Mean-pooling, shared-MLP format-3 gold-only student
-reaches 95.30% Bokmål and 92.08% Nynorsk morphology micro F1 while preserving
-98.93%/98.53% UPOS and 98.16%/98.03% lemma-rule accuracy. The shared residual
-projection and longer training policy improve every reported headline metric
-on both written standards while the model remains 68.9 MB. A new compatible
-teacher must be trained before distillation continues. Both official test
-splits remain untouched.
+The selected twelve-epoch Mean-pooling, wide-shared-MLP format-3 gold-only
+student reaches 95.70% Bokmål and 92.54% Nynorsk morphology micro F1 while
+preserving 98.92%/98.53% UPOS and 98.38%/98.10% lemma-rule accuracy. The wider
+shared residual projection improves the main discrete and ranking metrics on
+both written standards while the checkpoint remains 69.3 MB. Its higher
+Nynorsk negative log-likelihood is retained as an explicit confidence-
+calibration target. A new compatible teacher must be trained before
+distillation continues. Both official test splits remain untouched.
 See [the benchmark notes](docs/benchmarks.md) for the complete, comparable
 results.
 
@@ -204,8 +207,8 @@ are excluded through `.gitignore`.
 
 ## Roadmap
 
-1. Evaluate one controlled wider shared projection against the selected
-   twelve-epoch Mean-pooling, shared-MLP student.
+1. Evaluate one controlled learned backbone-layer mixture against the selected
+   wide-shared-MLP student.
 2. Train a format-3-compatible shared NorBERT4-Base teacher, distill it into
    the selected compact architecture, and compare it with the gold-only
    ablation.

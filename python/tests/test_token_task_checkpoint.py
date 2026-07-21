@@ -52,6 +52,12 @@ def test_task_head_architecture_is_loaded_from_checkpoint_metadata() -> None:
         )
         is TokenTaskHeadArchitecture.SHARED_MLP
     )
+    assert (
+        token_task_head_architecture_from_checkpoint(
+            {"token_task_head_architecture": "wide-shared-mlp"}
+        )
+        is TokenTaskHeadArchitecture.WIDE_SHARED_MLP
+    )
 
     with pytest.raises(
         ValueError,

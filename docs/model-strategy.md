@@ -124,13 +124,14 @@ and morphology micro F1 on both Bokmål and Nynorsk, so it is the default for
 new training runs. Checkpoints record the policy; older format-3 checkpoints
 without that field remain explicitly First pooling for compatibility.
 
-The selected student adds one shared residual `Linear -> GELU -> Dropout`
-projection before the schema-driven linear task heads. The controlled
+The selected student adds one shared residual
+`Linear(H -> 2H) -> GELU -> Dropout -> Linear(2H -> H)` projection before the
+schema-driven linear task heads. The controlled
 `linear` versus `shared-mlp` ablation improved every reported headline metric
-on Bokmål and Nynorsk, so `shared-mlp` is the default for new Norwegian
-training runs. Checkpoints record the architecture, and old format-3
-checkpoints default to `linear`. The selected architecture now proceeds to a
-separate training-duration ablation. Eight epochs improve every headline
+on Bokmål and Nynorsk, and the subsequent width ablation selects
+`wide-shared-mlp` as the default for new Norwegian training runs. Checkpoints
+record the architecture, and old format-3 checkpoints default to `linear`.
+Eight epochs improve every headline
 metric over the five-epoch control on both written standards without changing
 model size or inference cost. Ten epochs improve every headline metric again.
 The final predeclared twelve-epoch run then improves Loss, Lemma, and all
@@ -139,8 +140,23 @@ tradeoff. Twelve epochs are selected as the default, and epoch-count tuning on
 these Development splits is now closed before further architecture work and
 format-3 teacher training.
 
-It is not yet a production release because the final Student head
-architecture, a format-3-compatible teacher and distillation run, confidence
+The selected capacity variant is `wide-shared-mlp`. It preserves the residual
+path and expands the shared token projection from `H` to `2H` before
+projecting back to `H`. For the xsmall
+Norwegian student this is `192 -> 384 -> 192`; the block contains 148,032
+parameters while leaving the schema-driven output heads unchanged. Compared
+with the selected 37,056-parameter shared projection, the increase is 110,976
+parameters, or
+approximately 444 KB in FP32. The existing `shared-mlp` implementation and
+checkpoint interpretation remain unchanged. The wider variant improves lemma
+accuracy, morphology micro F1, and morphology Average Precision on both
+written standards. Bokmål Loss also improves substantially; Nynorsk Loss
+worsens despite improved discrete predictions and ranking quality, so raw
+confidence calibration remains an explicit release gap rather than being
+hidden by the selection.
+
+It is not yet a production release because a final backbone-layer aggregation
+decision, a format-3-compatible teacher and distillation run, confidence
 calibration, frozen artifact metadata, native runtime packaging, and the
 6,000-token document benchmark remain incomplete. These are the active gaps;
 removed historical experiment architectures are not part of the current

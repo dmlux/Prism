@@ -39,6 +39,14 @@ Logit-Distillation auf den ~244k Gold-Tokens ausgereizt ist**. Die drei größte
 Hebel sind daher: mehr echtes Signal (1), ein besseres Distillations-Ziel (2)
 und eine präzisere Verlust-Zerlegung statt blinder Gewichts-Sweeps (3).
 
+**Aktueller Architekturstand.** Der unter Punkt 5 vorgeschlagene gemeinsame
+MLP ist inzwischen kontrolliert getestet und ausgewählt. Die breite residuale
+Variante `192 -> 384 -> 192` verbessert den Morphologie-Micro-F1 auf Bokmål
+von 95,30 % auf 95,70 % und auf Nynorsk von 92,08 % auf 92,54 %. Die nächste
+günstige Architekturklasse ist daher nicht weiteres blindes Verbreitern,
+sondern die Nutzung mehrerer bereits berechneter Backbone-Schichten durch eine
+kleine lernbare Schichtmischung.
+
 ---
 
 ## Kurzüberblick (nach Ziel)
@@ -161,6 +169,11 @@ Einzel-Teacher zeigt.
 
 ### 5. Konsistenz- und Struktursignale für Morphologie
 
+**Teilstatus:** Option (b), der gemeinsame MLP vor den Köpfen, ist als
+`wide-shared-mlp` implementiert, gemessen und ausgewählt. Weitere Arbeit in
+diesem Abschnitt meint nur noch explizite Struktur zwischen Aufgaben oder
+Morphologie-Features.
+
 **Idee:** UPOS und Morphologie hängen sprachlich zusammen (Verben tragen Tense/
 Mood, Nomen tragen Gender/Number). Zwei Optionen: (a) Morphologie-Köpfe leicht
 auf die UPOS-Repräsentation konditionieren; (b) einen kleinen gemeinsamen
@@ -173,6 +186,31 @@ Zeitform auf einem Nomen).
 die aktuelle saubere Entkopplung abzuwägen). **Passung:** nur wenn Ablation
 echten Gewinn zeigt; sonst weglassen (Prisms Regel: keine Abstraktion ohne
 belegten Nutzen).
+
+### 5a. Lernbare Mischung mehrerer Backbone-Schichten
+
+**Idee:** Prism verwendet derzeit ausschließlich `last_hidden_state`, also die
+letzte NorBERT4-Schicht. Ein kleiner Scalar-Mix lernt stattdessen Softmax-
+Gewichte über mehrere bereits berechnete Schichten und bildet daraus den
+Tokenvektor für Pooling und Heads. Die erste Ablation mischt gemeinsam die
+letzten vier Schichten; task-spezifische Mischungen bleiben eine getrennte
+spätere Option.
+
+**Warum es hilft:** Untersuchungen monolingualer und multilingualer BERT-
+Modelle zeigen, dass POS-Information besonders in mittleren Schichten stark
+ist und zusätzliche letzte Schichten nicht immer weitere nutzbare Information
+beitragen. Ein lernbarer Mix kann diese Information zurückholen, ohne den
+Backbone breiter oder tiefer zu machen.
+
+**Kosten:** nur wenige trainierbare Skalare und praktisch keine zusätzliche
+Artefaktgröße. Während Inferenz und Export müssen jedoch mehrere
+Zwischenschichten verfügbar bleiben; Peak-Speicher und Exportierbarkeit sind
+daher Teil der Ablation.
+
+**Aufwand:** niedrig-mittel. **Risiko:** niedrig-mittel. **Passung:** sehr gut
+als nächste isolierte Architekturablation nach dem breiten Shared-MLP.
+
+Primärquelle: [What's so special about BERT's layers?](https://aclanthology.org/2020.findings-emnlp.389/)
 
 ---
 

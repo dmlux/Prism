@@ -7,6 +7,7 @@ from prism.modeling import (
     PretrainedBackboneSpec,
     SharedResidualTokenProjection,
     TokenTaskHeadArchitecture,
+    WideSharedResidualTokenProjection,
     build_pretrained_token_tagger,
 )
 from prism.schema import (
@@ -95,4 +96,20 @@ def test_build_pretrained_token_tagger_uses_backbone_hidden_size() -> None:
     assert isinstance(
         nonlinear_model.heads.input_projection,
         SharedResidualTokenProjection,
+    )
+
+    with patch(
+        "prism.modeling.taggers.load_backbone_model",
+        return_value=backbone,
+    ):
+        wide_model = build_pretrained_token_tagger(
+            backbone_spec=spec,
+            schema=schema,
+            dropout_probability=0.1,
+            head_architecture=TokenTaskHeadArchitecture.WIDE_SHARED_MLP,
+        )
+
+    assert isinstance(
+        wide_model.heads.input_projection,
+        WideSharedResidualTokenProjection,
     )

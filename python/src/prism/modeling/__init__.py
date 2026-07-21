@@ -27,6 +27,7 @@ from prism.modeling.heads import (
     TokenClassificationHead,
     TokenTaskHeadArchitecture,
     TokenTaskHeads,
+    WideSharedResidualTokenProjection,
 )
 from prism.modeling.taggers import (
     TokenTagger,
@@ -52,6 +53,7 @@ __all__ = [
     "TokenTaskHeadArchitecture",
     "TokenTaskHeads",
     "SharedResidualTokenProjection",
+    "WideSharedResidualTokenProjection",
     "TokenTagger",
     "build_pretrained_token_tagger",
 ]

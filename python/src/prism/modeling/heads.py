@@ -9,6 +9,7 @@ from prism.schema import TokenTaskSchema
 class TokenTaskHeadArchitecture(StrEnum):
     LINEAR = "linear"
     SHARED_MLP = "shared-mlp"
+    WIDE_SHARED_MLP = "wide-shared-mlp"
 
 
 class SharedResidualTokenProjection(nn.Module):
@@ -37,6 +38,45 @@ class SharedResidualTokenProjection(nn.Module):
         activated_hidden_states = self.activation(projected_hidden_states)
 
         return hidden_states + self.dropout(activated_hidden_states)
+
+
+class WideSharedResidualTokenProjection(nn.Module):
+    def __init__(
+        self,
+        *,
+        hidden_size: int,
+        dropout_probability: float,
+    ) -> None:
+        super().__init__()
+
+        if hidden_size <= 0:
+            raise ValueError("Hidden size must be positive.")
+        if not 0.0 <= dropout_probability < 1.0:
+            raise ValueError(
+                "Dropout probability must be greater than or equal to zero "
+                "and less than one."
+            )
+
+        expanded_hidden_size = hidden_size * 2
+        self.input_projection = nn.Linear(
+            hidden_size,
+            expanded_hidden_size,
+        )
+        self.activation = nn.GELU()
+        self.dropout = nn.Dropout(dropout_probability)
+        self.output_projection = nn.Linear(
+            expanded_hidden_size,
+            hidden_size,
+        )
+
+    def forward(self, hidden_states: Tensor) -> Tensor:
+        expanded_hidden_states = self.input_projection(hidden_states)
+        activated_hidden_states = self.activation(expanded_hidden_states)
+        projected_hidden_states = self.output_projection(
+            self.dropout(activated_hidden_states)
+        )
+
+        return hidden_states + projected_hidden_states
 
 
 class TokenClassificationHead(nn.Module):
@@ -87,6 +127,11 @@ class TokenTaskHeads(nn.Module):
             self.input_projection = nn.Identity()
         elif architecture is TokenTaskHeadArchitecture.SHARED_MLP:
             self.input_projection = SharedResidualTokenProjection(
+                hidden_size=hidden_size,
+                dropout_probability=dropout_probability,
+            )
+        elif architecture is TokenTaskHeadArchitecture.WIDE_SHARED_MLP:
+            self.input_projection = WideSharedResidualTokenProjection(
                 hidden_size=hidden_size,
                 dropout_probability=dropout_probability,
             )

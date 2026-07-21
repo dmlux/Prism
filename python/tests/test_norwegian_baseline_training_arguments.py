@@ -17,7 +17,7 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
     assert default_arguments.token_pooling_strategy is TokenPoolingStrategy.MEAN
     assert (
         default_arguments.token_task_head_architecture
-        is TokenTaskHeadArchitecture.SHARED_MLP
+        is TokenTaskHeadArchitecture.WIDE_SHARED_MLP
     )
     assert default_arguments.epoch_count == 12
 
@@ -58,6 +58,18 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
         is TokenTaskHeadArchitecture.LINEAR
     )
     assert linear_arguments.epoch_count == 8
+
+    wide_arguments = parse_training_arguments(
+        (
+            "--task-head-architecture",
+            "wide-shared-mlp",
+        )
+    )
+
+    assert (
+        wide_arguments.token_task_head_architecture
+        is TokenTaskHeadArchitecture.WIDE_SHARED_MLP
+    )
 
     nynorsk_arguments = parse_training_arguments(
         (

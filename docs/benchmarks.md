@@ -482,6 +482,54 @@ summary on both standards. The predeclared stopping rule closes epoch-count
 tuning on these Development splits. Both official test splits remain
 untouched.
 
+### Selected wider shared-MLP student
+
+The controlled `wide-shared-mlp` candidate changes only the shared residual
+projection from `192 -> 192` to `192 -> 384 -> 192`. It adds 148,032
+projection parameters in total, approximately 592 KB in FP32. Relative to the
+selected 37,056-parameter projection, the increase is 110,976 parameters, or
+approximately 444 KB in FP32. The ablation preserves Mean pooling, the
+twelve-epoch schedule, data, initialization seed, optimizer, losses, output
+heads, checkpoint selection, and evaluation policy. Existing `shared-mlp`
+checkpoints remain unchanged and are the control.
+
+- Selected checkpoint: scheduled epoch 10 of 12
+- Checkpoint: `runs/no-student-hybrid-mean-wide-shared-mlp-e12-weighted/best.pt`
+- Checkpoint size: 69,328,391 bytes
+- End-to-end wall time: approximately 49 minutes 16 seconds
+- Combined development loss: 0.133798
+
+| Development metric | Narrow, Bokmål | Wide, Bokmål | Narrow, Nynorsk | Wide, Nynorsk |
+| --- | ---: | ---: | ---: | ---: |
+| Joint loss | 0.110285 | **0.103405** | **0.163249** | 0.169170 |
+| UPOS accuracy | **98.93%** | 98.92% | 98.53% | 98.53% |
+| Lemma-rule accuracy | 98.16% | **98.38%** | 98.03% | **98.10%** |
+| Morphology micro precision | 92.87% | **93.36%** | 88.04% | **88.82%** |
+| Morphology micro recall | 97.86% | **98.15%** | 96.50% | **96.59%** |
+| Morphology micro F1 | 95.30% | **95.70%** | 92.08% | **92.54%** |
+| Morphology macro F1 | 94.55% | **94.78%** | **88.98%** | 88.92% |
+| Morphology macro Average Precision | 97.53% | **97.86%** | 92.71% | **92.93%** |
+
+The wider projection is selected. It improves the primary morphology micro F1
+and threshold-independent Average Precision on both standards, improves lemma
+accuracy on both, and costs only 444,470 additional checkpoint bytes. Nynorsk
+UPOS is unchanged; Bokmål UPOS and Nynorsk macro F1 trade 0.0055 and 0.0618
+percentage points respectively. Nynorsk Loss rises across all three task
+components, indicating a raw-confidence tradeoff that must be measured during
+the already required calibration stage. Both official test splits remain
+untouched.
+
+```bash
+python -m prism.languages.norwegian.train_baseline \
+  --language-tag no \
+  --model-role student \
+  --token-pooling mean \
+  --task-head-architecture wide-shared-mlp \
+  --epoch-count 12 \
+  --checkpoint runs/no-student-hybrid-mean-wide-shared-mlp-e12-weighted/best.pt \
+  --morphology-weight-cap 10.0
+```
+
 ## Shared Norwegian NorBERT4-Base teacher
 
 The first teacher uses the same supervised data, schema, task heads, and

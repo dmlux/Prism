@@ -812,9 +812,8 @@ MultiDecision --> DerivedNone
 @enduml
 ```
 
-Die ausgewählte Kontrolle verwendet weiterhin direkt lineare Task-Heads. Als
-nächste isolierte Ablation implementiert Prism zusätzlich einen gemeinsamen
-residualen MLP-Projektionsblock vor allen Heads:
+Der ausgewählte Student verwendet einen gemeinsamen residualen
+MLP-Projektionsblock vor allen Heads:
 
 ```text
 normalisiert = LayerNorm(token_vector)
@@ -829,7 +828,8 @@ Projektion vermeidet 20 separate MLPs, fügt bei Hidden Size 192 nur 37.056
 Parameter hinzu und bleibt mit Linear, GELU, Dropout und Addition
 exportfreundlich.
 
-`TokenTaskHeadArchitecture` unterscheidet `linear` und `shared-mlp`. Die
+`TokenTaskHeadArchitecture` unterscheidet `linear`, `shared-mlp` und
+`wide-shared-mlp`. Die
 Training-CLI wählt mit `--task-head-architecture`, Checkpoints speichern die
 Auswahl, und Evaluation sowie Distillation rekonstruieren sie automatisch.
 Format-3-Checkpoints ohne das Feld bleiben aus Kompatibilitätsgründen
@@ -837,6 +837,31 @@ eindeutig `linear`. Der kontrollierte Fünf-Epochen-Benchmark verbessert mit
 `shared-mlp` auf Bokmål und Nynorsk jede berichtete Hauptmetrik. Daher ist der
 gemeinsame residuale MLP der Standard für neue norwegische Trainingsläufe;
 `linear` bleibt als explizite Ablations- und Kompatibilitätsoption erhalten.
+
+Die ausgewählte breitere Variante ist so aufgebaut:
+
+```text
+normalisiert = LayerNorm(token_vector)
+erweitert = GELU(Linear(H -> 2H)(normalisiert))
+transformiert = Linear(2H -> H)(Dropout(erweitert))
+head_input = normalisiert + transformiert
+```
+
+`H` kommt weiterhin aus dem gewählten Backbone. Für NorBERT4-xsmall ist
+`H = 192`, also entsteht `192 -> 384 -> 192`; ein anderes Sprachprofil erhält
+automatisch die zu seinem Backbone passende Breite. Der neue Block enthält bei
+NorBERT4-xsmall 148.032 Parameter, ungefähr 592 KB in FP32. Gegenüber dem
+ausgewählten schmalen Block mit 37.056 Parametern sind das 110.976 Parameter
+oder ungefähr 444 KB zusätzlich. Er bleibt mit Linear, GELU, Dropout und
+Addition exportfreundlich. Die bisherige
+`shared-mlp`-Variante bleibt unverändert, sodass vorhandene Checkpoints strikt
+und ohne Migration geladen werden können. Der kontrollierte
+Kapazitätsvergleich verbessert mit `wide-shared-mlp` den
+Morphologie-Micro-F1 und die Average Precision auf Bokmål und Nynorsk sowie
+die Lemma-Genauigkeit auf beiden Standards. Daher ist die breite Variante der
+Standard. Der höhere Nynorsk-Loss trotz besserer diskreter Vorhersagen wird als
+Hinweis auf schlechtere Rohkalibrierung ausdrücklich bis zur späteren
+Konfidenzkalibrierung weitergeführt.
 
 ## Konfidenz und Kalibrierung
 

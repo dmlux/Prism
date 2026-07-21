@@ -117,6 +117,9 @@ Implemented shared components include:
 - contextual backbone execution;
 - shared normalization before task heads;
 - UPOS, per-feature morphology, and lemma edit-rule heads;
+- the selected `wide-shared-mlp` architecture with a generic `H -> 2H -> H`
+  residual projection; the narrower `shared-mlp` remains unchanged and
+  checkpoint-compatible;
 - schema-aware targets, losses, decoding, and metrics;
 - a hybrid morphology contract: categorical softmax/Cross-Entropy for
   exclusive features and sigmoid/Binary Cross-Entropy over real values for
@@ -502,7 +505,7 @@ checkpoints without pooling metadata continue to resolve to `first`; they are
 never silently reinterpreted. Export parity for the complete tagger remains
 required before production runtime acceptance.
 
-## Selected shared-MLP student
+## Shared-MLP architecture family
 
 The controlled Student candidate keeps the selected Mean pooling and every
 existing task output contract. A single shared residual projection transforms
@@ -512,9 +515,12 @@ the normalized token vector before all linear task heads:
 head_input = normalized + dropout(gelu(linear(normalized)))
 ```
 
-- `--task-head-architecture {linear,shared-mlp}` selects the architecture;
-- `shared-mlp` is the default for new Norwegian training runs;
+- `--task-head-architecture {linear,shared-mlp,wide-shared-mlp}` selects the
+  architecture;
+- `wide-shared-mlp` is the default for new Norwegian training runs;
 - `shared-mlp` adds 37,056 parameters for hidden size 192;
+- `wide-shared-mlp` uses `192 -> 384 -> 192`, contains 148,032 projection
+  parameters, and adds 110,976 parameters relative to `shared-mlp`;
 - checkpoints store `token_task_head_architecture`;
 - evaluation and teacher loading restore the stored architecture;
 - older format-3 checkpoints without the field resolve to `linear`;
@@ -633,6 +639,38 @@ only 0.0128 percentage points while Loss, Lemma, and all morphology summaries
 improve on both standards. As predeclared, epoch-count tuning on these
 Development splits is now closed.
 
+## Selected wide shared-MLP student
+
+The controlled capacity ablation keeps Mean pooling, the twelve-epoch
+schedule, backbone, data, seed, optimizer, losses, output heads, checkpoint
+selection, and evaluation policy fixed. It replaces only the shared
+`192 -> 192` projection with `192 -> 384 -> 192`.
+
+- checkpoint: `runs/no-student-hybrid-mean-wide-shared-mlp-e12-weighted/best.pt`
+- selected checkpoint: scheduled epoch 10 of 12
+- checkpoint size: 69,328,391 bytes
+- end-to-end wall time: approximately 49 minutes 16 seconds
+- combined development loss: 0.133798
+
+| Development metric | Narrow, Bokmål | Wide, Bokmål | Narrow, Nynorsk | Wide, Nynorsk |
+| --- | ---: | ---: | ---: | ---: |
+| Joint loss | 0.110285 | **0.103405** | **0.163249** | 0.169170 |
+| UPOS accuracy | **98.93%** | 98.92% | 98.53% | 98.53% |
+| Lemma-rule accuracy | 98.16% | **98.38%** | 98.03% | **98.10%** |
+| Morphology micro precision | 92.87% | **93.36%** | 88.04% | **88.82%** |
+| Morphology micro recall | 97.86% | **98.15%** | 96.50% | **96.59%** |
+| Morphology micro F1 | 95.30% | **95.70%** | 92.08% | **92.54%** |
+| Morphology macro F1 | 94.55% | **94.78%** | **88.98%** | 88.92% |
+| Morphology macro Average Precision | 97.53% | **97.86%** | 92.71% | **92.93%** |
+
+The wider projection is selected because it improves morphology micro F1,
+Average Precision, and lemma accuracy on both written standards for only
+444,470 additional checkpoint bytes. Bokmål UPOS and Nynorsk macro F1 regress
+by only 0.0055 and 0.0618 percentage points, while Nynorsk UPOS is unchanged.
+The higher Nynorsk Loss affects all task components despite better discrete
+predictions; this is recorded as a raw-confidence and calibration risk rather
+than hidden by the selection.
+
 ## Repeatable commands
 
 Train an unweighted Bokmål model with the current defaults:
@@ -648,9 +686,9 @@ python -m prism.languages.norwegian.train_baseline \
   --language-tag no \
   --model-role student \
   --token-pooling mean \
-  --task-head-architecture shared-mlp \
+  --task-head-architecture wide-shared-mlp \
   --epoch-count 12 \
-  --checkpoint runs/no-student-hybrid-mean-shared-mlp-e12-weighted/best.pt \
+  --checkpoint runs/no-student-hybrid-mean-wide-shared-mlp-e12-weighted/best.pt \
   --morphology-weight-cap 10.0
 ```
 
@@ -670,8 +708,8 @@ Evaluate the selected checkpoint on Bokmål development:
 ```bash
 python -m prism.languages.norwegian.evaluate_baseline \
   --language-tag nb \
-  --checkpoint runs/no-student-hybrid-mean-shared-mlp-e12-weighted/best.pt \
-  --analysis runs/no-student-hybrid-mean-shared-mlp-e12-weighted/nb-development-analysis.json
+  --checkpoint runs/no-student-hybrid-mean-wide-shared-mlp-e12-weighted/best.pt \
+  --analysis runs/no-student-hybrid-mean-wide-shared-mlp-e12-weighted/nb-development-analysis.json
 ```
 
 Reproduce the rejected linear-head control explicitly:
@@ -710,10 +748,9 @@ with the Transformer student generation.
 
 ## Immediate next step
 
-Implement one controlled wider shared projection while keeping Mean pooling,
-twelve epochs, backbone, data, losses, optimizer, seed, and evaluation policy
-fixed. Compare it against
-`runs/no-student-hybrid-mean-shared-mlp-e12-weighted/best.pt` separately on
-Bokmål and Nynorsk. Do not reopen epoch-count tuning. Train the expensive
-format-3 teacher only after the projection-capacity decision. Do not evaluate
-either official test split until architecture and calibration are fixed.
+Evaluate one controlled learned mixture of the final NorBERT4-xsmall backbone
+layers against the selected wide shared-MLP student. Keep the wide heads, Mean
+pooling, twelve-epoch schedule, data, losses, optimizer, seed, and evaluation
+policy fixed. The layer mixture must be generic and checkpoint-recorded, not a
+NorBERT-specific branch. Do not reopen epoch-count tuning or evaluate either
+official test split.
