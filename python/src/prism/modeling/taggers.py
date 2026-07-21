@@ -1,6 +1,6 @@
 from torch import nn
 
-from prism.modeling.alignment import align_subwords_to_tokens
+from prism.modeling.alignment import TokenPoolingStrategy, align_subwords_to_tokens
 from prism.modeling.batches import TokenizedBatch
 from prism.modeling.encoders import contextualize_subwords
 from prism.modeling.heads import TokenTaskHeads
@@ -18,11 +18,13 @@ class TokenTagger(nn.Module):
         *,
         backbone: nn.Module,
         heads: TokenTaskHeads,
+        pooling_strategy: TokenPoolingStrategy = TokenPoolingStrategy.FIRST,
     ) -> None:
         super().__init__()
 
         self.backbone = backbone
         self.heads = heads
+        self.pooling_strategy = pooling_strategy
 
     def forward(self, batch: TokenizedBatch) -> TokenTaskLogits:
         subword_batch = contextualize_subwords(
@@ -32,6 +34,7 @@ class TokenTagger(nn.Module):
         token_batch = align_subwords_to_tokens(
             subword_batch=subword_batch,
             tokenized_batch=batch,
+            pooling_strategy=self.pooling_strategy,
         )
 
         return self.heads(token_batch.hidden_states)
@@ -42,6 +45,7 @@ def build_pretrained_token_tagger(
     backbone_spec: PretrainedBackboneSpec,
     schema: TokenTaskSchema,
     dropout_probability: float,
+    pooling_strategy: TokenPoolingStrategy = TokenPoolingStrategy.FIRST,
 ) -> TokenTagger:
     backbone = load_backbone_model(backbone_spec)
     hidden_size = getattr(
@@ -63,4 +67,8 @@ def build_pretrained_token_tagger(
         dropout_probability=dropout_probability,
     )
 
-    return TokenTagger(backbone=backbone, heads=heads)
+    return TokenTagger(
+        backbone=backbone,
+        heads=heads,
+        pooling_strategy=pooling_strategy,
+    )

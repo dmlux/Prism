@@ -61,6 +61,13 @@ def test_tokenize_pretokenized_sentences_builds_model_batch() -> None:
         ),
     )
     assert torch.equal(
+        batch.subword_end_indices,
+        torch.tensor(
+            [[2, 3, 5, 6]],
+            dtype=torch.long,
+        ),
+    )
+    assert torch.equal(
         batch.token_mask,
         torch.tensor(
             [[True, True, True, True]],

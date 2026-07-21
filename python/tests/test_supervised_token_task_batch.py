@@ -19,6 +19,10 @@ def test_supervised_token_task_batch_connects_inputs_and_targets() -> None:
             [[1, 2]],
             dtype=torch.long,
         ),
+        subword_end_indices=torch.tensor(
+            [[2, 3]],
+            dtype=torch.long,
+        ),
         token_mask=torch.tensor(
             [[True, True]],
             dtype=torch.bool,
@@ -64,6 +68,7 @@ def test_supervised_token_task_batch_connects_inputs_and_targets() -> None:
     assert moved_batch.model_inputs.input_ids.device == device
     assert moved_batch.model_inputs.attention_mask.device == device
     assert moved_batch.model_inputs.first_subword_indices.device == device
+    assert moved_batch.model_inputs.subword_end_indices.device == device
     assert moved_batch.model_inputs.token_mask.device == device
     assert moved_batch.targets.upos_ids.device == device
     assert moved_batch.targets.morphology_targets[0].device == device

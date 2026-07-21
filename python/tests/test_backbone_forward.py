@@ -23,6 +23,10 @@ def test_contextualize_subwords_wraps_backbone_output() -> None:
             [[1]],
             dtype=torch.long,
         ),
+        subword_end_indices=torch.tensor(
+            [[2]],
+            dtype=torch.long,
+        ),
         token_mask=torch.tensor(
             [[True]],
             dtype=torch.bool,

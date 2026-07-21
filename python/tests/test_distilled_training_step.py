@@ -71,6 +71,7 @@ def test_distilled_training_step_only_updates_student() -> None:
             input_ids=torch.tensor([[1]]),
             attention_mask=torch.tensor([[True]]),
             first_subword_indices=torch.tensor([[0]]),
+            subword_end_indices=torch.tensor([[1]]),
             token_mask=torch.tensor([[True]]),
         ),
         targets=TokenTaskTargetBatch(
@@ -137,6 +138,7 @@ def test_distilled_training_step_forwards_morphology_weights() -> None:
             input_ids=torch.tensor([[1]]),
             attention_mask=torch.tensor([[True]]),
             first_subword_indices=torch.tensor([[0]]),
+            subword_end_indices=torch.tensor([[1]]),
             token_mask=torch.tensor([[True]]),
         ),
         targets=TokenTaskTargetBatch(

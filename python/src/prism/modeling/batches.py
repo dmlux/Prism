@@ -9,6 +9,7 @@ class TokenizedBatch:
     input_ids: Tensor
     attention_mask: Tensor
     first_subword_indices: Tensor
+    subword_end_indices: Tensor
     token_mask: Tensor
 
     def __post_init__(self) -> None:
@@ -24,6 +25,10 @@ class TokenizedBatch:
             raise ValueError("First-subword indices must have two dimensions.")
         if self.first_subword_indices.dtype != torch.long:
             raise ValueError("First-subword indices must use torch.long.")
+        if self.subword_end_indices.shape != self.first_subword_indices.shape:
+            raise ValueError("Subword-end indices must match first-subword indices.")
+        if self.subword_end_indices.dtype != torch.long:
+            raise ValueError("Subword-end indices must use torch.long.")
         if self.token_mask.shape != self.first_subword_indices.shape:
             raise ValueError("Token mask shape must match first-subword indices.")
         if self.token_mask.dtype != torch.bool:
@@ -48,5 +53,6 @@ class TokenizedBatch:
             input_ids=self.input_ids.to(device),
             attention_mask=self.attention_mask.to(device),
             first_subword_indices=self.first_subword_indices.to(device=device),
+            subword_end_indices=self.subword_end_indices.to(device=device),
             token_mask=self.token_mask.to(device=device),
         )

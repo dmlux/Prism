@@ -550,8 +550,41 @@ Tokenvektor("filmen")
 ```
 
 Das kann Endungen direkter einbeziehen, benötigt aber zusätzliche
-Aggregation. Prism startet voraussichtlich mit dem ersten Subword und
-vergleicht Mean-Pooling als Development-Ablation.
+Aggregation.
+
+Prism implementiert beide Varianten als typisierte
+`TokenPoolingStrategy`. Der Tokenizer speichert für jedes Original-Token den
+Startindex und den exklusiven Endindex seines zusammenhängenden
+Subwordbereichs. First-Pooling sammelt den Startvektor ein. Mean-Pooling bildet
+mit Präfixsummen den Mittelwert des gesamten Bereichs, ohne eine Python-Schleife
+pro Token zu benötigen.
+
+```plantuml
+@startuml token-pooling
+skinparam backgroundColor transparent
+skinparam shadowing false
+
+rectangle "Original-Token\nfilmen" as Token
+rectangle "Subword-Spanne\n[film, en]" as Span
+diamond "Checkpoint-Policy" as Policy
+rectangle "first\nVektor(film)" as First
+rectangle "mean\n(Vektor(film) + Vektor(en)) / 2" as Mean
+rectangle "ein Tokenvektor\n192 Dimensionen" as Result
+
+Token --> Span
+Span --> Policy
+Policy --> First : first
+Policy --> Mean : mean
+First --> Result
+Mean --> Result
+@enduml
+```
+
+Die Strategie wird im Checkpoint gespeichert und bei der Evaluation
+automatisch wiederhergestellt. Format-3-Checkpoints ohne dieses neue Feld
+werden aus Kompatibilitätsgründen eindeutig als `first` interpretiert. Die
+erste kontrollierte Ablation vergleicht den akzeptierten First-Pooling-Student
+mit einem ansonsten identischen Mean-Pooling-Student.
 
 Danach entsteht:
 

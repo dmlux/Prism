@@ -452,6 +452,28 @@ morphology head tensor shapes and their meanings changed. The existing
 format-2 teacher and distilled checkpoints remain historical references and
 cannot be used for format-3 distillation.
 
+## Implemented token-pooling ablation
+
+The selected format-3 reference uses the first contextualized subword vector
+for every original token. A controlled Mean-pooling alternative is now
+implemented without changing the backbone, task heads, loss policy, or output
+schema:
+
+- tokenized batches carry the start and exclusive end of every token's
+  contiguous subword span;
+- `first` gathers the span's first contextualized vector;
+- `mean` averages all contextualized vectors in the span through a vectorized
+  prefix-sum operation;
+- `--token-pooling {first,mean}` selects the training policy;
+- checkpoints store `token_pooling_strategy`, and evaluation restores it
+  automatically;
+- existing format-3 checkpoints without this metadata resolve explicitly to
+  `first` and remain compatible.
+
+Mean pooling adds no trainable parameters. It is implemented and tested but
+has not yet been trained or benchmarked. Export parity for the complete tagger
+remains required before a production runtime accepts either pooling path.
+
 ## Repeatable commands
 
 Train the unweighted Bokmål control:
@@ -467,6 +489,17 @@ python -m prism.languages.norwegian.train_baseline \
   --language-tag no \
   --model-role student \
   --checkpoint runs/no-student-hybrid-weighted/best.pt \
+  --morphology-weight-cap 10.0
+```
+
+Train the controlled Mean-pooling candidate:
+
+```bash
+python -m prism.languages.norwegian.train_baseline \
+  --language-tag no \
+  --model-role student \
+  --token-pooling mean \
+  --checkpoint runs/no-student-hybrid-mean-weighted/best.pt \
   --morphology-weight-cap 10.0
 ```
 
@@ -489,9 +522,9 @@ with the Transformer student generation.
 
 ## Immediate next step
 
-Train a fresh shared Norwegian NorBERT4-base teacher with the accepted
-format-3 hybrid morphology contract. Evaluate the fixed teacher checkpoint
-separately on Bokmål and Nynorsk development before resuming distillation.
-Do not change head depth, subword pooling, or the student training policy in
-the same experiment, and do not evaluate either official test split until the
-architecture and calibration policy are fixed.
+Train the controlled Mean-pooling student and evaluate it separately on
+Bokmål and Nynorsk development. Compare it with the selected First-pooling
+format-3 reference while holding every other training decision fixed. Only
+after selecting the token-pooling policy should Prism test a nonlinear head or
+train the expensive format-3 teacher. Do not evaluate either official test
+split until the architecture and calibration policy are fixed.

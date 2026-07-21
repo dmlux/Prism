@@ -3,7 +3,12 @@ from types import SimpleNamespace
 import torch
 from torch import Tensor, nn
 
-from prism.modeling import TokenTagger, TokenTaskHeads, TokenizedBatch
+from prism.modeling import (
+    TokenPoolingStrategy,
+    TokenTagger,
+    TokenTaskHeads,
+    TokenizedBatch,
+)
 from prism.schema import (
     LemmaEditRule,
     LemmaRuleSchema,
@@ -71,11 +76,13 @@ def test_token_tagger_connects_backbone_alignment_and_task_heads() -> None:
     model = TokenTagger(
         backbone=FakeBackbone(),
         heads=heads,
+        pooling_strategy=TokenPoolingStrategy.MEAN,
     )
     batch = TokenizedBatch(
         input_ids=torch.tensor([[101, 11, 12, 102]], dtype=torch.long),
         attention_mask=torch.tensor([[True, True, True, True]]),
         first_subword_indices=torch.tensor([[1, 2]], dtype=torch.long),
+        subword_end_indices=torch.tensor([[2, 3]], dtype=torch.long),
         token_mask=torch.tensor([[True, True]]),
     )
 

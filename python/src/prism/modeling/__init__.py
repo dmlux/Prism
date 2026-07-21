@@ -11,9 +11,10 @@ from prism.modeling.tokenizers import (
     tokenize_pretokenized_sentences,
 )
 from prism.modeling.alignment import (
+    TokenPoolingStrategy,
     align_subwords_to_tokens,
     build_padded_token_alignment,
-    find_first_subword_indices,
+    find_subword_spans,
 )
 from prism.modeling.outputs import (
     ContextualizedSubwordBatch,
@@ -34,9 +35,10 @@ __all__ = [
     "load_backbone_tokenizer",
     "prepare_pretokenized_words",
     "tokenize_pretokenized_sentences",
+    "TokenPoolingStrategy",
     "align_subwords_to_tokens",
     "build_padded_token_alignment",
-    "find_first_subword_indices",
+    "find_subword_spans",
     "ContextualizedSubwordBatch",
     "ContextualizedTokenBatch",
     "TokenTaskLogits",

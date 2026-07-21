@@ -103,6 +103,10 @@ def test_training_step_updates_backbone_and_task_heads() -> None:
                 [[1]],
                 dtype=torch.long,
             ),
+            subword_end_indices=torch.tensor(
+                [[2]],
+                dtype=torch.long,
+            ),
             token_mask=torch.tensor(
                 [[True]],
                 dtype=torch.bool,

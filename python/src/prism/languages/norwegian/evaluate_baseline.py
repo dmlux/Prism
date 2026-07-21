@@ -34,6 +34,7 @@ from prism.schema.serialization import (
 from prism.training import (
     evaluate_supervised_token_task_epoch,
     iter_supervised_token_task_batches,
+    token_pooling_strategy_from_checkpoint,
     validate_token_task_checkpoint_format,
 )
 
@@ -166,10 +167,12 @@ def main() -> None:
     )
 
     tokenizer = load_backbone_tokenizer(backbone_spec)
+    pooling_strategy = token_pooling_strategy_from_checkpoint(checkpoint)
     model = build_pretrained_token_tagger(
         backbone_spec=backbone_spec,
         schema=schema,
         dropout_probability=0.1,
+        pooling_strategy=pooling_strategy,
     )
     model.load_state_dict(
         checkpoint["model_state_dict"],
@@ -180,6 +183,7 @@ def main() -> None:
         "Evaluating checkpoint epoch:",
         int(checkpoint["epoch_index"]) + 1,
     )
+    print("Token pooling:", pooling_strategy.value)
 
     metrics = evaluate_supervised_token_task_epoch(
         model=model,

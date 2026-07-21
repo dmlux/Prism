@@ -23,6 +23,7 @@ from prism.languages.norwegian import (
 )
 from prism.modeling import (
     PretrainedBackboneSpec,
+    TokenPoolingStrategy,
     TokenTagger,
     build_pretrained_token_tagger,
     load_backbone_tokenizer,
@@ -46,6 +47,7 @@ from prism.training import (
     run_supervised_training_epochs,
     train_supervised_token_task_epoch,
     train_distilled_token_task_epoch,
+    token_pooling_strategy_from_checkpoint,
     validate_token_task_checkpoint_format,
 )
 
@@ -59,6 +61,7 @@ class BaselineTrainingArguments:
     teacher_checkpoint_path: Path | None
     distillation_temperature: float
     distillation_weight: float
+    token_pooling_strategy: TokenPoolingStrategy
 
 
 def parse_training_arguments(
@@ -100,6 +103,11 @@ def parse_training_arguments(
         default=0.5,
     )
     parser.add_argument(
+        "--token-pooling",
+        choices=tuple(strategy.value for strategy in TokenPoolingStrategy),
+        default=TokenPoolingStrategy.FIRST.value,
+    )
+    parser.add_argument(
         "--morphology-weight-cap",
         "--morphology-positive-weight-cap",
         type=float,
@@ -130,6 +138,7 @@ def parse_training_arguments(
         teacher_checkpoint_path=parsed_arguments.teacher_checkpoint_path,
         distillation_temperature=parsed_arguments.distillation_temperature,
         distillation_weight=parsed_arguments.distillation_weight,
+        token_pooling_strategy=TokenPoolingStrategy(parsed_arguments.token_pooling),
     )
 
 
@@ -197,6 +206,7 @@ def _load_distillation_teacher(
         backbone_spec=backbone_spec,
         schema=schema,
         dropout_probability=0.1,
+        pooling_strategy=token_pooling_strategy_from_checkpoint(checkpoint),
     )
     teacher.load_state_dict(
         checkpoint["model_state_dict"],
@@ -234,6 +244,7 @@ def main() -> None:
     )
 
     print("Model role:", arguments.model_role)
+    print("Token pooling:", arguments.token_pooling_strategy.value)
     print("Training sentences:", len(training_tokens))
     print(
         "Development sentences:",
@@ -284,6 +295,7 @@ def main() -> None:
         backbone_spec=backbone_spec,
         schema=schema,
         dropout_probability=0.1,
+        pooling_strategy=arguments.token_pooling_strategy,
     )
 
     teacher = _load_distillation_teacher(
@@ -434,6 +446,7 @@ def main() -> None:
                 "epoch_index": epoch.epoch_index,
                 "language_tag": arguments.language_tag,
                 "model_role": arguments.model_role,
+                "token_pooling_strategy": arguments.token_pooling_strategy.value,
                 "teacher_checkpoint_path": (
                     None
                     if arguments.teacher_checkpoint_path is None

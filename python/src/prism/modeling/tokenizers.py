@@ -8,7 +8,7 @@ from torch import Tensor
 from prism.data.examples import PretokenizedSentence
 from prism.modeling.alignment import (
     build_padded_token_alignment,
-    find_first_subword_indices,
+    find_subword_spans,
 )
 from prism.modeling.batches import TokenizedBatch
 from prism.modeling.backbones import PretrainedBackboneSpec
@@ -70,7 +70,7 @@ def tokenize_pretokenized_sentences(
     if not isinstance(attention_mask, Tensor):
         raise ValueError("Tokenizer attention mask must be a PyTorch tensor.")
 
-    sentence_indices: list[tuple[int, ...]] = []
+    sentence_spans: list[tuple[tuple[int, int], ...]] = []
 
     for batch_index, sentence in enumerate(sentences):
         word_ids = encoded.word_ids(batch_index=batch_index)
@@ -79,21 +79,24 @@ def tokenize_pretokenized_sentences(
                 f"Tokenizer did not provide word IDs for batch {batch_index}."
             )
 
-        sentence_indices.append(
-            find_first_subword_indices(
+        sentence_spans.append(
+            find_subword_spans(
                 word_ids=word_ids,
                 token_count=len(sentence.tokens),
             )
         )
 
-    first_subword_indices, token_mask = build_padded_token_alignment(
-        sentence_indices=sentence_indices,
+    first_subword_indices, subword_end_indices, token_mask = (
+        build_padded_token_alignment(
+            sentence_spans=sentence_spans,
+        )
     )
 
     return TokenizedBatch(
         input_ids=input_ids,
         attention_mask=attention_mask.to(dtype=torch.bool),
         first_subword_indices=first_subword_indices,
+        subword_end_indices=subword_end_indices,
         token_mask=token_mask,
     )
 

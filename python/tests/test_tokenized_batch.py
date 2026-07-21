@@ -26,6 +26,13 @@ def test_tokenized_batch_exposes_input_shapes() -> None:
             ],
             dtype=torch.long,
         ),
+        subword_end_indices=torch.tensor(
+            [
+                [2, 3],
+                [2, 0],
+            ],
+            dtype=torch.long,
+        ),
         token_mask=torch.tensor(
             [
                 [True, True],
