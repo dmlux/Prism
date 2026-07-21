@@ -32,13 +32,13 @@ Prism currently provides:
 - explicit language profiles so another language can replace its tokenizer,
   backbone, schemas, decoding policy, and artifact metadata.
 
-The selected Mean-pooling, shared-MLP format-3 gold-only student reaches
-93.80% Bokmål and 90.24% Nynorsk morphology micro F1 while preserving
-98.71%/98.40% UPOS and 97.13%/97.12% lemma-rule accuracy. The shared residual
-projection improves every reported headline metric over the otherwise
-identical linear-head reference on both written standards while adding only
-148,790 checkpoint bytes. A new compatible teacher must be trained before
-distillation continues. Both official test splits remain untouched.
+The selected twelve-epoch Mean-pooling, shared-MLP format-3 gold-only student
+reaches 95.30% Bokmål and 92.08% Nynorsk morphology micro F1 while preserving
+98.93%/98.53% UPOS and 98.16%/98.03% lemma-rule accuracy. The shared residual
+projection and longer training policy improve every reported headline metric
+on both written standards while the model remains 68.9 MB. A new compatible
+teacher must be trained before distillation continues. Both official test
+splits remain untouched.
 See [the benchmark notes](docs/benchmarks.md) for the complete, comparable
 results.
 
@@ -204,8 +204,8 @@ are excluded through `.gitignore`.
 
 ## Roadmap
 
-1. Test whether an eight-epoch schedule improves the selected Mean-pooling,
-   shared-MLP student without changing its architecture.
+1. Evaluate one controlled wider shared projection against the selected
+   twelve-epoch Mean-pooling, shared-MLP student.
 2. Train a format-3-compatible shared NorBERT4-Base teacher, distill it into
    the selected compact architecture, and compare it with the gold-only
    ablation.

@@ -393,6 +393,95 @@ therefore selected as the new gold-only Student architecture. The next
 controlled ablation changes only the training duration from five to eight
 epochs. Both official test splits remain untouched.
 
+### Selected eight-epoch shared-MLP student
+
+This controlled duration ablation keeps Mean pooling, the shared MLP, model
+initialization, data, optimizer, losses, seed, batch size, and evaluation
+policy fixed. The configured linear warmup-decay schedule spans eight instead
+of five epochs, and checkpoint selection still uses combined development loss.
+
+- Selected checkpoint: epoch 8
+- Checkpoint: `runs/no-student-hybrid-mean-shared-mlp-e8-weighted/best.pt`
+- Checkpoint size: 68,883,921 bytes
+- End-to-end wall time: approximately 33 minutes 3 seconds
+- Combined development loss: 0.145512
+
+| Development metric | 5 epochs, Bokmål | 8 epochs, Bokmål | 5 epochs, Nynorsk | 8 epochs, Nynorsk |
+| --- | ---: | ---: | ---: | ---: |
+| Joint loss | 0.152651 | **0.124505** | 0.193203 | **0.169961** |
+| UPOS accuracy | 98.71% | **98.86%** | 98.40% | **98.51%** |
+| Lemma-rule accuracy | 97.13% | **97.73%** | 97.12% | **97.71%** |
+| Morphology micro precision | 90.61% | **91.82%** | 85.18% | **86.75%** |
+| Morphology micro recall | 97.23% | **97.59%** | 95.94% | **96.28%** |
+| Morphology micro F1 | 93.80% | **94.62%** | 90.24% | **91.27%** |
+| Morphology macro F1 | 92.63% | **93.62%** | 87.49% | **88.39%** |
+| Morphology macro Average Precision | 96.06% | **97.05%** | 91.83% | **92.48%** |
+
+Eight epochs improve every headline metric on both written standards without
+changing checkpoint size or inference cost, so eight becomes the default
+training duration. Development loss still improved at epoch 8, but by a
+smaller amount than in prior epochs. One controlled ten-epoch run will test
+the remaining gain before model capacity or teacher training changes. Both
+official test splits remain untouched.
+
+### Selected ten-epoch shared-MLP student
+
+This duration ablation extends the otherwise unchanged selected architecture
+and training policy from eight to ten scheduled epochs. Combined Development
+loss selects the final epoch again.
+
+- Selected checkpoint: epoch 10
+- Checkpoint: `runs/no-student-hybrid-mean-shared-mlp-e10-weighted/best.pt`
+- Checkpoint size: 68,883,921 bytes
+- End-to-end wall time: approximately 40 minutes 59 seconds
+- Combined development loss: 0.138900
+
+| Development metric | 8 epochs, Bokmål | 10 epochs, Bokmål | 8 epochs, Nynorsk | 10 epochs, Nynorsk |
+| --- | ---: | ---: | ---: | ---: |
+| Joint loss | 0.124505 | **0.115954** | 0.169961 | **0.165604** |
+| UPOS accuracy | 98.86% | **98.87%** | 98.51% | **98.54%** |
+| Lemma-rule accuracy | 97.73% | **97.95%** | 97.71% | **97.87%** |
+| Morphology micro precision | 91.82% | **92.41%** | 86.75% | **87.36%** |
+| Morphology micro recall | 97.59% | **97.77%** | 96.28% | **96.41%** |
+| Morphology micro F1 | 94.62% | **95.01%** | 91.27% | **91.66%** |
+| Morphology macro F1 | 93.62% | **94.07%** | 88.39% | **88.67%** |
+| Morphology macro Average Precision | 97.05% | **97.32%** | 92.48% | **92.58%** |
+
+Ten epochs improve every headline metric again without changing model size or
+inference cost and therefore become the new default. The gains are now
+diminishing. One predeclared twelve-epoch run is the final duration ablation;
+epoch count will not be tuned further on these Development splits afterward.
+Both official test splits remain untouched.
+
+### Selected twelve-epoch shared-MLP student
+
+The final predeclared duration ablation extends the unchanged ten-epoch policy
+to twelve scheduled epochs. Combined Development loss again selects the final
+epoch.
+
+- Selected checkpoint: epoch 12
+- Checkpoint: `runs/no-student-hybrid-mean-shared-mlp-e12-weighted/best.pt`
+- Checkpoint size: 68,883,921 bytes
+- End-to-end wall time: approximately 49 minutes
+- Combined development loss: 0.134762
+
+| Development metric | 10 epochs, Bokmål | 12 epochs, Bokmål | 10 epochs, Nynorsk | 12 epochs, Nynorsk |
+| --- | ---: | ---: | ---: | ---: |
+| Joint loss | 0.115954 | **0.110285** | 0.165604 | **0.163249** |
+| UPOS accuracy | 98.87% | **98.93%** | **98.54%** | 98.53% |
+| Lemma-rule accuracy | 97.95% | **98.16%** | 97.87% | **98.03%** |
+| Morphology micro precision | 92.41% | **92.87%** | 87.36% | **88.04%** |
+| Morphology micro recall | 97.77% | **97.86%** | 96.41% | **96.50%** |
+| Morphology micro F1 | 95.01% | **95.30%** | 91.66% | **92.08%** |
+| Morphology macro F1 | 94.07% | **94.55%** | 88.67% | **88.98%** |
+| Morphology macro Average Precision | 97.32% | **97.53%** | 92.58% | **92.71%** |
+
+Twelve epochs become the final duration policy. Nynorsk UPOS trades 0.0128
+percentage points for improvements in Loss, Lemma, and every morphology
+summary on both standards. The predeclared stopping rule closes epoch-count
+tuning on these Development splits. Both official test splits remain
+untouched.
+
 ## Shared Norwegian NorBERT4-Base teacher
 
 The first teacher uses the same supervised data, schema, task heads, and

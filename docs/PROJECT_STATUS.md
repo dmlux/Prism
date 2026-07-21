@@ -518,7 +518,7 @@ head_input = normalized + dropout(gelu(linear(normalized)))
 - checkpoints store `token_task_head_architecture`;
 - evaluation and teacher loading restore the stored architecture;
 - older format-3 checkpoints without the field resolve to `linear`;
-- `--epoch-count` exposes the training duration with default 5.
+- `--epoch-count` exposes the training duration with default 12.
 
 The five-epoch candidate is accepted as the new gold-only Student reference:
 
@@ -544,6 +544,95 @@ standards while adding only 148,790 checkpoint bytes and no measured training
 time. The explicit `linear` option and the checkpoint fallback preserve the
 controlled reference and compatibility.
 
+## Selected eight-epoch training policy
+
+The controlled duration ablation keeps the selected Mean pooling, shared MLP,
+model initialization, data, optimizer, losses, seed, batch size, and
+evaluation policy fixed. It changes the scheduled training duration from five
+to eight epochs. The best checkpoint is again the final epoch, and every
+headline metric improves on both written standards:
+
+- checkpoint: `runs/no-student-hybrid-mean-shared-mlp-e8-weighted/best.pt`
+- selected epoch: 8
+- checkpoint size: 68,883,921 bytes
+- end-to-end wall time: approximately 33 minutes 3 seconds
+- combined development loss: 0.145512
+
+| Development metric | 5 epochs, Bokmål | 8 epochs, Bokmål | 5 epochs, Nynorsk | 8 epochs, Nynorsk |
+| --- | ---: | ---: | ---: | ---: |
+| Joint loss | 0.152651 | **0.124505** | 0.193203 | **0.169961** |
+| UPOS accuracy | 98.71% | **98.86%** | 98.40% | **98.51%** |
+| Lemma-rule accuracy | 97.13% | **97.73%** | 97.12% | **97.71%** |
+| Morphology micro precision | 90.61% | **91.82%** | 85.18% | **86.75%** |
+| Morphology micro recall | 97.23% | **97.59%** | 95.94% | **96.28%** |
+| Morphology micro F1 | 93.80% | **94.62%** | 90.24% | **91.27%** |
+| Morphology macro F1 | 92.63% | **93.62%** | 87.49% | **88.39%** |
+| Morphology macro Average Precision | 96.06% | **97.05%** | 91.83% | **92.48%** |
+
+Eight epochs are selected as the new default because the gains require no
+additional model parameters or inference work. Development loss improved at
+every epoch, including epoch 8, although the per-epoch gain was diminishing.
+The subsequent ten-epoch run measures the remaining diminishing gain before
+the final predeclared twelve-epoch boundary.
+
+## Selected ten-epoch training policy
+
+The next controlled duration run keeps every architecture, data, optimizer,
+loss, seed, batching, and evaluation decision fixed while extending the
+scheduled training duration from eight to ten epochs. Its final epoch is again
+the best combined Development checkpoint:
+
+- checkpoint: `runs/no-student-hybrid-mean-shared-mlp-e10-weighted/best.pt`
+- selected epoch: 10
+- checkpoint size: 68,883,921 bytes
+- end-to-end wall time: approximately 40 minutes 59 seconds
+- combined development loss: 0.138900
+
+| Development metric | 8 epochs, Bokmål | 10 epochs, Bokmål | 8 epochs, Nynorsk | 10 epochs, Nynorsk |
+| --- | ---: | ---: | ---: | ---: |
+| Joint loss | 0.124505 | **0.115954** | 0.169961 | **0.165604** |
+| UPOS accuracy | 98.86% | **98.87%** | 98.51% | **98.54%** |
+| Lemma-rule accuracy | 97.73% | **97.95%** | 97.71% | **97.87%** |
+| Morphology micro precision | 91.82% | **92.41%** | 86.75% | **87.36%** |
+| Morphology micro recall | 97.59% | **97.77%** | 96.28% | **96.41%** |
+| Morphology micro F1 | 94.62% | **95.01%** | 91.27% | **91.66%** |
+| Morphology macro F1 | 93.62% | **94.07%** | 88.39% | **88.67%** |
+| Morphology macro Average Precision | 97.05% | **97.32%** | 92.48% | **92.58%** |
+
+Ten epochs become the new default because every headline metric improves on
+both written standards without increasing model size or inference work. The
+gains are diminishing, so one twelve-epoch run is predeclared as the final
+duration ablation. Prism will not continue increasing epoch count based on the
+same Development splits after that result.
+
+## Selected twelve-epoch training policy
+
+The final predeclared duration ablation extends the unchanged selected
+training policy from ten to twelve scheduled epochs. The final epoch again has
+the lowest combined Development loss:
+
+- checkpoint: `runs/no-student-hybrid-mean-shared-mlp-e12-weighted/best.pt`
+- selected epoch: 12
+- checkpoint size: 68,883,921 bytes
+- end-to-end wall time: approximately 49 minutes
+- combined development loss: 0.134762
+
+| Development metric | 10 epochs, Bokmål | 12 epochs, Bokmål | 10 epochs, Nynorsk | 12 epochs, Nynorsk |
+| --- | ---: | ---: | ---: | ---: |
+| Joint loss | 0.115954 | **0.110285** | 0.165604 | **0.163249** |
+| UPOS accuracy | 98.87% | **98.93%** | **98.54%** | 98.53% |
+| Lemma-rule accuracy | 97.95% | **98.16%** | 97.87% | **98.03%** |
+| Morphology micro precision | 92.41% | **92.87%** | 87.36% | **88.04%** |
+| Morphology micro recall | 97.77% | **97.86%** | 96.41% | **96.50%** |
+| Morphology micro F1 | 95.01% | **95.30%** | 91.66% | **92.08%** |
+| Morphology macro F1 | 94.07% | **94.55%** | 88.67% | **88.98%** |
+| Morphology macro Average Precision | 97.32% | **97.53%** | 92.58% | **92.71%** |
+
+Twelve epochs are selected as the final duration policy. Nynorsk UPOS falls by
+only 0.0128 percentage points while Loss, Lemma, and all morphology summaries
+improve on both standards. As predeclared, epoch-count tuning on these
+Development splits is now closed.
+
 ## Repeatable commands
 
 Train an unweighted Bokmål model with the current defaults:
@@ -560,8 +649,8 @@ python -m prism.languages.norwegian.train_baseline \
   --model-role student \
   --token-pooling mean \
   --task-head-architecture shared-mlp \
-  --epoch-count 5 \
-  --checkpoint runs/no-student-hybrid-mean-shared-mlp-weighted/best.pt \
+  --epoch-count 12 \
+  --checkpoint runs/no-student-hybrid-mean-shared-mlp-e12-weighted/best.pt \
   --morphology-weight-cap 10.0
 ```
 
@@ -581,8 +670,8 @@ Evaluate the selected checkpoint on Bokmål development:
 ```bash
 python -m prism.languages.norwegian.evaluate_baseline \
   --language-tag nb \
-  --checkpoint runs/no-student-hybrid-mean-shared-mlp-weighted/best.pt \
-  --analysis runs/no-student-hybrid-mean-shared-mlp-weighted/nb-development-analysis.json
+  --checkpoint runs/no-student-hybrid-mean-shared-mlp-e12-weighted/best.pt \
+  --analysis runs/no-student-hybrid-mean-shared-mlp-e12-weighted/nb-development-analysis.json
 ```
 
 Reproduce the rejected linear-head control explicitly:
@@ -598,7 +687,7 @@ python -m prism.languages.norwegian.train_baseline \
   --morphology-weight-cap 10.0
 ```
 
-Train the controlled eight-epoch candidate:
+Reproduce the ten-epoch duration control explicitly:
 
 ```bash
 python -m prism.languages.norwegian.train_baseline \
@@ -606,8 +695,8 @@ python -m prism.languages.norwegian.train_baseline \
   --model-role student \
   --token-pooling mean \
   --task-head-architecture shared-mlp \
-  --epoch-count 8 \
-  --checkpoint runs/no-student-hybrid-mean-shared-mlp-e8-weighted/best.pt \
+  --epoch-count 10 \
+  --checkpoint runs/no-student-hybrid-mean-shared-mlp-e10-weighted/best.pt \
   --morphology-weight-cap 10.0
 ```
 
@@ -621,10 +710,10 @@ with the Transformer student generation.
 
 ## Immediate next step
 
-Train the selected Mean-pooling, shared-MLP Student for eight epochs while
-keeping the backbone, data, losses, optimizer, seed, and evaluation policy
-fixed. Compare its best checkpoint against the selected five-epoch reference
-`runs/no-student-hybrid-mean-shared-mlp-weighted/best.pt` separately on Bokmål
-and Nynorsk. Train the expensive format-3 teacher only after selecting the
-training duration. Do not evaluate either official test split until the
-architecture and calibration policy are fixed.
+Implement one controlled wider shared projection while keeping Mean pooling,
+twelve epochs, backbone, data, losses, optimizer, seed, and evaluation policy
+fixed. Compare it against
+`runs/no-student-hybrid-mean-shared-mlp-e12-weighted/best.pt` separately on
+Bokmål and Nynorsk. Do not reopen epoch-count tuning. Train the expensive
+format-3 teacher only after the projection-capacity decision. Do not evaluate
+either official test split until architecture and calibration are fixed.

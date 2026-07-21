@@ -19,7 +19,7 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
         default_arguments.token_task_head_architecture
         is TokenTaskHeadArchitecture.SHARED_MLP
     )
-    assert default_arguments.epoch_count == 5
+    assert default_arguments.epoch_count == 12
 
     weighted_arguments = parse_training_arguments(
         (

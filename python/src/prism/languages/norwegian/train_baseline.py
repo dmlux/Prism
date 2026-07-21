@@ -119,7 +119,7 @@ def parse_training_arguments(
     parser.add_argument(
         "--epoch-count",
         type=int,
-        default=5,
+        default=12,
     )
     parser.add_argument(
         "--morphology-weight-cap",

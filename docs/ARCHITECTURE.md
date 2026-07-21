@@ -1150,10 +1150,15 @@ Bei exklusiven Features ändern sich Loss, Interpretation und teilweise die
 Anzahl der Head-Ausgänge. Ein alter State-Dict darf daher nicht stillschweigend
 in das neue Modell geladen werden.
 
-Der nächste kontrollierte Student-Schritt ist eine Acht-Epochen-Ablation mit
-unveränderter Mean-Pooling- und Shared-MLP-Architektur. Erst nach Auswahl der
-Trainingsdauer folgt das teure gemeinsame norwegische Teacher-Training mit
-demselben Format-3-Vertrag.
+Die kontrollierten Trainingsdauer-Ablationen wählen zwölf statt fünf, acht
+oder zehn Epochen. Loss, Lemma und alle Morphologie-Hauptmetriken verbessern
+sich auf Bokmål und Nynorsk, ohne Modellgröße oder Inferenzkosten zu erhöhen.
+Nynorsk-UPOS sinkt gegenüber zehn Epochen lediglich um 0,0128 Prozentpunkte;
+die breiten übrigen Gewinne rechtfertigen zwölf als Standard. Die vorab
+festgelegte Grenze ist erreicht: Die Epochenzahl wird nicht weiter auf diesen
+Development-Splits optimiert. Der nächste kontrollierte Student-Schritt darf
+wieder genau eine Architekturvariable ändern, bevor das teure gemeinsame
+norwegische Teacher-Training mit demselben Format-3-Vertrag folgt.
 
 ## Quellen
 

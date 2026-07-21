@@ -130,7 +130,14 @@ projection before the schema-driven linear task heads. The controlled
 on Bokmål and Nynorsk, so `shared-mlp` is the default for new Norwegian
 training runs. Checkpoints record the architecture, and old format-3
 checkpoints default to `linear`. The selected architecture now proceeds to a
-separate training-duration ablation.
+separate training-duration ablation. Eight epochs improve every headline
+metric over the five-epoch control on both written standards without changing
+model size or inference cost. Ten epochs improve every headline metric again.
+The final predeclared twelve-epoch run then improves Loss, Lemma, and all
+morphology summaries on both standards, with only a 0.0128-point Nynorsk UPOS
+tradeoff. Twelve epochs are selected as the default, and epoch-count tuning on
+these Development splits is now closed before further architecture work and
+format-3 teacher training.
 
 It is not yet a production release because the final Student head
 architecture, a format-3-compatible teacher and distillation run, confidence
