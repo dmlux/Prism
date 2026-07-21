@@ -4,8 +4,12 @@ from unittest.mock import patch
 from torch import nn
 
 from prism.modeling import (
+    BackboneLayerAggregationStrategy,
+    CharacterCnnTokenEncoder,
     PretrainedBackboneSpec,
     SharedResidualTokenProjection,
+    StructuredMorphologyDecoder,
+    TaskResidualAdapter,
     TokenTaskHeadArchitecture,
     WideSharedResidualTokenProjection,
     build_pretrained_token_tagger,
@@ -112,4 +116,86 @@ def test_build_pretrained_token_tagger_uses_backbone_hidden_size() -> None:
     assert isinstance(
         wide_model.heads.input_projection,
         WideSharedResidualTokenProjection,
+    )
+
+    with patch(
+        "prism.modeling.taggers.load_backbone_model",
+        return_value=backbone,
+    ):
+        adapted_model = build_pretrained_token_tagger(
+            backbone_spec=spec,
+            schema=schema,
+            dropout_probability=0.1,
+            head_architecture=(TokenTaskHeadArchitecture.WIDE_SHARED_MLP_TASK_ADAPTERS),
+        )
+
+    assert isinstance(
+        adapted_model.heads.input_projection,
+        WideSharedResidualTokenProjection,
+    )
+    assert isinstance(adapted_model.heads.upos_adapter, TaskResidualAdapter)
+    assert isinstance(
+        adapted_model.heads.morphology_adapter,
+        TaskResidualAdapter,
+    )
+    assert isinstance(adapted_model.heads.lemma_adapter, TaskResidualAdapter)
+
+    with patch(
+        "prism.modeling.taggers.load_backbone_model",
+        return_value=backbone,
+    ):
+        structured_model = build_pretrained_token_tagger(
+            backbone_spec=spec,
+            schema=schema,
+            dropout_probability=0.1,
+            head_architecture=(
+                TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY
+            ),
+        )
+
+    assert isinstance(
+        structured_model.heads.structured_morphology_decoder,
+        StructuredMorphologyDecoder,
+    )
+
+    with patch(
+        "prism.modeling.taggers.load_backbone_model",
+        return_value=backbone,
+    ):
+        character_model = build_pretrained_token_tagger(
+            backbone_spec=spec,
+            schema=schema,
+            dropout_probability=0.1,
+            head_architecture=(
+                TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY_CHARACTER_CNN
+            ),
+            character_vocabulary_size=32,
+        )
+
+    assert isinstance(character_model.character_encoder, CharacterCnnTokenEncoder)
+    assert character_model.heads.character_fusion is not None
+
+    with patch(
+        "prism.modeling.taggers.load_backbone_model",
+        return_value=backbone,
+    ):
+        mixed_model = build_pretrained_token_tagger(
+            backbone_spec=spec,
+            schema=schema,
+            dropout_probability=0.1,
+            layer_aggregation_strategy=(
+                BackboneLayerAggregationStrategy.LEARNED_LAST_FOUR
+            ),
+        )
+
+    assert (
+        mixed_model.layer_aggregation.strategy
+        is BackboneLayerAggregationStrategy.LEARNED_LAST_FOUR
+    )
+    assert (
+        sum(
+            parameter.numel()
+            for parameter in mixed_model.layer_aggregation.parameters()
+        )
+        == 5
     )

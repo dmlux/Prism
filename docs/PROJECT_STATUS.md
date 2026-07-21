@@ -115,11 +115,16 @@ Implemented shared components include:
 - tokenizer loading and whitespace-preserving pretokenized input;
 - subword-to-token alignment;
 - contextual backbone execution;
+- a checkpoint-compatible `last` versus `learned-last-four` backbone-layer
+  aggregation contract; the selected learned strategy adds four mixture logits
+  and one scale parameter;
 - shared normalization before task heads;
 - UPOS, per-feature morphology, and lemma edit-rule heads;
-- the selected `wide-shared-mlp` architecture with a generic `H -> 2H -> H`
-  residual projection; the narrower `shared-mlp` remains unchanged and
-  checkpoint-compatible;
+- the selected
+  `wide-shared-mlp-structured-morphology-character-cnn` architecture with a
+  generic `H -> 2H -> H` residual projection, a parallel soft-decision
+  morphology refinement, and a compact character path for morphology and
+  lemma; the narrower variants remain checkpoint-compatible;
 - schema-aware targets, losses, decoding, and metrics;
 - a hybrid morphology contract: categorical softmax/Cross-Entropy for
   exclusive features and sigmoid/Binary Cross-Entropy over real values for
@@ -515,12 +520,28 @@ the normalized token vector before all linear task heads:
 head_input = normalized + dropout(gelu(linear(normalized)))
 ```
 
-- `--task-head-architecture {linear,shared-mlp,wide-shared-mlp}` selects the
-  architecture;
-- `wide-shared-mlp` is the default for new Norwegian training runs;
+- `--task-head-architecture` selects `linear`, `shared-mlp`,
+  `wide-shared-mlp`, `wide-shared-mlp-task-adapters`, or
+  `wide-shared-mlp-structured-morphology`, or
+  `wide-shared-mlp-structured-morphology-character-cnn`;
+- `wide-shared-mlp-structured-morphology-character-cnn` is the default for new
+  Norwegian training runs;
 - `shared-mlp` adds 37,056 parameters for hidden size 192;
 - `wide-shared-mlp` uses `192 -> 384 -> 192`, contains 148,032 projection
   parameters, and adds 110,976 parameters relative to `shared-mlp`;
+- `wide-shared-mlp-task-adapters` preserves that shared projection and adds
+  separate residual `192 -> 96 -> 192` adapters for UPOS, morphology, and
+  lemma; the 18 morphology heads deliberately share one morphology adapter;
+- the three adapters add 111,456 parameters, approximately 446 KB in FP32,
+  and start as exact identity functions through zero-initialized output
+  projections;
+- `wide-shared-mlp-structured-morphology` preserves the selected shared
+  projection without task adapters and adds a parallel soft-decision
+  refinement pass over UPOS and every morphology feature;
+- for the joint Norwegian schema the structured decoder reads 69 soft values
+  and adds 23,476 parameters, approximately 94 KB in FP32;
+- its feature correction heads start at zero, so the candidate initially
+  reproduces the independent morphology logits exactly;
 - checkpoints store `token_task_head_architecture`;
 - evaluation and teacher loading restore the stored architecture;
 - older format-3 checkpoints without the field resolve to `linear`;
@@ -671,6 +692,105 @@ The higher Nynorsk Loss affects all task components despite better discrete
 predictions; this is recorded as a raw-confidence and calibration risk rather
 than hidden by the selection.
 
+## Selected learned final-four layer mixture
+
+The controlled aggregation ablation keeps Mean pooling, the twelve-epoch
+schedule, wide shared MLP, backbone, data, seed, optimizer, losses, checkpoint
+selection, and evaluation policy fixed. It replaces the final backbone layer
+with a learned scalar mixture of the final four layers.
+
+- checkpoint: `runs/no-student-hybrid-last4-mean-wide-shared-mlp-e12-weighted/best.pt`
+- selected checkpoint: scheduled epoch 12 of 12
+- checkpoint size: 69,329,021 bytes, only 630 bytes above the control
+- combined development loss: 0.132484 instead of 0.133798
+- learned layer weights from `-4` through `-1`: 21.05%, 16.31%, 23.38%,
+  39.25%
+- learned scale: 1.8578
+
+| Development metric | Final layer, Bokmål | Learned mix, Bokmål | Final layer, Nynorsk | Learned mix, Nynorsk |
+| --- | ---: | ---: | ---: | ---: |
+| Joint loss | 0.103405 | **0.102312** | 0.169170 | **0.167598** |
+| UPOS accuracy | 98.92% | **98.98%** | 98.53% | **98.65%** |
+| Lemma-rule accuracy | 98.38% | **98.45%** | 98.10% | **98.22%** |
+| Morphology micro precision | 93.36% | **93.66%** | 88.59% | **88.89%** |
+| Morphology micro recall | **98.15%** | 98.09% | **96.59%** | 96.57% |
+| Morphology micro F1 | 95.70% | **95.83%** | 92.41% | **92.57%** |
+| Morphology macro F1 | 94.78% | **95.11%** | 88.92% | **89.54%** |
+| Morphology macro Average Precision | 97.86% | **97.99%** | **92.93%** | 92.61% |
+
+The learned mixture is selected as the default for new Norwegian training
+runs. Existing checkpoints without aggregation metadata remain `last`; their
+meaning does not change. Small recall regressions and the Nynorsk macro Average
+Precision regression remain recorded calibration risks.
+
+## Rejected task-family adapter ablation
+
+The `wide-shared-mlp-task-adapters` candidate adds three residual
+`192 -> 96 -> 192` task-family paths after the selected shared projection. Its
+best checkpoint is epoch 7 of 12, has a combined Development loss of 0.131067,
+and is 69,778,113 bytes. This is 449,092 bytes larger than the selected
+control.
+
+| Development metric | Control, Bokmål | Adapters, Bokmål | Control, Nynorsk | Adapters, Nynorsk |
+| --- | ---: | ---: | ---: | ---: |
+| Joint loss | **0.102312** | 0.109405 | 0.167598 | **0.156277** |
+| UPOS accuracy | **98.98%** | 98.87% | **98.65%** | 98.61% |
+| Lemma-rule accuracy | **98.45%** | 98.09% | **98.22%** | 98.07% |
+| Morphology micro precision | **93.66%** | 93.29% | 88.89% | **88.99%** |
+| Morphology micro recall | 98.09% | **98.16%** | 96.57% | **96.72%** |
+| Morphology micro F1 | **95.83%** | 95.66% | 92.57% | **92.69%** |
+| Morphology macro F1 | **95.11%** | 94.57% | **89.54%** | 89.19% |
+| Morphology macro Average Precision | 97.99% | **98.05%** | 92.61% | **93.29%** |
+
+The candidate is rejected because the Nynorsk morphology gains do not offset
+regressions in Nynorsk UPOS, lemma, and macro F1 or the broader Bokmål losses.
+The adapter implementation remains available only as a reproducible ablation
+and does not become the default.
+
+## Selected structured morphology decoder
+
+The `wide-shared-mlp-structured-morphology` ablation keeps the selected
+learned-last-four aggregation, Mean pooling, wide shared MLP, twelve-epoch
+schedule, data, seed, optimizer, losses, and output contracts fixed. Its
+parallel second pass conditions residual morphology corrections on soft UPOS
+and morphology distributions without a hard decision cascade.
+
+- checkpoint:
+  `runs/no-student-hybrid-last4-mean-wide-shared-mlp-structured-morphology-e12-weighted/best.pt`
+- selected checkpoint: scheduled epoch 12 of 12
+- checkpoint size: 69,434,687 bytes, 105,666 bytes above the control
+- combined Development loss: 0.130524 instead of 0.132484
+- end-to-end wall time: approximately 53 minutes 20 seconds
+
+| Development metric | Control, Bokmål | Structured, Bokmål | Control, Nynorsk | Structured, Nynorsk |
+| --- | ---: | ---: | ---: | ---: |
+| Joint loss | 0.102312 | **0.100505** | 0.167598 | **0.165460** |
+| UPOS accuracy | **98.98%** | **98.98%** | **98.65%** | 98.62% |
+| Lemma-rule accuracy | 98.45% | **98.48%** | 98.22% | **98.31%** |
+| Morphology micro precision | 93.66% | **93.73%** | 88.89% | **89.29%** |
+| Morphology micro recall | 98.09% | **98.34%** | 96.57% | **96.80%** |
+| Morphology micro F1 | 95.83% | **95.98%** | 92.57% | **92.89%** |
+| Morphology macro F1 | 95.11% | **95.28%** | **89.54%** | 89.50% |
+| Morphology macro Average Precision | 97.99% | **98.11%** | 92.61% | **93.03%** |
+
+The structured decoder is selected as the new gold-only student architecture.
+It improves Loss, Lemma, morphology precision, recall, micro F1, and Average
+Precision on both written standards and improves Bokmål macro F1. Bokmål UPOS
+is unchanged. The Nynorsk UPOS and macro-F1 regressions are only 0.0256 and
+0.0470 percentage points, while the primary Nynorsk morphology micro F1 gains
+0.3254 points. The 105,666-byte size increase is approximately 0.15%. The
+complete structured tagger passes strict `torch.export` capture with output
+parity. Both official test splits remain untouched.
+
+The preceding independent-head control passes strict `torch.export`, XNNPACK
+lowering to an 86,641,292-byte ExecuTorch `.pte`, and portable-runtime
+execution. The
+graph includes backbone, layer mixture, Mean pooling, wide shared MLP, and all
+20 logit outputs. Against PyTorch, the maximum absolute output error is
+`1.91e-5`; the largest mean absolute error among its outputs is `7.95e-6`.
+Dynamic shapes, production backend parity, peak memory, and document-scale
+performance are still open release gates.
+
 ## Repeatable commands
 
 Train an unweighted Bokmål model with the current defaults:
@@ -685,10 +805,39 @@ Train the selected shared format-3 gold-only student:
 python -m prism.languages.norwegian.train_baseline \
   --language-tag no \
   --model-role student \
+  --backbone-layer-aggregation learned-last-four \
   --token-pooling mean \
-  --task-head-architecture wide-shared-mlp \
+  --task-head-architecture wide-shared-mlp-structured-morphology \
   --epoch-count 12 \
-  --checkpoint runs/no-student-hybrid-mean-wide-shared-mlp-e12-weighted/best.pt \
+  --checkpoint runs/no-student-hybrid-last4-mean-wide-shared-mlp-structured-morphology-e12-weighted/best.pt \
+  --morphology-weight-cap 10.0
+```
+
+Reproduce the rejected task-adapter candidate:
+
+```bash
+python -m prism.languages.norwegian.train_baseline \
+  --language-tag no \
+  --model-role student \
+  --backbone-layer-aggregation learned-last-four \
+  --token-pooling mean \
+  --task-head-architecture wide-shared-mlp-task-adapters \
+  --epoch-count 12 \
+  --checkpoint runs/no-student-hybrid-last4-mean-wide-shared-mlp-task-adapters-e12-weighted/best.pt \
+  --morphology-weight-cap 10.0
+```
+
+Reproduce the structured-morphology control explicitly:
+
+```bash
+python -m prism.languages.norwegian.train_baseline \
+  --language-tag no \
+  --model-role student \
+  --backbone-layer-aggregation learned-last-four \
+  --token-pooling mean \
+  --task-head-architecture wide-shared-mlp-structured-morphology \
+  --epoch-count 12 \
+  --checkpoint runs/no-student-hybrid-last4-mean-wide-shared-mlp-structured-morphology-e12-weighted/best.pt \
   --morphology-weight-cap 10.0
 ```
 
@@ -708,8 +857,8 @@ Evaluate the selected checkpoint on Bokmål development:
 ```bash
 python -m prism.languages.norwegian.evaluate_baseline \
   --language-tag nb \
-  --checkpoint runs/no-student-hybrid-mean-wide-shared-mlp-e12-weighted/best.pt \
-  --analysis runs/no-student-hybrid-mean-wide-shared-mlp-e12-weighted/nb-development-analysis.json
+  --checkpoint runs/no-student-hybrid-last4-mean-wide-shared-mlp-structured-morphology-e12-weighted/best.pt \
+  --analysis runs/no-student-hybrid-last4-mean-wide-shared-mlp-structured-morphology-e12-weighted/nb-development-analysis.json
 ```
 
 Reproduce the rejected linear-head control explicitly:
@@ -748,9 +897,131 @@ with the Transformer student generation.
 
 ## Immediate next step
 
-Evaluate one controlled learned mixture of the final NorBERT4-xsmall backbone
-layers against the selected wide shared-MLP student. Keep the wide heads, Mean
-pooling, twelve-epoch schedule, data, losses, optimizer, seed, and evaluation
-policy fixed. The layer mixture must be generic and checkpoint-recorded, not a
-NorBERT-specific branch. Do not reopen epoch-count tuning or evaluate either
-official test split.
+The language-independent Rare/OOV evaluation contract is implemented. It
+normalizes complete token forms with Unicode NFC plus case folding, defines
+`rare` as one to five occurrences in the checkpoint's complete schema-training
+corpus, and defines `oov` as zero occurrences. Evaluation keeps every full
+sentence as model context and restricts only metric accumulation. It reports
+UPOS, morphology micro precision/recall/F1, representable lemma-rule accuracy,
+lemma-rule coverage, and end-to-end lemma accuracy for both slices.
+
+The Bokmål development control is recorded: 3,150 rare tokens achieve 98.3810%
+UPOS, 94.2222% end-to-end lemma accuracy, and 91.9243% morphology micro F1;
+2,807 OOV tokens achieve 97.9694% UPOS, 91.5212% end-to-end lemma accuracy, and
+91.4391% morphology micro F1. The largest clear gap is OOV lemmatization rather
+than UPOS, so the compact character branch should primarily enrich lemma and
+morphology while preserving the shared NorBERT4 sentence representation.
+
+The Nynorsk control is also recorded: 2,393 rare tokens achieve 98.0359% UPOS,
+94.4421% end-to-end lemma accuracy, and 86.7812% morphology micro F1; 2,536 OOV
+tokens achieve 97.2397% UPOS, 90.6940% end-to-end lemma accuracy, and 84.9270%
+morphology micro F1. Nynorsk therefore strengthens the case for feeding the
+character representation into both lemma and morphology.
+
+The compact character-aware branch is implemented. Its language-independent,
+versioned vocabulary normalizes tokens with Unicode NFC, represents unknown
+characters and word boundaries explicitly, and preserves prefix and suffix
+around a truncation marker. A 32-dimensional embedding feeds parallel width-3
+and width-5 convolutions whose masked maximum produces a 192-dimensional token
+vector. A residual fusion feeds only morphology and lemma; UPOS remains on the
+unchanged contextual path. For the joint Norwegian training corpus the 120
+literal characters produce a 125-ID vocabulary. Encoder and fusion add 102,688
+parameters (410,752 raw FP32 bytes). Checkpoints store the vocabulary and
+32-position token limit, existing checkpoints remain compatible, and the flat
+character-aware model contract passes strict `torch.export` parity.
+
+The twelve-epoch gold-only character-CNN training run completed in about 54
+minutes 55 seconds. Development-loss selection chose epoch 8 at a combined
+loss of 0.112245, improving on the selected structured control's 0.130524.
+The 69,862,812-byte checkpoint is 428,125 bytes larger than the control and
+remains below the 100 MB target.
+
+Bokmål development confirms the targeted effect. Overall loss falls from
+0.100505 to 0.086190 and lemma-rule accuracy rises from 98.4811% to 98.8223%,
+while UPOS changes slightly from 98.9771% to 98.9469%. Rare end-to-end lemma
+accuracy rises by 2.6667 percentage points and morphology micro F1 by 1.7586
+points. OOV end-to-end lemma accuracy rises by 1.3894 points, morphology micro
+F1 by 1.2246 points, and UPOS by 0.2493 points. Rare UPOS decreases by only
+0.0635 points.
+
+Nynorsk development independently confirms the targeted effect. Loss falls
+from 0.165460 to 0.142569. Rare end-to-end lemma accuracy rises by 2.4238
+percentage points and morphology micro F1 by 1.5048 points. OOV UPOS rises by
+0.1183 points, OOV lemma end-to-end by 0.1183 points, and OOV morphology micro
+F1 by 0.8214 points. Overall lemma-rule accuracy gains 0.2274 points; overall
+UPOS trades 0.0576 points.
+
+The character-aware branch is therefore selected as the new gold-only
+standard and the default for new Norwegian training. It meets its declared
+Rare/OOV objective on both written standards, lowers both development losses,
+and keeps the tiny overall-UPOS tradeoffs explicit. Neither official test
+split was evaluated.
+
+## Accepted architecture ablation plan
+
+Preserve the selected learned aggregation and evaluate exactly these stages in
+order:
+
+1. small task-family-specific residual adapters for UPOS, morphology, and
+   lemma: completed and rejected;
+2. a structured morphology decoder that models dependencies between feature
+   decisions without a hard UPOS error cascade: completed and selected;
+3. a compact character-aware branch for rare and previously unseen word forms,
+   feeding lemma and morphology while preserving the shared NorBERT4 token
+   representation: completed and selected.
+
+Each stage received its own checkpoint and separate Bokmål/Nynorsk report.
+The character-aware ablation also reports the implemented Rare/OOV slices;
+aggregate gains alone were not used as evidence of its intended benefit.
+
+The character-aware format-3 Teacher completed twelve epochs. Development-loss
+selection chose epoch 3 at 0.098218; its 609,180,828-byte checkpoint is stored
+at `runs/no-teacher-base-character-cnn-e12-weighted/best.pt`. The run took
+approximately 3 hours 29 minutes 36 seconds.
+Confidence calibration remains a separate final stage, especially
+because the selected wide MLP improves discrete Nynorsk quality while
+worsening raw negative log-likelihood.
+
+Bokmål Teacher evaluation is complete. Against the selected character-aware
+Student, overall UPOS improves by 0.3355 percentage points and lemma-rule
+accuracy by 0.1513 points. Rare morphology micro F1 improves by 2.5205 points;
+OOV UPOS, lemma end-to-end, and morphology micro F1 improve by 0.3563, 0.8550,
+and 2.1551 points respectively.
+
+Nynorsk also passes the acceptance gate. Overall UPOS and lemma-rule accuracy
+improve by 0.2496 and 0.1249 points. Rare morphology micro F1 improves by
+3.0982 points; OOV UPOS, lemma end-to-end, and morphology micro F1 improve by
+0.5915, 1.6956, and 4.0556 points. The Teacher is accepted for format-3
+distillation because it beats the fixed gold-only Student on every reported
+aggregate and Rare/OOV comparison metric on both written standards.
+
+The first character-aware format-3 distillation run is complete. It uses
+temperature 1.0 and weight 0.1, selected epoch 8 of 12, and wrote the
+69,863,132-byte checkpoint
+`runs/no-student-character-cnn-distilled-w010-t100-e12-weighted/best.pt`. Its
+joint development loss of 0.109941 is lower than the fixed gold-only control's
+0.112245. This is promising but not a selection result until separate
+Bokmål/Nynorsk and Rare/OOV evaluation is complete. The CLI defaults now match
+the historically selected 1.0/0.1 policy instead of the rejected 2.0/0.5
+starting point.
+
+Bokmål evaluation of the distilled Student is complete and mixed. Development
+loss improves from 0.086190 to 0.084777 and overall lemma-rule accuracy by
+0.0192 percentage points; overall UPOS, OOV UPOS, and OOV lemma end-to-end are
+unchanged. Rare lemma gains 0.1905 points and OOV morphology micro F1 gains
+0.0744 points, while Rare UPOS and morphology micro F1 regress by 0.0953 and
+0.0411 points. This result alone was insufficient for selection; the following
+Nynorsk evaluation completed the decision.
+
+Nynorsk improves on every reported comparison metric. Development loss falls
+from 0.142569 to 0.139228; overall UPOS and lemma-rule accuracy gain 0.0256 and
+0.0448 percentage points. Rare UPOS, lemma end-to-end, and morphology micro F1
+gain 0.0418, 0.0417, and 0.2073 points. OOV UPOS, lemma end-to-end, and
+morphology micro F1 gain 0.1183, 0.3549, and 0.0308 points.
+
+The distilled Student is selected as the new compact reference. Both written
+standards improve in loss and lemma, no OOV metric regresses, Bokmål overall
+UPOS remains unchanged, and Nynorsk UPOS improves. The small Bokmål Rare-UPOS
+and Rare-morphology regressions remain explicit. The Teacher-to-Student gap is
+still large, so any later distillation refinement must use task-specific
+policies rather than another blind global sweep.

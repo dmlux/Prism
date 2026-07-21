@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 
 from prism.training import (
@@ -9,6 +10,8 @@ from prism.training import (
 def test_optimizer_uses_separate_backbone_and_head_policies() -> None:
     backbone = nn.Linear(4, 4)
     task_heads = nn.Linear(4, 2)
+    task_feature_extractor = nn.ParameterList((nn.Parameter(torch.ones(4)),))
+    task_input_encoder = nn.Linear(4, 4)
     config = SupervisedTrainingConfig(
         epoch_count=3,
         batch_size=16,
@@ -23,6 +26,8 @@ def test_optimizer_uses_separate_backbone_and_head_policies() -> None:
     optimizer = build_supervised_adamw_optimizer(
         backbone=backbone,
         task_heads=task_heads,
+        task_feature_extractor=task_feature_extractor,
+        task_input_encoder=task_input_encoder,
         config=config,
     )
 
@@ -52,5 +57,17 @@ def test_optimizer_uses_separate_backbone_and_head_policies() -> None:
     )
     assert any(
         parameter is task_heads.bias
+        for parameter in groups_by_name["task_heads_no_decay"]["params"]
+    )
+    assert any(
+        parameter is task_feature_extractor[0]
+        for parameter in groups_by_name["task_heads_no_decay"]["params"]
+    )
+    assert any(
+        parameter is task_input_encoder.weight
+        for parameter in groups_by_name["task_heads_decay"]["params"]
+    )
+    assert any(
+        parameter is task_input_encoder.bias
         for parameter in groups_by_name["task_heads_no_decay"]["params"]
     )

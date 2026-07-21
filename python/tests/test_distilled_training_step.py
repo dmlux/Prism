@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 from prism.data import TokenTaskTargetBatch
-from prism.modeling import TokenizedBatch, TokenTaskLogits
+from prism.modeling import CharacterTokenBatch, TokenizedBatch, TokenTaskLogits
 from prism.schema import MorphologyFeatureSchema, MorphologySchema
 from prism.training import (
     SupervisedTokenTaskBatch,
@@ -55,6 +55,21 @@ class TinyDistillationModel(nn.Module):
             morphology_logits=(self.morphology.expand(dimensions),),
             lemma_rule_logits=self.lemma_rules.expand(dimensions),
         )
+
+
+class CharacterAwareTinyDistillationModel(TinyDistillationModel):
+    def __init__(self) -> None:
+        super().__init__()
+        self.character_encoder = nn.Identity()
+        self.received_character_inputs = False
+
+    def forward(
+        self,
+        batch: TokenizedBatch,
+        character_batch: CharacterTokenBatch,
+    ) -> TokenTaskLogits:
+        self.received_character_inputs = True
+        return super().forward(batch)
 
 
 def test_distilled_training_step_only_updates_student() -> None:
@@ -123,6 +138,46 @@ def test_distilled_training_step_only_updates_student() -> None:
         strict=True,
     ):
         torch.testing.assert_close(parameter, previous)
+
+
+def test_distilled_training_step_forwards_character_inputs_to_teacher() -> None:
+    student = TinyDistillationModel()
+    teacher = CharacterAwareTinyDistillationModel()
+    batch = SupervisedTokenTaskBatch(
+        model_inputs=TokenizedBatch(
+            input_ids=torch.tensor([[1]]),
+            attention_mask=torch.tensor([[True]]),
+            first_subword_indices=torch.tensor([[0]]),
+            subword_end_indices=torch.tensor([[1]]),
+            token_mask=torch.tensor([[True]]),
+        ),
+        targets=TokenTaskTargetBatch(
+            upos_ids=torch.tensor([[1]]),
+            morphology_targets=(torch.tensor([[[False, True]]]),),
+            lemma_rule_ids=torch.tensor([[1]]),
+            lemma_rule_mask=torch.tensor([[True]]),
+            token_mask=torch.tensor([[True]]),
+        ),
+        character_inputs=CharacterTokenBatch(
+            character_ids=torch.tensor([[[2, 5, 3]]]),
+            character_mask=torch.tensor([[[True, True, True]]]),
+            token_mask=torch.tensor([[True]]),
+        ),
+    )
+    optimizer = torch.optim.SGD(student.parameters(), lr=0.0)
+
+    train_distilled_token_task_step(
+        student=student,
+        teacher=teacher,
+        batch=batch,
+        optimizer=optimizer,
+        max_gradient_norm=1.0,
+        temperature=2.0,
+        distillation_weight=0.5,
+        morphology_schema=CATEGORICAL_MORPHOLOGY_SCHEMA,
+    )
+
+    assert teacher.received_character_inputs
 
 
 def test_distilled_training_step_forwards_morphology_weights() -> None:

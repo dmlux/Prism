@@ -28,10 +28,22 @@ def build_supervised_adamw_optimizer(
     *,
     backbone: nn.Module,
     task_heads: nn.Module,
+    task_feature_extractor: nn.Module | None = None,
+    task_input_encoder: nn.Module | None = None,
     config: SupervisedTrainingConfig,
 ) -> AdamW:
     backbone_decay, backbone_no_decay = _split_weight_decay_parameters(backbone)
     task_heads_decay, task_heads_no_decay = _split_weight_decay_parameters(task_heads)
+    if task_feature_extractor is not None:
+        feature_decay, feature_no_decay = _split_weight_decay_parameters(
+            task_feature_extractor
+        )
+        task_heads_decay.extend(feature_decay)
+        task_heads_no_decay.extend(feature_no_decay)
+    if task_input_encoder is not None:
+        input_decay, input_no_decay = _split_weight_decay_parameters(task_input_encoder)
+        task_heads_decay.extend(input_decay)
+        task_heads_no_decay.extend(input_no_decay)
 
     parameter_groups: list[dict[str, Any]] = [
         {

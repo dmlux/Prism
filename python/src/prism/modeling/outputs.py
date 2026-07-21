@@ -15,7 +15,10 @@ class ContextualizedSubwordBatch:
             raise ValueError(
                 "Contextualized hidden states must use a floating-point dtype."
             )
-        if not torch.isfinite(self.hidden_states).all().item():
+        if (
+            not torch.compiler.is_compiling()
+            and not torch.isfinite(self.hidden_states).all().item()
+        ):
             raise ValueError(
                 "Contextualized hidden states must contain only finite values."
             )

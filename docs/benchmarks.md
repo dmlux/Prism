@@ -519,20 +519,366 @@ components, indicating a raw-confidence tradeoff that must be measured during
 the already required calibration stage. Both official test splits remain
 untouched.
 
+### Selected learned final-four layer mixture
+
+This controlled ablation changes only the backbone output aggregation from the
+final layer to a learned scalar mixture of the final four layers. Mean pooling,
+the wide shared MLP, twelve epochs, data, seed, optimizer, losses, checkpoint
+selection, and evaluation policy remain fixed.
+
+- Selected checkpoint: scheduled epoch 12 of 12
+- Checkpoint: `runs/no-student-hybrid-last4-mean-wide-shared-mlp-e12-weighted/best.pt`
+- Checkpoint size: 69,329,021 bytes
+- Combined development loss: 0.132484
+- Learned weights from layers `-4` through `-1`: 21.05%, 16.31%, 23.38%,
+  39.25%
+- Learned output scale: 1.8578
+
+| Development metric | Final layer, Bokmål | Learned mix, Bokmål | Final layer, Nynorsk | Learned mix, Nynorsk |
+| --- | ---: | ---: | ---: | ---: |
+| Joint loss | 0.103405 | **0.102312** | 0.169170 | **0.167598** |
+| UPOS accuracy | 98.92% | **98.98%** | 98.53% | **98.65%** |
+| Lemma-rule accuracy | 98.38% | **98.45%** | 98.10% | **98.22%** |
+| Morphology micro precision | 93.36% | **93.66%** | 88.59% | **88.89%** |
+| Morphology micro recall | **98.15%** | 98.09% | **96.59%** | 96.57% |
+| Morphology micro F1 | 95.70% | **95.83%** | 92.41% | **92.57%** |
+| Morphology macro F1 | 94.78% | **95.11%** | 88.92% | **89.54%** |
+| Morphology macro Average Precision | 97.86% | **97.99%** | **92.93%** | 92.61% |
+
+The learned mixture is selected. It improves Loss, UPOS, Lemma, morphology
+precision, micro F1, and macro F1 on both written standards for only 630
+additional checkpoint bytes. The small recall regressions and the 0.33-point
+Nynorsk macro Average Precision regression remain explicit tradeoffs. Most of
+the Nynorsk ranking regression is concentrated in `Gender=Com`; its discrete
+F1 still improves from 7.48% to 8.18%, but this label remains unreliable.
+
+The trained complete tagger passes strict `torch.export` with exact
+exported-program parity for the measured input. Backbone, layer mixture, Mean
+pooling, wide shared MLP, and all 20 logit outputs lower to an 86,641,292-byte
+XNNPACK ExecuTorch `.pte`. It executes through the portable runtime with a
+maximum absolute output error of `1.91e-5`; the largest mean absolute error
+among its outputs is `7.95e-6`. This fixed-shape spike confirms exportability,
+but does not yet accept dynamic input shapes, production backend parity, peak
+memory, or document-scale performance.
+
+### Rejected task-family adapter candidate
+
+The controlled `wide-shared-mlp-task-adapters` ablation keeps the selected
+learned final-four mixture, Mean pooling, wide shared MLP, twelve-epoch
+schedule, data, seed, optimizer, losses, checkpoint selection, and evaluation
+policy fixed. It adds separate residual `192 -> 96 -> 192` adapters for UPOS,
+morphology, and lemma. The 18 morphology heads share one adapter.
+
+- Selected checkpoint: scheduled epoch 7 of 12
+- Checkpoint:
+  `runs/no-student-hybrid-last4-mean-wide-shared-mlp-task-adapters-e12-weighted/best.pt`
+- Checkpoint size: 69,778,113 bytes, 449,092 bytes above the control
+- Combined Development loss: 0.131067 instead of 0.132484
+
+| Development metric | Control, Bokmål | Adapters, Bokmål | Control, Nynorsk | Adapters, Nynorsk |
+| --- | ---: | ---: | ---: | ---: |
+| Joint loss | **0.102312** | 0.109405 | 0.167598 | **0.156277** |
+| UPOS accuracy | **98.98%** | 98.87% | **98.65%** | 98.61% |
+| Lemma-rule accuracy | **98.45%** | 98.09% | **98.22%** | 98.07% |
+| Morphology micro precision | **93.66%** | 93.29% | 88.89% | **88.99%** |
+| Morphology micro recall | 98.09% | **98.16%** | 96.57% | **96.72%** |
+| Morphology micro F1 | **95.83%** | 95.66% | 92.57% | **92.69%** |
+| Morphology macro F1 | **95.11%** | 94.57% | **89.54%** | 89.19% |
+| Morphology macro Average Precision | 97.99% | **98.05%** | 92.61% | **93.29%** |
+
+The candidate is rejected. Its lower combined loss hides an uneven tradeoff:
+Nynorsk loss, morphology micro F1, and ranking quality improve, but Nynorsk
+UPOS, lemma accuracy, and macro F1 regress. Bokmål loses loss, UPOS, lemma,
+precision, micro F1, and macro F1 for only 0.06-point recall and Average
+Precision gains. The extra 449 KB therefore do not produce a robust
+cross-standard improvement. The implementation remains an explicit
+reproducible ablation option; `wide-shared-mlp` remains the independent-head
+control for the next ablation. Both official test splits remain untouched.
+
+### Selected structured morphology decoder
+
+The controlled `wide-shared-mlp-structured-morphology` ablation keeps the
+selected learned final-four mixture, Mean pooling, wide shared MLP,
+twelve-epoch schedule, data, seed, optimizer, losses, checkpoint selection,
+and evaluation policy fixed. It adds a parallel residual refinement pass that
+reads soft UPOS and morphology distributions and predicts corrections for all
+morphology features without hard decisions or an autoregressive order.
+
+- Selected checkpoint: scheduled epoch 12 of 12
+- Checkpoint:
+  `runs/no-student-hybrid-last4-mean-wide-shared-mlp-structured-morphology-e12-weighted/best.pt`
+- Checkpoint size: 69,434,687 bytes, 105,666 bytes above the control
+- End-to-end wall time: approximately 53 minutes 20 seconds
+- Combined Development loss: 0.130524 instead of 0.132484
+
+| Development metric | Control, Bokmål | Structured, Bokmål | Control, Nynorsk | Structured, Nynorsk |
+| --- | ---: | ---: | ---: | ---: |
+| Joint loss | 0.102312 | **0.100505** | 0.167598 | **0.165460** |
+| UPOS accuracy | **98.98%** | **98.98%** | **98.65%** | 98.62% |
+| Lemma-rule accuracy | 98.45% | **98.48%** | 98.22% | **98.31%** |
+| Morphology micro precision | 93.66% | **93.73%** | 88.89% | **89.29%** |
+| Morphology micro recall | 98.09% | **98.34%** | 96.57% | **96.80%** |
+| Morphology micro F1 | 95.83% | **95.98%** | 92.57% | **92.89%** |
+| Morphology macro F1 | 95.11% | **95.28%** | **89.54%** | 89.50% |
+| Morphology macro Average Precision | 97.99% | **98.11%** | 92.61% | **93.03%** |
+
+The structured decoder is selected. It improves Loss, Lemma, morphology
+precision, recall, micro F1, and Average Precision on both standards, while
+Bokmål UPOS is unchanged. Nynorsk UPOS and macro F1 trade 0.0256 and 0.0470
+percentage points respectively. The primary Nynorsk morphology micro F1 gains
+0.3254 points, and the checkpoint grows by only approximately 0.15%. The next
+controlled architecture ablation therefore uses this decoder as its control.
+Both official test splits remain untouched.
+
 ```bash
 python -m prism.languages.norwegian.train_baseline \
   --language-tag no \
   --model-role student \
+  --backbone-layer-aggregation learned-last-four \
   --token-pooling mean \
-  --task-head-architecture wide-shared-mlp \
+  --task-head-architecture wide-shared-mlp-structured-morphology \
   --epoch-count 12 \
-  --checkpoint runs/no-student-hybrid-mean-wide-shared-mlp-e12-weighted/best.pt \
+  --checkpoint runs/no-student-hybrid-last4-mean-wide-shared-mlp-structured-morphology-e12-weighted/best.pt \
   --morphology-weight-cap 10.0
 ```
 
-## Shared Norwegian NorBERT4-Base teacher
+### Rare/OOV evaluation contract
 
-The first teacher uses the same supervised data, schema, task heads, and
+The selected structured checkpoint is also the fixed control for the planned
+character-aware branch. Its dedicated development slices use only complete
+token-form frequencies from the checkpoint's joint schema-training corpus:
+
+- forms are normalized with Unicode NFC and case folding;
+- `rare` means one to five normalized training occurrences;
+- `oov` means zero normalized training occurrences and does not mean an
+  unknown tokenizer subword;
+- the model still receives each complete sentence; the slice mask restricts
+  metric accumulation only;
+- Bokmål and Nynorsk are reported separately without touching either test
+  split.
+
+Each slice reports token count, UPOS accuracy, morphology micro
+precision/recall/F1 over non-`<NONE>` labels, representable lemma-rule
+accuracy, lemma-rule coverage, and end-to-end lemma accuracy. The final metric
+counts an annotated lemma with a rule absent from the training schema as an
+error instead of silently dropping it.
+
+The Bokmål and Nynorsk development controls were recorded from the selected
+epoch-12 checkpoint without retraining:
+
+| Standard | Token-frequency slice | Tokens | UPOS accuracy | Lemma-rule coverage | Lemma-rule accuracy | Lemma end-to-end accuracy | Morphology micro F1 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Bokmål | Rare | 3,150 | 98.3810% | 99.9048% | 94.3120% | 94.2222% | 91.9243% |
+| Bokmål | OOV | 2,807 | 97.9694% | 99.4656% | 92.0129% | 91.5212% | 91.4391% |
+| Nynorsk | Rare | 2,393 | 98.0359% | 99.8328% | 94.6002% | 94.4421% | 86.7812% |
+| Nynorsk | OOV | 2,536 | 97.2397% | 99.2508% | 91.3786% | 90.6940% | 84.9270% |
+
+The OOV result identifies lemmatization as the clearest weakness: compared
+with the overall representable lemma-rule accuracy of 98.4811%, OOV
+lemma-rule accuracy is lower by 6.47 percentage points. OOV UPOS remains much
+more robust at 97.9694%, only 1.01 percentage points below the overall UPOS
+accuracy. This supports feeding the planned character representation primarily
+into lemma and morphology while retaining NorBERT4 sentence context. Nynorsk
+shows the same lemma gap and a substantially larger OOV morphology gap: its
+OOV morphology micro F1 is 84.9270%, while OOV UPOS remains 97.2397%.
+
+### Selected character-CNN branch
+
+The export-friendly character branch is the selected gold-only architecture. It
+adds a training-derived, NFC-normalized 125-ID vocabulary for the joint
+Norwegian corpus, 32-dimensional character embeddings, parallel width-3 and
+width-5 convolutions, masked max pooling, and a residual fusion into morphology
+and lemma only. UPOS remains on the unchanged contextual path. The branch adds
+102,688 parameters (410,752 raw FP32 bytes) and passes strict `torch.export`
+output parity.
+
+The controlled run keeps data, seed, learned-last-four aggregation, Mean
+pooling, structured morphology, loss policy, and twelve-epoch schedule fixed:
+
+```bash
+python -m prism.languages.norwegian.train_baseline \
+  --language-tag no \
+  --model-role student \
+  --backbone-layer-aggregation learned-last-four \
+  --token-pooling mean \
+  --task-head-architecture wide-shared-mlp-structured-morphology-character-cnn \
+  --epoch-count 12 \
+  --checkpoint runs/no-student-character-cnn-e12-weighted/best.pt \
+  --morphology-weight-cap 10.0
+```
+
+Selection requires separate Bokmål and Nynorsk development results plus the
+fixed Rare/OOV slices above. The official test splits remain untouched.
+
+The controlled training run completed in approximately 54 minutes 55 seconds.
+Development-loss selection chose scheduled epoch 8 of 12 at a combined loss
+of 0.112245, compared with 0.130524 for the selected structured control. The
+checkpoint contains 69,862,812 bytes, an increase of 428,125 bytes over the
+control. These promising joint-training values do not select the branch by
+themselves.
+
+The Bokmål development evaluation shows that the intended Rare/OOV gains are
+real:
+
+| Bokmål metric | Structured control | Character CNN | Change |
+| --- | ---: | ---: | ---: |
+| Development loss | 0.100505 | **0.086190** | -0.014315 |
+| Overall UPOS accuracy | **98.9771%** | 98.9469% | -0.0302 pp |
+| Overall lemma-rule accuracy | 98.4811% | **98.8223%** | +0.3412 pp |
+| Rare UPOS accuracy | **98.3810%** | 98.3175% | -0.0635 pp |
+| Rare lemma end-to-end accuracy | 94.2222% | **96.8889%** | +2.6667 pp |
+| Rare morphology micro F1 | 91.9243% | **93.6829%** | +1.7586 pp |
+| OOV UPOS accuracy | 97.9694% | **98.2187%** | +0.2493 pp |
+| OOV lemma end-to-end accuracy | 91.5212% | **92.9106%** | +1.3894 pp |
+| OOV morphology micro F1 | 91.4391% | **92.6637%** | +1.2246 pp |
+
+The tiny Rare-UPOS regression is outweighed on Bokmål by large targeted lemma
+and morphology gains, lower overall loss, and improved OOV UPOS.
+
+Nynorsk independently confirms the intended effect:
+
+| Nynorsk metric | Structured control | Character CNN | Change |
+| --- | ---: | ---: | ---: |
+| Development loss | 0.165460 | **0.142569** | -0.022891 |
+| Overall UPOS accuracy | **98.6240%** | 98.5664% | -0.0576 pp |
+| Overall lemma-rule accuracy | 98.3090% | **98.5364%** | +0.2274 pp |
+| Rare UPOS accuracy | 98.0359% | **98.2031%** | +0.1672 pp |
+| Rare lemma end-to-end accuracy | 94.4421% | **96.8659%** | +2.4238 pp |
+| Rare morphology micro F1 | 86.7812% | **88.2860%** | +1.5048 pp |
+| OOV UPOS accuracy | 97.2397% | **97.3580%** | +0.1183 pp |
+| OOV lemma end-to-end accuracy | 90.6940% | **90.8123%** | +0.1183 pp |
+| OOV morphology micro F1 | 84.9270% | **85.7484%** | +0.8214 pp |
+
+The branch is selected because both written standards improve on the
+predeclared Rare/OOV lemma and morphology targets, both lower development
+loss, and OOV UPOS also improves. The small overall-UPOS tradeoffs of 0.0302
+percentage points on Bokmål and 0.0576 points on Nynorsk remain explicit.
+
+## Character-aware format-3 NorBERT4-Base teacher
+
+The teacher matching the selected gold-only student architecture completed its
+twelve-epoch joint Bokmål/Nynorsk training run. It uses Mean pooling, learned
+last-four aggregation, the wide shared MLP, structured morphology, and the
+selected character CNN. Development-loss selection chose epoch 3:
+
+- Checkpoint: `runs/no-teacher-base-character-cnn-e12-weighted/best.pt`
+- Selected checkpoint: epoch 3 of 12
+- Joint development loss: 0.098218
+- Joint UPOS accuracy at selection: 99.0668%
+- Joint lemma-rule accuracy at selection: 98.8293%
+- Checkpoint size: 609,180,828 bytes
+- End-to-end wall time: approximately 3 hours 29 minutes 36 seconds
+
+Later epochs improved some discrete metrics but had higher development loss;
+the predeclared loss-based checkpoint policy was retained. Separate Bokmål and
+Nynorsk development evaluations, including Rare/OOV slices, are required
+before accepting this teacher for the new distillation ablation. Both official
+test splits remain untouched.
+
+The Bokmål development evaluation confirms that the Teacher is stronger than
+the selected character-aware xsmall Student:
+
+| Bokmål metric | Gold-only Student | Format-3 Teacher | Change |
+| --- | ---: | ---: | ---: |
+| Development loss | 0.086190 | **0.073450** | -0.012740 |
+| Overall UPOS accuracy | 98.9469% | **99.2824%** | +0.3355 pp |
+| Overall lemma-rule accuracy | 98.8223% | **98.9736%** | +0.1513 pp |
+| Rare UPOS accuracy | 98.3175% | **99.0159%** | +0.6984 pp |
+| Rare lemma end-to-end accuracy | 96.8889% | **96.9206%** | +0.0317 pp |
+| Rare morphology micro F1 | 93.6829% | **96.2034%** | +2.5205 pp |
+| OOV UPOS accuracy | 98.2187% | **98.5750%** | +0.3563 pp |
+| OOV lemma end-to-end accuracy | 92.9106% | **93.7656%** | +0.8550 pp |
+| OOV morphology micro F1 | 92.6637% | **94.8188%** | +2.1551 pp |
+
+This is a useful Teacher signal on Bokmål, including the intended Rare/OOV
+slices. The following Nynorsk evaluation completes the acceptance decision.
+
+Nynorsk also shows a consistent Teacher advantage:
+
+| Nynorsk metric | Gold-only Student | Format-3 Teacher | Change |
+| --- | ---: | ---: | ---: |
+| Development loss | 0.142569 | **0.127044** | -0.015525 |
+| Overall UPOS accuracy | 98.5664% | **98.8160%** | +0.2496 pp |
+| Overall lemma-rule accuracy | 98.5364% | **98.6613%** | +0.1249 pp |
+| Rare UPOS accuracy | 98.2031% | **98.8299%** | +0.6268 pp |
+| Rare lemma end-to-end accuracy | 96.8659% | **97.2837%** | +0.4178 pp |
+| Rare morphology micro F1 | 88.2860% | **91.3842%** | +3.0982 pp |
+| OOV UPOS accuracy | 97.3580% | **97.9495%** | +0.5915 pp |
+| OOV lemma end-to-end accuracy | 90.8123% | **92.5079%** | +1.6956 pp |
+| OOV morphology micro F1 | 85.7484% | **89.8040%** | +4.0556 pp |
+
+The Teacher is therefore accepted for the format-3 distillation ablation. It
+beats the same gold-only Student on every reported aggregate and Rare/OOV
+comparison metric across both written standards. This establishes useful
+Teacher headroom; it does not yet prove that the compact distilled Student
+will retain the gain.
+
+## Character-aware format-3 distilled Student
+
+The controlled distillation run uses the accepted format-3 Teacher, a fresh
+xsmall Student, temperature 1.0, distillation weight 0.1, and the otherwise
+unchanged twelve-epoch gold-only policy. Development-loss selection chose
+epoch 8:
+
+- Checkpoint: `runs/no-student-character-cnn-distilled-w010-t100-e12-weighted/best.pt`
+- Selected checkpoint: epoch 8 of 12
+- Joint development loss: 0.109941
+- Gold-only control joint development loss: 0.112245
+- Checkpoint size: 69,863,132 bytes
+- End-to-end wall time: approximately 1 hour 34 minutes 9 seconds
+
+The joint loss is 0.002304 lower than the fixed gold-only control and is a
+promising training signal. Separate Bokmål/Nynorsk and Rare/OOV evaluations
+remain mandatory before accepting or rejecting distillation. The official test
+splits remain untouched.
+
+Temperature 1.0 and weight 0.1 are also the CLI defaults now because the
+historical controlled ablation selected this policy; the rejected 2.0/0.5
+combination must not remain the implicit starting point.
+
+Bokmål shows a small mixed result:
+
+| Bokmål metric | Gold-only Student | Distilled Student | Change |
+| --- | ---: | ---: | ---: |
+| Development loss | 0.086190 | **0.084777** | -0.001413 |
+| Overall UPOS accuracy | 98.9469% | 98.9469% | 0.0000 pp |
+| Overall lemma-rule accuracy | 98.8223% | **98.8415%** | +0.0192 pp |
+| Rare UPOS accuracy | **98.3175%** | 98.2222% | -0.0953 pp |
+| Rare lemma end-to-end accuracy | 96.8889% | **97.0794%** | +0.1905 pp |
+| Rare morphology micro F1 | **93.6829%** | 93.6418% | -0.0411 pp |
+| OOV UPOS accuracy | 98.2187% | 98.2187% | 0.0000 pp |
+| OOV lemma end-to-end accuracy | 92.9106% | 92.9106% | 0.0000 pp |
+| OOV morphology micro F1 | 92.6637% | **92.7381%** | +0.0744 pp |
+
+The lower loss and lemma gains are positive, but the effect is too small and
+mixed to select distillation from Bokmål alone. Nynorsk remains the second
+predeclared acceptance half.
+
+Nynorsk improves on every reported comparison metric:
+
+| Nynorsk metric | Gold-only Student | Distilled Student | Change |
+| --- | ---: | ---: | ---: |
+| Development loss | 0.142569 | **0.139228** | -0.003341 |
+| Overall UPOS accuracy | 98.5664% | **98.5920%** | +0.0256 pp |
+| Overall lemma-rule accuracy | 98.5364% | **98.5812%** | +0.0448 pp |
+| Rare UPOS accuracy | 98.2031% | **98.2449%** | +0.0418 pp |
+| Rare lemma end-to-end accuracy | 96.8659% | **96.9076%** | +0.0417 pp |
+| Rare morphology micro F1 | 88.2860% | **88.4933%** | +0.2073 pp |
+| OOV UPOS accuracy | 97.3580% | **97.4763%** | +0.1183 pp |
+| OOV lemma end-to-end accuracy | 90.8123% | **91.1672%** | +0.3549 pp |
+| OOV morphology micro F1 | 85.7484% | **85.7792%** | +0.0308 pp |
+
+The distilled Student is selected as the new compact reference. Across both
+written standards it lowers loss and improves lemma accuracy; Bokmål overall
+UPOS is unchanged and Nynorsk UPOS improves. No OOV metric regresses. The
+selection keeps the small Bokmål Rare-UPOS and Rare-morphology regressions of
+0.0953 and 0.0411 percentage points explicit. The gain is controlled but much
+smaller than the Teacher headroom, so future distillation work should be
+task-specific rather than another blind global temperature/weight sweep.
+
+## Historical format-2 NorBERT4-Base teacher
+
+The first historical teacher uses the same supervised data, schema, task heads, and
 class-weighting policy as the selected joint student, but replaces the
 17-million-parameter xsmall backbone with the 149-million-parameter Base
 backbone. The Apache-2.0 checkpoint is pinned at

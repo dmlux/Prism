@@ -89,6 +89,16 @@ def test_build_token_task_target_batch_pads_sentences() -> None:
         ),
     )
     torch.testing.assert_close(
+        batch.lemma_annotation_mask,
+        torch.tensor(
+            [
+                [True, False],
+                [True, False],
+            ],
+            dtype=torch.bool,
+        ),
+    )
+    torch.testing.assert_close(
         batch.token_mask,
         torch.tensor(
             [

@@ -2,7 +2,11 @@ from pathlib import Path
 
 import pytest
 
-from prism.modeling import TokenPoolingStrategy, TokenTaskHeadArchitecture
+from prism.modeling import (
+    BackboneLayerAggregationStrategy,
+    TokenPoolingStrategy,
+    TokenTaskHeadArchitecture,
+)
 from prism.languages.norwegian.train_baseline import (
     parse_training_arguments,
 )
@@ -14,12 +18,18 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
     assert default_arguments.language_tag == "nb"
     assert default_arguments.checkpoint_path == Path("runs/nb-student-baseline/best.pt")
     assert default_arguments.morphology_weight_cap is None
+    assert default_arguments.distillation_temperature == 1.0
+    assert default_arguments.distillation_weight == 0.1
     assert default_arguments.token_pooling_strategy is TokenPoolingStrategy.MEAN
     assert (
         default_arguments.token_task_head_architecture
-        is TokenTaskHeadArchitecture.WIDE_SHARED_MLP
+        is TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY_CHARACTER_CNN
     )
     assert default_arguments.epoch_count == 12
+    assert (
+        default_arguments.backbone_layer_aggregation
+        is BackboneLayerAggregationStrategy.LEARNED_LAST_FOUR
+    )
 
     weighted_arguments = parse_training_arguments(
         (
@@ -69,6 +79,66 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
     assert (
         wide_arguments.token_task_head_architecture
         is TokenTaskHeadArchitecture.WIDE_SHARED_MLP
+    )
+
+    adapted_arguments = parse_training_arguments(
+        (
+            "--task-head-architecture",
+            "wide-shared-mlp-task-adapters",
+        )
+    )
+
+    assert (
+        adapted_arguments.token_task_head_architecture
+        is TokenTaskHeadArchitecture.WIDE_SHARED_MLP_TASK_ADAPTERS
+    )
+
+    structured_arguments = parse_training_arguments(
+        (
+            "--task-head-architecture",
+            "wide-shared-mlp-structured-morphology",
+        )
+    )
+
+    assert (
+        structured_arguments.token_task_head_architecture
+        is TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY
+    )
+
+    character_arguments = parse_training_arguments(
+        (
+            "--task-head-architecture",
+            "wide-shared-mlp-structured-morphology-character-cnn",
+        )
+    )
+
+    assert (
+        character_arguments.token_task_head_architecture
+        is TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY_CHARACTER_CNN
+    )
+
+    layer_mix_arguments = parse_training_arguments(
+        (
+            "--backbone-layer-aggregation",
+            "learned-last-four",
+        )
+    )
+
+    assert (
+        layer_mix_arguments.backbone_layer_aggregation
+        is BackboneLayerAggregationStrategy.LEARNED_LAST_FOUR
+    )
+
+    final_layer_arguments = parse_training_arguments(
+        (
+            "--backbone-layer-aggregation",
+            "last",
+        )
+    )
+
+    assert (
+        final_layer_arguments.backbone_layer_aggregation
+        is BackboneLayerAggregationStrategy.LAST
     )
 
     nynorsk_arguments = parse_training_arguments(

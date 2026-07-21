@@ -169,10 +169,12 @@ Einzel-Teacher zeigt.
 
 ### 5. Konsistenz- und Struktursignale für Morphologie
 
-**Teilstatus:** Option (b), der gemeinsame MLP vor den Köpfen, ist als
-`wide-shared-mlp` implementiert, gemessen und ausgewählt. Weitere Arbeit in
-diesem Abschnitt meint nur noch explizite Struktur zwischen Aufgaben oder
-Morphologie-Features.
+**Status:** Beide Schritte sind umgesetzt und ausgewählt. Der gemeinsame MLP
+liefert die Tokenrepräsentation; der darauf aufbauende
+`wide-shared-mlp-structured-morphology`-Decoder verfeinert die unabhängigen
+Feature-Logits anhand weicher UPOS- und Morphologie-Verteilungen. Gegenüber dem
+unabhängigen Kontrollmodell steigen Morphologie-Micro-F1 und Average Precision
+auf Bokmål und Nynorsk bei nur rund 106 KB zusätzlicher Checkpoint-Größe.
 
 **Idee:** UPOS und Morphologie hängen sprachlich zusammen (Verben tragen Tense/
 Mood, Nomen tragen Gender/Number). Zwei Optionen: (a) Morphologie-Köpfe leicht
@@ -423,6 +425,15 @@ klarer Ablation gegen den NorBERT4-Student.
 
 ### 15. Zeichenbewusster Lemma-/Morphologie-Kopf (pragmatischer Teil-Einstieg)
 
+**Umsetzungsstatus:** Der kompakte Char-CNN-Zweig ist implementiert,
+exportgetestet, auf zwölf Epochen trainiert und nach getrennten
+Bokmål-/Nynorsk- sowie Rare/OOV-Auswertungen ausgewählt. Gegen die strukturierte
+Kontrolle gewinnt Rare-Lemma end-to-end 2,67/2,42 Prozentpunkte und
+Rare-Morphologie-Micro-F1 1,76/1,50 Punkte auf Bokmål/Nynorsk. Die OOV-Ziele
+verbessern sich ebenfalls auf beiden Standards. Der neue Format-3-Teacher ist
+daher mit genau dieser Architektur trainiert worden; seine getrennte
+Bokmål-/Nynorsk-Auswertung bestätigt ihn als Distillationsquelle.
+
 **Idee:** Nicht den ganzen Motor tauschen, sondern **Zeichenbewusstheit nur dort,
 wo sie am meisten bringt**. Zwei Varianten: (a) ein kleines Char-CNN neben dem
 Subword-Encoder (CharBERT-Stil), dessen Ausgabe in die Morphologie-/Lemma-Köpfe
@@ -439,6 +450,16 @@ Angriff auf die dokumentierte Schwäche bei unbekannten Lemmas und seltenen
 Morphologie-Werten.
 
 ### 16. Leichter strukturierter Decoder (CRF oder Autoregression über Köpfe)
+
+**Umsetzungsstatus:** Als exportfreundlicher paralleler Zwei-Pass-Decoder
+implementiert. Der erste Pass erzeugt die bisherigen unabhängigen Logits; der
+zweite liest weiche UPOS- und Morphologie-Verteilungen und lernt residuale
+Korrekturen für alle Morphologie-Features. Damit gibt es weder eine harte
+UPOS-Fehlerkaskade noch eine feste autoregressive Reihenfolge. Der kontrollierte
+Bokmål-/Nynorsk-Benchmark wählt die Variante: Morphologie-Micro-F1 steigt auf
+beiden Standards, ebenso die Average Precision, bei rund 106 KB zusätzlicher
+Checkpoint-Größe. Sie ist daher der neue Gold-only-Standard und die Grundlage
+für den geplanten zeichenbewussten Zweig.
 
 **Idee:** Statt jeden Token unabhängig zu klassifizieren, koppelt ein leichter
 strukturierter Decoder (klassisches CRF oder eine kleine Autoregression über die

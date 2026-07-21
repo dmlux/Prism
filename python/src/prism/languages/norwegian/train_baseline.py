@@ -22,6 +22,7 @@ from prism.languages.norwegian import (
     norwegian_training_profiles_for_language_tag,
 )
 from prism.modeling import (
+    BackboneLayerAggregationStrategy,
     PretrainedBackboneSpec,
     TokenPoolingStrategy,
     TokenTagger,
@@ -29,8 +30,15 @@ from prism.modeling import (
     build_pretrained_token_tagger,
     load_backbone_tokenizer,
 )
-from prism.schema import TokenTaskSchema
-from prism.schema.serialization import serialize_token_task_schema
+from prism.schema import (
+    CharacterVocabularySchema,
+    TokenTaskSchema,
+    build_character_vocabulary_schema,
+)
+from prism.schema.serialization import (
+    serialize_character_vocabulary_schema,
+    serialize_token_task_schema,
+)
 from prism.training import (
     TOKEN_TASK_CHECKPOINT_FORMAT_VERSION,
     DistilledEpochMetrics,
@@ -49,9 +57,14 @@ from prism.training import (
     train_supervised_token_task_epoch,
     train_distilled_token_task_epoch,
     token_pooling_strategy_from_checkpoint,
+    backbone_layer_aggregation_strategy_from_checkpoint,
     token_task_head_architecture_from_checkpoint,
     validate_token_task_checkpoint_format,
+    character_vocabulary_from_checkpoint,
 )
+
+
+CHARACTER_MAXIMUM_COUNT = 32
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -65,6 +78,7 @@ class BaselineTrainingArguments:
     distillation_weight: float
     token_pooling_strategy: TokenPoolingStrategy
     token_task_head_architecture: TokenTaskHeadArchitecture
+    backbone_layer_aggregation: BackboneLayerAggregationStrategy
     epoch_count: int
 
 
@@ -99,12 +113,12 @@ def parse_training_arguments(
     parser.add_argument(
         "--distillation-temperature",
         type=float,
-        default=2.0,
+        default=1.0,
     )
     parser.add_argument(
         "--distillation-weight",
         type=float,
-        default=0.5,
+        default=0.1,
     )
     parser.add_argument(
         "--token-pooling",
@@ -114,7 +128,14 @@ def parse_training_arguments(
     parser.add_argument(
         "--task-head-architecture",
         choices=tuple(architecture.value for architecture in TokenTaskHeadArchitecture),
-        default=TokenTaskHeadArchitecture.WIDE_SHARED_MLP.value,
+        default=(
+            TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY_CHARACTER_CNN.value
+        ),
+    )
+    parser.add_argument(
+        "--backbone-layer-aggregation",
+        choices=tuple(strategy.value for strategy in BackboneLayerAggregationStrategy),
+        default=BackboneLayerAggregationStrategy.LEARNED_LAST_FOUR.value,
     )
     parser.add_argument(
         "--epoch-count",
@@ -158,6 +179,9 @@ def parse_training_arguments(
         token_task_head_architecture=TokenTaskHeadArchitecture(
             parsed_arguments.task_head_architecture
         ),
+        backbone_layer_aggregation=BackboneLayerAggregationStrategy(
+            parsed_arguments.backbone_layer_aggregation
+        ),
         epoch_count=parsed_arguments.epoch_count,
     )
 
@@ -184,6 +208,7 @@ def _load_distillation_teacher(
     backbone_spec: PretrainedBackboneSpec,
     schema: TokenTaskSchema,
     requested_language_tag: str,
+    student_character_vocabulary: CharacterVocabularySchema | None = None,
 ) -> TokenTagger | None:
     if checkpoint_path is None:
         return None
@@ -222,12 +247,30 @@ def _load_distillation_teacher(
     if checkpoint.get("backbone_revision") != backbone_spec.revision:
         raise ValueError("Teacher checkpoint backbone revision does not match.")
 
+    teacher_architecture = token_task_head_architecture_from_checkpoint(checkpoint)
+    teacher_character_vocabulary = character_vocabulary_from_checkpoint(
+        checkpoint,
+        architecture=teacher_architecture,
+    )
+    if teacher_character_vocabulary != student_character_vocabulary and (
+        teacher_character_vocabulary is not None
+    ):
+        raise ValueError("Character-aware teacher and student vocabularies must match.")
+
     teacher = build_pretrained_token_tagger(
         backbone_spec=backbone_spec,
         schema=schema,
         dropout_probability=0.1,
         pooling_strategy=token_pooling_strategy_from_checkpoint(checkpoint),
-        head_architecture=token_task_head_architecture_from_checkpoint(checkpoint),
+        head_architecture=teacher_architecture,
+        layer_aggregation_strategy=(
+            backbone_layer_aggregation_strategy_from_checkpoint(checkpoint)
+        ),
+        character_vocabulary_size=(
+            None
+            if teacher_character_vocabulary is None
+            else teacher_character_vocabulary.size
+        ),
     )
     teacher.load_state_dict(
         checkpoint["model_state_dict"],
@@ -267,6 +310,7 @@ def main() -> None:
     print("Model role:", arguments.model_role)
     print("Token pooling:", arguments.token_pooling_strategy.value)
     print("Task-head architecture:", arguments.token_task_head_architecture.value)
+    print("Backbone layer aggregation:", arguments.backbone_layer_aggregation.value)
     print("Training sentences:", len(training_tokens))
     print(
         "Development sentences:",
@@ -274,6 +318,13 @@ def main() -> None:
     )
 
     schema = build_norwegian_schema(schema_training_tokens)
+    character_vocabulary = (
+        build_character_vocabulary_schema(
+            tokens=(token.text for sentence in training_tokens for token in sentence),
+        )
+        if arguments.token_task_head_architecture.uses_character_encoder
+        else None
+    )
     training_corpus = encode_norwegian_sentences(
         training_tokens,
         schema=schema,
@@ -319,6 +370,10 @@ def main() -> None:
         dropout_probability=0.1,
         pooling_strategy=arguments.token_pooling_strategy,
         head_architecture=arguments.token_task_head_architecture,
+        layer_aggregation_strategy=arguments.backbone_layer_aggregation,
+        character_vocabulary_size=(
+            None if character_vocabulary is None else character_vocabulary.size
+        ),
     )
 
     teacher = _load_distillation_teacher(
@@ -326,6 +381,7 @@ def main() -> None:
         backbone_spec=training_profiles[0].teacher_backbone,
         schema=schema,
         requested_language_tag=arguments.language_tag,
+        student_character_vocabulary=character_vocabulary,
     )
 
     training_batch_count = (
@@ -344,6 +400,8 @@ def main() -> None:
     optimizer = build_supervised_adamw_optimizer(
         backbone=model.backbone,
         task_heads=model.heads,
+        task_feature_extractor=model.layer_aggregation,
+        task_input_encoder=model.character_encoder,
         config=config,
     )
     scheduler = build_linear_warmup_decay_scheduler(
@@ -378,6 +436,8 @@ def main() -> None:
             iter_supervised_token_task_batches(
                 tokenizer=tokenizer,
                 sentence_batches=sentence_batches,
+                character_vocabulary=character_vocabulary,
+                maximum_character_count=CHARACTER_MAXIMUM_COUNT,
             ),
             label="Training",
             total=len(sentence_batches),
@@ -423,6 +483,8 @@ def main() -> None:
                 iter_supervised_token_task_batches(
                     tokenizer=tokenizer,
                     sentence_batches=(development_sentence_batches),
+                    character_vocabulary=character_vocabulary,
+                    maximum_character_count=CHARACTER_MAXIMUM_COUNT,
                 ),
                 label="Development",
                 total=len(development_sentence_batches),
@@ -472,6 +534,17 @@ def main() -> None:
                 "token_pooling_strategy": arguments.token_pooling_strategy.value,
                 "token_task_head_architecture": (
                     arguments.token_task_head_architecture.value
+                ),
+                "backbone_layer_aggregation": (
+                    arguments.backbone_layer_aggregation.value
+                ),
+                "character_vocabulary": (
+                    None
+                    if character_vocabulary is None
+                    else serialize_character_vocabulary_schema(character_vocabulary)
+                ),
+                "maximum_character_count": (
+                    None if character_vocabulary is None else CHARACTER_MAXIMUM_COUNT
                 ),
                 "teacher_checkpoint_path": (
                     None

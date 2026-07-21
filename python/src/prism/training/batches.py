@@ -11,12 +11,18 @@ from prism.data import (
     build_token_task_target_batch,
 )
 from prism.modeling import TokenizedBatch, tokenize_pretokenized_sentences
+from prism.modeling.character_batches import (
+    CharacterTokenBatch,
+    encode_character_token_batch,
+)
+from prism.schema import CharacterVocabularySchema
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SupervisedTokenTaskBatch:
     model_inputs: TokenizedBatch
     targets: TokenTaskTargetBatch
+    character_inputs: CharacterTokenBatch | None = None
 
     def __post_init__(self) -> None:
         if self.model_inputs.batch_size != self.targets.batch_size:
@@ -29,6 +35,13 @@ class SupervisedTokenTaskBatch:
         ):
             raise ValueError(
                 "Model inputs and targets must have identical token masks."
+            )
+        if self.character_inputs is not None and not torch.equal(
+            self.character_inputs.token_mask,
+            self.targets.token_mask,
+        ):
+            raise ValueError(
+                "Character inputs and targets must have identical token masks."
             )
 
     @property
@@ -43,6 +56,11 @@ class SupervisedTokenTaskBatch:
         return SupervisedTokenTaskBatch(
             model_inputs=self.model_inputs.to(device),
             targets=self.targets.to(device),
+            character_inputs=(
+                None
+                if self.character_inputs is None
+                else self.character_inputs.to(device)
+            ),
         )
 
 
@@ -50,6 +68,8 @@ def build_supervised_token_task_batch(
     *,
     tokenizer: PreTrainedTokenizerBase,
     sentences: Sequence[SupervisedSentence],
+    character_vocabulary: CharacterVocabularySchema | None = None,
+    maximum_character_count: int = 32,
 ) -> SupervisedTokenTaskBatch:
     if not sentences:
         raise ValueError("Supervised token-task batch must contain sentences.")
@@ -59,10 +79,22 @@ def build_supervised_token_task_batch(
         sentences=tuple(sentence.model_input for sentence in sentences),
     )
     targets = build_token_task_target_batch(sentences)
+    character_inputs = (
+        None
+        if character_vocabulary is None
+        else encode_character_token_batch(
+            token_sequences=tuple(
+                sentence.model_input.tokens for sentence in sentences
+            ),
+            vocabulary=character_vocabulary,
+            maximum_character_count=maximum_character_count,
+        )
+    )
 
     return SupervisedTokenTaskBatch(
         model_inputs=model_inputs,
         targets=targets,
+        character_inputs=character_inputs,
     )
 
 
@@ -102,9 +134,13 @@ def iter_supervised_token_task_batches(
     *,
     tokenizer: PreTrainedTokenizerBase,
     sentence_batches: Iterable[Sequence[SupervisedSentence]],
+    character_vocabulary: CharacterVocabularySchema | None = None,
+    maximum_character_count: int = 32,
 ) -> Iterator[SupervisedTokenTaskBatch]:
     for sentence_batch in sentence_batches:
         yield build_supervised_token_task_batch(
             tokenizer=tokenizer,
             sentences=sentence_batch,
+            character_vocabulary=character_vocabulary,
+            maximum_character_count=maximum_character_count,
         )

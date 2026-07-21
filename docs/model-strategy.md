@@ -124,13 +124,27 @@ and morphology micro F1 on both Bokmål and Nynorsk, so it is the default for
 new training runs. Checkpoints record the policy; older format-3 checkpoints
 without that field remain explicitly First pooling for compatibility.
 
+The selected student uses a learned scalar mixture of the final four backbone
+layers before Mean pooling. Four softmax-normalized mixture logits and one
+learned scale add only five parameters. This improves Loss, UPOS, Lemma,
+morphology precision, micro F1, and macro F1 on both Norwegian written
+standards. Checkpoints record the policy; older checkpoints without the field
+remain explicitly final-layer-only. A strict `torch.export` capture, XNNPACK
+lowering to ExecuTorch `.pte`, and runtime parity smoke test cover the complete
+fixed-shape tagger with alignment and all task logits. They confirm that the
+layer mixture does not introduce a new export blocker. Dynamic shapes,
+production backend parity, peak memory, and document-scale performance remain
+release requirements.
+
 The selected student adds one shared residual
 `Linear(H -> 2H) -> GELU -> Dropout -> Linear(2H -> H)` projection before the
 schema-driven linear task heads. The controlled
 `linear` versus `shared-mlp` ablation improved every reported headline metric
-on Bokmål and Nynorsk, and the subsequent width ablation selects
-`wide-shared-mlp` as the default for new Norwegian training runs. Checkpoints
-record the architecture, and old format-3 checkpoints default to `linear`.
+on Bokmål and Nynorsk, and the subsequent width ablation selects the
+`wide-shared-mlp` projection. The later structured-morphology ablation selects
+The selected default for new Norwegian training runs is now
+`wide-shared-mlp-structured-morphology-character-cnn`. Checkpoints record the
+architecture, and old format-3 checkpoints default to `linear`.
 Eight epochs improve every headline
 metric over the five-epoch control on both written standards without changing
 model size or inference cost. Ten epochs improve every headline metric again.
@@ -140,8 +154,8 @@ tradeoff. Twelve epochs are selected as the default, and epoch-count tuning on
 these Development splits is now closed before further architecture work and
 format-3 teacher training.
 
-The selected capacity variant is `wide-shared-mlp`. It preserves the residual
-path and expands the shared token projection from `H` to `2H` before
+The selected shared-projection capacity is `wide-shared-mlp`. It preserves the
+residual path and expands the shared token projection from `H` to `2H` before
 projecting back to `H`. For the xsmall
 Norwegian student this is `192 -> 384 -> 192`; the block contains 148,032
 parameters while leaving the schema-driven output heads unchanged. Compared
@@ -155,12 +169,60 @@ worsens despite improved discrete predictions and ranking quality, so raw
 confidence calibration remains an explicit release gap rather than being
 hidden by the selection.
 
-It is not yet a production release because a final backbone-layer aggregation
-decision, a format-3-compatible teacher and distillation run, confidence
-calibration, frozen artifact metadata, native runtime packaging, and the
-6,000-token document benchmark remain incomplete. These are the active gaps;
+It is not yet a production release because the selected format-3-distilled
+Student still requires confidence calibration and frozen artifact metadata;
+native runtime packaging and the 6,000-token document benchmark also remain
+incomplete. These are the active gaps;
 removed historical experiment architectures are not part of the current
 runtime or comparison contract.
+
+The accepted remaining gold-only architecture plan is deliberately
+sequential:
+
+1. compare the implemented `wide-shared-mlp-task-adapters` candidate, with
+   separate residual `H -> H/2 -> H` paths for UPOS, morphology, and lemma,
+   against the selected aggregation: completed and rejected;
+2. compare the implemented `wide-shared-mlp-structured-morphology` decoder
+   against the selected learned-last-four, Mean-pooling, `wide-shared-mlp`
+   architecture without the rejected adapters: completed and selected;
+3. compare the compact character-CNN branch for rare and previously unseen
+   word forms against the selected structured architecture: completed and
+   selected after separate Bokmål/Nynorsk and Rare/OOV evaluation.
+
+Each stage changes one architectural variable and keeps the twelve-epoch
+schedule, data, seed, optimizer, losses, Mean pooling, and evaluation policy
+fixed. A later stage begins only after the previous winner is recorded. This
+prevents adapter, decoder, and character-branch gains from being attributed to
+the selected layer mixture and keeps the shipped-size tradeoff measurable.
+All three gold-only decisions are now recorded. Teacher fine-tuning and its
+separate Bokmål/Nynorsk plus Rare/OOV evaluation have completed successfully.
+The first distillation run and its separate Bokmål/Nynorsk plus Rare/OOV
+evaluation have completed. The distilled Student is selected as the compact
+reference; later distillation refinement must be task-specific.
+
+The rejected adapter candidate shares one adapter across all morphology
+feature heads, adds 111,456 parameters at `H = 192`, and changes neither task
+output spaces nor loss and decoding contracts. Its zero-initialized output
+projections make all three adapter paths exact identities at initialization.
+The candidate improved Nynorsk morphology micro F1 and Average Precision but
+regressed Nynorsk UPOS, lemma, and macro F1 and produced broader Bokmål
+regressions. It remains an export-compatible ablation option but is not part of
+the selected architecture or the structured-decoder control.
+
+The structured decoder keeps the independent morphology logits as a first
+pass, concatenates soft UPOS and morphology distributions, and predicts
+parallel residual corrections for every morphology feature. It has no hard
+UPOS decision and no autoregressive feature order. Zero-initialized correction
+heads make the candidate exactly equivalent to the selected control at
+initialization. For the joint Norwegian schema it adds 23,476 parameters at
+`H = 192`, approximately 94 KB in FP32. Loss, decoding, distillation, and
+artifact output contracts remain unchanged; the decoder passes strict
+`torch.export`. The controlled comparison selects it: Loss, Lemma,
+morphology precision, recall, micro F1, and Average Precision improve on both
+written standards for 105,666 additional checkpoint bytes. Small Nynorsk UPOS
+and macro-F1 regressions of 0.0256 and 0.0470 percentage points remain explicit
+tradeoffs. New Norwegian runs therefore default to
+`wide-shared-mlp-structured-morphology`.
 
 ## Teacher and student
 

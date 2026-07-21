@@ -1,6 +1,14 @@
 """Transformer model inputs, components, and outputs."""
 
 from prism.modeling.batches import TokenizedBatch
+from prism.modeling.character_batches import (
+    CharacterTokenBatch,
+    encode_character_token_batch,
+)
+from prism.modeling.character_encoders import (
+    CharacterCnnTokenEncoder,
+    CharacterResidualFusion,
+)
 from prism.modeling.backbones import (
     PretrainedBackboneSpec,
     load_backbone_model,
@@ -22,13 +30,19 @@ from prism.modeling.outputs import (
     TokenTaskLogits,
 )
 from prism.modeling.encoders import contextualize_subwords
+from prism.modeling.layer_aggregation import (
+    BackboneLayerAggregation,
+    BackboneLayerAggregationStrategy,
+)
 from prism.modeling.heads import (
     SharedResidualTokenProjection,
+    TaskResidualAdapter,
     TokenClassificationHead,
     TokenTaskHeadArchitecture,
     TokenTaskHeads,
     WideSharedResidualTokenProjection,
 )
+from prism.modeling.structured_morphology import StructuredMorphologyDecoder
 from prism.modeling.taggers import (
     TokenTagger,
     build_pretrained_token_tagger,
@@ -36,6 +50,10 @@ from prism.modeling.taggers import (
 
 __all__ = [
     "TokenizedBatch",
+    "CharacterTokenBatch",
+    "encode_character_token_batch",
+    "CharacterCnnTokenEncoder",
+    "CharacterResidualFusion",
     "PretrainedBackboneSpec",
     "load_backbone_model",
     "load_backbone_tokenizer",
@@ -49,11 +67,15 @@ __all__ = [
     "ContextualizedTokenBatch",
     "TokenTaskLogits",
     "contextualize_subwords",
+    "BackboneLayerAggregation",
+    "BackboneLayerAggregationStrategy",
     "TokenClassificationHead",
     "TokenTaskHeadArchitecture",
     "TokenTaskHeads",
     "SharedResidualTokenProjection",
+    "TaskResidualAdapter",
     "WideSharedResidualTokenProjection",
+    "StructuredMorphologyDecoder",
     "TokenTagger",
     "build_pretrained_token_tagger",
 ]

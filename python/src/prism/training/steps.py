@@ -32,7 +32,7 @@ def train_supervised_token_task_step(
     model.train()
     optimizer.zero_grad(set_to_none=True)
 
-    logits = model(batch.model_inputs)
+    logits = _forward_token_task_model(model=model, batch=batch)
 
     if not isinstance(logits, TokenTaskLogits):
         raise TypeError("Token-task model must return TokenTaskLogits.")
@@ -68,7 +68,7 @@ def evaluate_supervised_token_task_step(
     model.eval()
 
     with torch.inference_mode():
-        logits = model(batch.model_inputs)
+        logits = _forward_token_task_model(model=model, batch=batch)
 
         if not isinstance(logits, TokenTaskLogits):
             raise TypeError("Token-task model must return TokenTaskLogits.")
@@ -109,9 +109,13 @@ def train_distilled_token_task_step(
     )
 
     with torch.no_grad():
-        teacher_logits = teacher(resolved_teacher_inputs)
+        teacher_logits = _forward_token_task_model(
+            model=teacher,
+            batch=batch,
+            model_inputs=resolved_teacher_inputs,
+        )
 
-    student_logits = student(batch.model_inputs)
+    student_logits = _forward_token_task_model(model=student, batch=batch)
 
     if not isinstance(teacher_logits, TokenTaskLogits):
         raise TypeError("Teacher token-task model must return TokenTaskLogits.")
@@ -162,3 +166,19 @@ def train_distilled_token_task_step(
         distillation_losses=detached(distillation_losses),
         total_loss=losses.total_loss.detach(),
     )
+
+
+def _forward_token_task_model(
+    *,
+    model: nn.Module,
+    batch: SupervisedTokenTaskBatch,
+    model_inputs: TokenizedBatch | None = None,
+) -> object:
+    resolved_model_inputs = batch.model_inputs if model_inputs is None else model_inputs
+    if getattr(model, "character_encoder", None) is None:
+        return model(resolved_model_inputs)
+
+    if batch.character_inputs is None:
+        raise ValueError("Character-aware token-task model requires character inputs.")
+
+    return model(resolved_model_inputs, batch.character_inputs)

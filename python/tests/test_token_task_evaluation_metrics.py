@@ -55,6 +55,7 @@ def test_count_token_task_predictions_ignores_padding() -> None:
     assert counts.morphology_annotated_correct_counts[0].item() == 1
 
     assert counts.lemma_target_count.item() == 2
+    assert counts.lemma_annotation_count.item() == 2
     assert counts.lemma_rule_correct_count.item() == 1
 
     torch.testing.assert_close(
@@ -69,3 +70,30 @@ def test_count_token_task_predictions_ignores_padding() -> None:
         counts.morphology_false_negative_counts[0],
         torch.tensor([1, 0]),
     )
+
+
+def test_count_token_task_predictions_keeps_unrepresentable_lemma_annotation() -> None:
+    token_mask = torch.tensor([[True]])
+    targets = TokenTaskTargetBatch(
+        upos_ids=torch.tensor([[0]]),
+        morphology_targets=(torch.tensor([[[True, False]]]),),
+        lemma_rule_ids=torch.tensor([[0]]),
+        lemma_rule_mask=torch.tensor([[False]]),
+        token_mask=token_mask,
+        lemma_annotation_mask=torch.tensor([[True]]),
+    )
+    predictions = TokenTaskPredictionBatch(
+        upos_ids=torch.tensor([[0]]),
+        morphology_predictions=(torch.tensor([[[True, False]]]),),
+        lemma_rule_ids=torch.tensor([[0]]),
+        token_mask=token_mask,
+    )
+
+    counts = count_token_task_predictions(
+        predictions=predictions,
+        targets=targets,
+    )
+
+    assert counts.lemma_annotation_count.item() == 1
+    assert counts.lemma_target_count.item() == 0
+    assert counts.lemma_rule_correct_count.item() == 0

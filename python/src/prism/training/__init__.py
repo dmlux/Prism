@@ -11,9 +11,12 @@ from prism.training.class_weights import (
 )
 from prism.training.checkpoints import (
     TOKEN_TASK_CHECKPOINT_FORMAT_VERSION,
+    backbone_layer_aggregation_strategy_from_checkpoint,
     token_pooling_strategy_from_checkpoint,
     token_task_head_architecture_from_checkpoint,
     validate_token_task_checkpoint_format,
+    character_vocabulary_from_checkpoint,
+    maximum_character_count_from_checkpoint,
 )
 from prism.training.config import SupervisedTrainingConfig
 from prism.training.distillation import (
@@ -79,7 +82,10 @@ __all__ = [
     "DistilledEpochMetrics",
     "train_distilled_token_task_epoch",
     "TOKEN_TASK_CHECKPOINT_FORMAT_VERSION",
+    "backbone_layer_aggregation_strategy_from_checkpoint",
     "token_pooling_strategy_from_checkpoint",
     "token_task_head_architecture_from_checkpoint",
     "validate_token_task_checkpoint_format",
+    "character_vocabulary_from_checkpoint",
+    "maximum_character_count_from_checkpoint",
 ]

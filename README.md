@@ -24,24 +24,31 @@ Prism currently provides:
 - language-owned UPOS, morphology, and lemma-rule schemas;
 - a compact NorBERT4-xsmall Transformer student for Norwegian;
 - shared UPOS, per-feature morphology, and lemma edit-rule heads;
-- checkpoint-compatible linear, shared-MLP, and wider shared-MLP head
-  architectures for controlled capacity comparisons;
+- checkpoint-compatible linear and shared-MLP head architectures plus the
+  selected structured, character-aware morphology/lemma path;
 - schema-driven categorical and multi-label morphology objectives;
 - supervised Apple MPS training with reproducible checkpoints;
 - class-weighted morphology training derived only from the training split;
 - exact, per-label, and threshold-independent development metrics;
+- reproducible Rare/OOV development slices derived only from training-form
+  frequencies;
+- a selected, export-tested character-CNN branch that feeds complete-token form
+  information into morphology and lemma while leaving UPOS unchanged;
 - a versioned ExecuTorch export spike with PyTorch parity coverage;
 - explicit language profiles so another language can replace its tokenizer,
   backbone, schemas, decoding policy, and artifact metadata.
 
-The selected twelve-epoch Mean-pooling, wide-shared-MLP format-3 gold-only
-student reaches 95.70% Bokmål and 92.54% Nynorsk morphology micro F1 while
-preserving 98.92%/98.53% UPOS and 98.38%/98.10% lemma-rule accuracy. The wider
-shared residual projection improves the main discrete and ranking metrics on
-both written standards while the checkpoint remains 69.3 MB. Its higher
-Nynorsk negative log-likelihood is retained as an explicit confidence-
-calibration target. A new compatible teacher must be trained before
-distillation continues. Both official test splits remain untouched.
+The selected twelve-epoch Mean-pooling, learned-last-four, wide-shared-MLP
+Student combines a structured, soft-decision morphology refinement with a
+compact character CNN for morphology and lemma, then distills an accepted
+NorBERT4-Base Teacher at temperature 1.0 and weight 0.1. The character branch
+improves Rare end-to-end lemma accuracy by 2.67/2.42 percentage points and Rare
+morphology micro F1 by 1.76/1.50 points on Bokmål/Nynorsk. OOV lemma,
+morphology, and UPOS also improve on both written standards. The 69.9 MB
+checkpoint remains below the 100 MB target. Distillation further lowers loss
+and improves lemma on both standards without any OOV regression; its small
+Bokmål Rare tradeoffs remain explicit. Both official test splits remain
+untouched.
 See [the benchmark notes](docs/benchmarks.md) for the complete, comparable
 results.
 
@@ -207,16 +214,11 @@ are excluded through `.gitignore`.
 
 ## Roadmap
 
-1. Evaluate one controlled learned backbone-layer mixture against the selected
-   wide-shared-MLP student.
-2. Train a format-3-compatible shared NorBERT4-Base teacher, distill it into
-   the selected compact architecture, and compare it with the gold-only
-   ablation.
-3. Calibrate confidence, freeze the language artifact schema, and evaluate the
-   untouched test splits.
-4. Export the selected student and measure the 6,000-token document fixture on
+1. Calibrate confidence and freeze the language artifact schema.
+2. Evaluate the frozen model once on the untouched test splits.
+3. Export the selected student and measure the 6,000-token document fixture on
    production runtimes.
-5. Provide stable Swift, Java/Kotlin, and C++ packages over the versioned model
+4. Provide stable Swift, Java/Kotlin, and C++ packages over the versioned model
    artifact contract.
 
 ## Licensing

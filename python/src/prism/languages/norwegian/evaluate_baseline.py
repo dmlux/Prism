@@ -15,9 +15,14 @@ from prism.data import (
 from prism.evaluation.classification import (
     calculate_classification_metrics,
 )
+from prism.evaluation import (
+    TokenFrequencyClass,
+    TokenFrequencyProfile,
+)
 from prism.evaluation.reporting import (
     format_classification_metric_rows,
     format_scalar_metric_rows,
+    format_token_slice_metric_rows,
 )
 from prism.languages import ModelRole
 from prism.languages.norwegian import (
@@ -32,11 +37,14 @@ from prism.schema.serialization import (
     serialize_token_task_schema,
 )
 from prism.training import (
+    backbone_layer_aggregation_strategy_from_checkpoint,
     evaluate_supervised_token_task_epoch,
     iter_supervised_token_task_batches,
     token_pooling_strategy_from_checkpoint,
     token_task_head_architecture_from_checkpoint,
     validate_token_task_checkpoint_format,
+    character_vocabulary_from_checkpoint,
+    maximum_character_count_from_checkpoint,
 )
 
 
@@ -166,16 +174,51 @@ def main() -> None:
             batch_size,
         )
     )
+    frequency_profile = TokenFrequencyProfile.from_token_sequences(
+        tuple(
+            tuple(token.text for token in sentence)
+            for sentence in schema_training_tokens
+        )
+    )
+    pretokenized_development_batches = tuple(
+        tuple(sentence.model_input for sentence in sentence_batch)
+        for sentence_batch in development_sentence_batches
+    )
+    token_slice_masks = {
+        frequency_class.value: frequency_profile.build_batch_masks(
+            pretokenized_development_batches,
+            frequency_class=frequency_class,
+        )
+        for frequency_class in (
+            TokenFrequencyClass.RARE,
+            TokenFrequencyClass.OOV,
+        )
+    }
 
     tokenizer = load_backbone_tokenizer(backbone_spec)
     pooling_strategy = token_pooling_strategy_from_checkpoint(checkpoint)
     head_architecture = token_task_head_architecture_from_checkpoint(checkpoint)
+    character_vocabulary = character_vocabulary_from_checkpoint(
+        checkpoint,
+        architecture=head_architecture,
+    )
+    maximum_character_count = maximum_character_count_from_checkpoint(
+        checkpoint,
+        architecture=head_architecture,
+    )
+    layer_aggregation_strategy = backbone_layer_aggregation_strategy_from_checkpoint(
+        checkpoint
+    )
     model = build_pretrained_token_tagger(
         backbone_spec=backbone_spec,
         schema=schema,
         dropout_probability=0.1,
         pooling_strategy=pooling_strategy,
         head_architecture=head_architecture,
+        layer_aggregation_strategy=layer_aggregation_strategy,
+        character_vocabulary_size=(
+            None if character_vocabulary is None else character_vocabulary.size
+        ),
     )
     model.load_state_dict(
         checkpoint["model_state_dict"],
@@ -188,15 +231,21 @@ def main() -> None:
     )
     print("Token pooling:", pooling_strategy.value)
     print("Task-head architecture:", head_architecture.value)
+    print("Backbone layer aggregation:", layer_aggregation_strategy.value)
 
     metrics = evaluate_supervised_token_task_epoch(
         model=model,
         batches=iter_supervised_token_task_batches(
             tokenizer=tokenizer,
             sentence_batches=(development_sentence_batches),
+            character_vocabulary=character_vocabulary,
+            maximum_character_count=(
+                32 if maximum_character_count is None else maximum_character_count
+            ),
         ),
         device=torch.device("mps"),
         morphology_schema=schema.morphology,
+        token_slice_masks=token_slice_masks,
     )
 
     for row in format_scalar_metric_rows(
@@ -212,6 +261,20 @@ def main() -> None:
         ),
     ):
         print(row)
+
+    print()
+    print(
+        "Token-frequency slices: normalized with NFC + casefold; "
+        f"rare=1..{frequency_profile.rare_max_frequency}, "
+        "oov=0 training occurrences."
+    )
+    for token_slice in metrics.token_slices:
+        print()
+        for row in format_token_slice_metric_rows(
+            slice_name=token_slice.name.upper(),
+            metrics=token_slice.metrics,
+        ):
+            print(row)
 
     for (
         feature,

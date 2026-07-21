@@ -14,6 +14,7 @@ class TokenTaskTargetBatch:
     lemma_rule_ids: Tensor
     lemma_rule_mask: Tensor
     token_mask: Tensor
+    lemma_annotation_mask: Tensor | None = None
 
     def __post_init__(self) -> None:
         if self.upos_ids.ndim != 2:
@@ -47,6 +48,32 @@ class TokenTaskTargetBatch:
             if mask.dtype != torch.bool:
                 raise ValueError("Target masks must use torch.bool.")
 
+        if self.lemma_annotation_mask is None:
+            object.__setattr__(
+                self,
+                "lemma_annotation_mask",
+                self.lemma_rule_mask,
+            )
+        else:
+            if self.lemma_annotation_mask.shape != token_dimensions:
+                raise ValueError(
+                    "Lemma annotation mask must match UPOS target dimensions."
+                )
+            if self.lemma_annotation_mask.dtype != torch.bool:
+                raise ValueError("Lemma annotation mask must use torch.bool.")
+            if self.lemma_annotation_mask.device != self.token_mask.device:
+                raise ValueError(
+                    "Lemma annotation mask and token mask must use the same device."
+                )
+            if (self.lemma_annotation_mask & ~self.token_mask).any().item():
+                raise ValueError(
+                    "Lemma annotation mask must not select padding tokens."
+                )
+            if (self.lemma_rule_mask & ~self.lemma_annotation_mask).any().item():
+                raise ValueError(
+                    "Representable lemma rules must have lemma annotations."
+                )
+
     @property
     def batch_size(self) -> int:
         return self.upos_ids.shape[0]
@@ -60,6 +87,9 @@ class TokenTaskTargetBatch:
         return len(self.morphology_targets)
 
     def to(self, device: torch.device) -> "TokenTaskTargetBatch":
+        if self.lemma_annotation_mask is None:
+            raise RuntimeError("Lemma annotation mask must be resolved.")
+
         return TokenTaskTargetBatch(
             upos_ids=self.upos_ids.to(device=device),
             morphology_targets=tuple(
@@ -68,6 +98,7 @@ class TokenTaskTargetBatch:
             lemma_rule_ids=self.lemma_rule_ids.to(device=device),
             lemma_rule_mask=self.lemma_rule_mask.to(device=device),
             token_mask=self.token_mask.to(device=device),
+            lemma_annotation_mask=self.lemma_annotation_mask.to(device=device),
         )
 
 
@@ -95,6 +126,10 @@ def build_token_task_target_batch(
         dtype=torch.long,
     )
     lemma_rule_mask = torch.zeros(
+        (batch_size, max_token_count),
+        dtype=torch.bool,
+    )
+    lemma_annotation_mask = torch.zeros(
         (batch_size, max_token_count),
         dtype=torch.bool,
     )
@@ -134,6 +169,8 @@ def build_token_task_target_batch(
                     sentence_index,
                     token_index,
                 ] = True
+            if target.lemma_is_annotated:
+                lemma_annotation_mask[sentence_index, token_index] = True
 
     return TokenTaskTargetBatch(
         upos_ids=upos_ids,
@@ -141,4 +178,5 @@ def build_token_task_target_batch(
         lemma_rule_ids=lemma_rule_ids,
         lemma_rule_mask=lemma_rule_mask,
         token_mask=token_mask,
+        lemma_annotation_mask=lemma_annotation_mask,
     )

@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 
 from prism.evaluation.classification import ClassificationMetrics
+from prism.evaluation.metrics import TokenTaskEvaluationMetrics
 
 
 def format_scalar_metric_rows(
@@ -93,4 +94,48 @@ def format_morphology_accuracy_rows(
             annotated_accuracies,
             strict=True,
         )
+    )
+
+
+def format_token_slice_metric_rows(
+    *,
+    slice_name: str,
+    metrics: TokenTaskEvaluationMetrics,
+) -> tuple[str, ...]:
+    if not slice_name or slice_name.strip() != slice_name:
+        raise ValueError("Token-slice name must be non-empty and trimmed.")
+
+    morphology_metrics = metrics.morphology_micro_metrics()
+    metric_values = (
+        ("tokens", str(metrics.token_count)),
+        ("UPOS accuracy", f"{metrics.upos_accuracy:.6f}"),
+        ("lemma annotations", str(metrics.lemma_annotation_count)),
+        ("lemma-rule targets", str(metrics.lemma_target_count)),
+        (
+            "lemma-rule coverage",
+            "undefined"
+            if metrics.lemma_rule_coverage is None
+            else f"{metrics.lemma_rule_coverage:.6f}",
+        ),
+        (
+            "lemma-rule accuracy",
+            "undefined"
+            if metrics.lemma_rule_accuracy is None
+            else f"{metrics.lemma_rule_accuracy:.6f}",
+        ),
+        (
+            "lemma end-to-end accuracy",
+            "undefined"
+            if metrics.lemma_end_to_end_accuracy is None
+            else f"{metrics.lemma_end_to_end_accuracy:.6f}",
+        ),
+        ("morphology micro precision", f"{morphology_metrics.precision:.6f}"),
+        ("morphology micro recall", f"{morphology_metrics.recall:.6f}"),
+        ("morphology micro F1", f"{morphology_metrics.f1:.6f}"),
+    )
+    label_width = max(len(label) for label, _ in metric_values)
+
+    return tuple(
+        f"{slice_name} {label:<{label_width}}    {value}"
+        for label, value in metric_values
     )

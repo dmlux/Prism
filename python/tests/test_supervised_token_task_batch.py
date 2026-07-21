@@ -74,4 +74,6 @@ def test_supervised_token_task_batch_connects_inputs_and_targets() -> None:
     assert moved_batch.targets.morphology_targets[0].device == device
     assert moved_batch.targets.lemma_rule_ids.device == device
     assert moved_batch.targets.lemma_rule_mask.device == device
+    assert moved_batch.targets.lemma_annotation_mask is not None
+    assert moved_batch.targets.lemma_annotation_mask.device == device
     assert moved_batch.targets.token_mask.device == device

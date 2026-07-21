@@ -183,6 +183,35 @@ def test_evaluation_epoch_reports_task_accuracies() -> None:
         )
 
 
+def test_evaluation_epoch_reports_named_token_slice() -> None:
+    model = TinyEpochModel()
+
+    metrics = evaluate_supervised_token_task_epoch(
+        model=model,
+        batches=(
+            _training_batch(0),
+            _training_batch(1),
+        ),
+        device=torch.device("cpu"),
+        morphology_schema=MORPHOLOGY_SCHEMA,
+        token_slice_masks={
+            "rare": (
+                torch.tensor([[True]]),
+                torch.tensor([[False]]),
+            ),
+        },
+    )
+
+    assert len(metrics.token_slices) == 1
+    token_slice = metrics.token_slices[0]
+    assert token_slice.name == "rare"
+    assert token_slice.metrics.token_count == 1
+    assert token_slice.metrics.lemma_target_count == 1
+    assert token_slice.metrics.upos_accuracy == 1.0
+    assert token_slice.metrics.lemma_rule_accuracy == 1.0
+    assert token_slice.metrics.morphology_accuracies == (1.0,)
+
+
 def test_training_epoch_forwards_loss_weights() -> None:
     model = TinyEpochModel()
     optimizer = torch.optim.SGD(

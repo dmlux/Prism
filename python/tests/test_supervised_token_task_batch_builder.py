@@ -8,6 +8,7 @@ from prism.data import (
     TokenTargets,
 )
 from prism.training import build_supervised_token_task_batch
+from prism.schema import build_character_vocabulary_schema
 
 
 def test_build_supervised_token_task_batch_connects_tokenizer_and_targets() -> None:
@@ -69,4 +70,20 @@ def test_build_supervised_token_task_batch_connects_tokenizer_and_targets() -> N
             [[0, 1]],
             dtype=torch.long,
         ),
+    )
+
+    character_vocabulary = build_character_vocabulary_schema(
+        tokens=sentence.model_input.tokens
+    )
+    character_batch = build_supervised_token_task_batch(
+        tokenizer=tokenizer,
+        sentences=(sentence,),
+        character_vocabulary=character_vocabulary,
+        maximum_character_count=8,
+    )
+
+    assert character_batch.character_inputs is not None
+    torch.testing.assert_close(
+        character_batch.character_inputs.token_mask,
+        character_batch.targets.token_mask,
     )

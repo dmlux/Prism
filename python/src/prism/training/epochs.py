@@ -1,4 +1,4 @@
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 import torch
@@ -6,13 +6,12 @@ from torch import nn
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
 
-from prism.evaluation.metrics import count_token_task_predictions
-from prism.evaluation.ranking import (
-    calculate_average_precision,
+from prism.evaluation.metrics import (
+    TokenTaskEvaluationAccumulator,
+    TokenTaskEvaluationMetrics,
 )
 from prism.modeling.decoding import (
     decode_token_task_logits,
-    morphology_label_scores,
 )
 from prism.schema import MorphologySchema
 from prism.training.batches import SupervisedTokenTaskBatch
@@ -67,6 +66,17 @@ class SupervisedEvaluationMetrics:
         tuple[float | None, ...],
         ...,
     ]
+    token_slices: tuple["NamedTokenTaskEvaluationMetrics", ...] = ()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NamedTokenTaskEvaluationMetrics:
+    name: str
+    metrics: TokenTaskEvaluationMetrics
+
+    def __post_init__(self) -> None:
+        if not self.name or self.name.strip() != self.name:
+            raise ValueError("Evaluation slice name must be non-empty and trimmed.")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -281,57 +291,30 @@ def evaluate_supervised_token_task_epoch(
     batches: Iterable[SupervisedTokenTaskBatch],
     device: torch.device,
     morphology_schema: MorphologySchema,
+    token_slice_masks: Mapping[str, Sequence[torch.Tensor]] | None = None,
 ) -> SupervisedEvaluationMetrics:
-    upos_correct_count = torch.zeros(
-        (),
-        dtype=torch.long,
+    resolved_slice_masks = {} if token_slice_masks is None else token_slice_masks
+    if any(not name or name.strip() != name for name in resolved_slice_masks):
+        raise ValueError("Evaluation slice names must be non-empty and trimmed.")
+
+    overall_accumulator = TokenTaskEvaluationAccumulator(
         device=device,
+        morphology_schema=morphology_schema,
     )
-    morphology_correct_counts = tuple(
-        torch.zeros((), dtype=torch.long, device=device)
-        for _ in morphology_schema.features
-    )
-    morphology_annotated_counts = tuple(
-        torch.zeros((), dtype=torch.long, device=device)
-        for _ in morphology_schema.features
-    )
-    morphology_annotated_correct_counts = tuple(
-        torch.zeros((), dtype=torch.long, device=device)
-        for _ in morphology_schema.features
-    )
-    lemma_rule_correct_count = torch.zeros(
-        (),
-        dtype=torch.long,
-        device=device,
-    )
-    morphology_true_positive_counts = tuple(
-        torch.zeros(len(feature.labels), dtype=torch.long, device=device)
-        for feature in morphology_schema.features
-    )
-    morphology_false_positive_counts = tuple(
-        torch.zeros(len(feature.labels), dtype=torch.long, device=device)
-        for feature in morphology_schema.features
-    )
-    morphology_false_negative_counts = tuple(
-        torch.zeros(
-            len(feature.labels),
-            dtype=torch.long,
+    slice_accumulators = {
+        name: TokenTaskEvaluationAccumulator(
             device=device,
+            morphology_schema=morphology_schema,
         )
-        for feature in morphology_schema.features
-    )
-    morphology_score_batches: tuple[
-        list[torch.Tensor],
-        ...,
-    ] = tuple([] for _ in morphology_schema.features)
-    morphology_target_batches: tuple[
-        list[torch.Tensor],
-        ...,
-    ] = tuple([] for _ in morphology_schema.features)
+        for name in resolved_slice_masks
+    }
+    batch_index = 0
 
     def process_batch(
         batch: SupervisedTokenTaskBatch,
     ) -> TokenTaskLosses:
+        nonlocal batch_index
+
         logits, losses = evaluate_supervised_token_task_step(
             model=model,
             batch=batch,
@@ -342,82 +325,27 @@ def evaluate_supervised_token_task_epoch(
             token_mask=batch.targets.token_mask,
             morphology_schema=morphology_schema,
         )
-        counts = count_token_task_predictions(
+        overall_accumulator.add(
+            logits=logits,
             predictions=predictions,
             targets=batch.targets,
+            evaluation_mask=batch.targets.token_mask,
         )
 
-        for (
-            score_batches,
-            target_batches,
-            feature_logits,
-            feature_targets,
-            feature_schema,
-        ) in zip(
-            morphology_score_batches,
-            morphology_target_batches,
-            logits.morphology_logits,
-            batch.targets.morphology_targets,
-            morphology_schema.features,
-            strict=True,
-        ):
-            score_batches.append(
-                morphology_label_scores(
-                    feature_logits=feature_logits,
-                    feature_schema=feature_schema,
-                )[batch.targets.token_mask]
-                .detach()
-                .cpu()
-            )
-            target_batches.append(
-                feature_targets[batch.targets.token_mask].detach().cpu()
+        for name, masks in resolved_slice_masks.items():
+            if batch_index >= len(masks):
+                raise ValueError(
+                    f"Evaluation slice {name!r} contains fewer masks than batches."
+                )
+
+            slice_accumulators[name].add(
+                logits=logits,
+                predictions=predictions,
+                targets=batch.targets,
+                evaluation_mask=masks[batch_index].to(device=device),
             )
 
-        upos_correct_count.add_(counts.upos_correct_count)
-        lemma_rule_correct_count.add_(counts.lemma_rule_correct_count)
-
-        for total, current in zip(
-            morphology_correct_counts,
-            counts.morphology_correct_counts,
-            strict=True,
-        ):
-            total.add_(current)
-
-        for total, current in zip(
-            morphology_annotated_counts,
-            counts.morphology_annotated_counts,
-            strict=True,
-        ):
-            total.add_(current)
-
-        for total, current in zip(
-            morphology_annotated_correct_counts,
-            counts.morphology_annotated_correct_counts,
-            strict=True,
-        ):
-            total.add_(current)
-
-        for total, current in zip(
-            morphology_true_positive_counts,
-            counts.morphology_true_positive_counts,
-            strict=True,
-        ):
-            total.add_(current)
-
-        for total, current in zip(
-            morphology_false_positive_counts,
-            counts.morphology_false_positive_counts,
-            strict=True,
-        ):
-            total.add_(current)
-
-        for total, current in zip(
-            morphology_false_negative_counts,
-            counts.morphology_false_negative_counts,
-            strict=True,
-        ):
-            total.add_(current)
-
+        batch_index += 1
         return losses
 
     losses = _run_supervised_token_task_epoch(
@@ -428,70 +356,47 @@ def evaluate_supervised_token_task_epoch(
         empty_epoch_message=("Evaluation epoch must contain batches."),
     )
 
-    morphology_average_precisions: list[tuple[float | None, ...]] = []
-
-    for score_batches, target_batches in zip(
-        morphology_score_batches,
-        morphology_target_batches,
-        strict=True,
-    ):
-        feature_scores = torch.cat(
-            score_batches,
-            dim=0,
-        )
-        feature_targets = torch.cat(
-            target_batches,
-            dim=0,
-        )
-
-        morphology_average_precisions.append(
-            tuple(
-                calculate_average_precision(
-                    scores=feature_scores[:, label_index],
-                    targets=feature_targets[:, label_index],
-                )
-                for label_index in range(feature_scores.shape[-1])
+    for name, masks in resolved_slice_masks.items():
+        if len(masks) != batch_index:
+            raise ValueError(
+                f"Evaluation slice {name!r} contains more masks than batches."
             )
-        )
 
-    morphology_annotated_accuracies = tuple(
-        None
-        if annotated_count.item() == 0
-        else (correct_count / annotated_count).item()
-        for correct_count, annotated_count in zip(
-            morphology_annotated_correct_counts,
-            morphology_annotated_counts,
-            strict=True,
-        )
+    overall_metrics = overall_accumulator.finish(
+        empty_slice_message="Evaluation epoch must contain tokens.",
     )
-
-    if losses.lemma_target_count == 0:
-        lemma_rule_accuracy = None
-    else:
-        lemma_rule_accuracy = (
-            lemma_rule_correct_count / losses.lemma_target_count
-        ).item()
+    if overall_metrics.token_count != losses.token_count:
+        raise RuntimeError("Evaluation metric and loss token counts must match.")
+    if overall_metrics.lemma_target_count != losses.lemma_target_count:
+        raise RuntimeError("Evaluation metric and loss lemma counts must match.")
 
     return SupervisedEvaluationMetrics(
         losses=losses,
-        upos_accuracy=(upos_correct_count / losses.token_count).item(),
-        morphology_accuracies=tuple(
-            (correct_count / losses.token_count).item()
-            for correct_count in morphology_correct_counts
+        upos_accuracy=overall_metrics.upos_accuracy,
+        morphology_accuracies=overall_metrics.morphology_accuracies,
+        morphology_annotated_accuracies=(
+            overall_metrics.morphology_annotated_accuracies
         ),
-        morphology_annotated_accuracies=morphology_annotated_accuracies,
-        lemma_rule_accuracy=lemma_rule_accuracy,
-        morphology_true_positive_counts=tuple(
-            tuple(int(value) for value in counts.detach().cpu().tolist())
-            for counts in morphology_true_positive_counts
+        lemma_rule_accuracy=overall_metrics.lemma_rule_accuracy,
+        morphology_true_positive_counts=(
+            overall_metrics.morphology_true_positive_counts
         ),
-        morphology_false_positive_counts=tuple(
-            tuple(int(value) for value in counts.detach().cpu().tolist())
-            for counts in morphology_false_positive_counts
+        morphology_false_positive_counts=(
+            overall_metrics.morphology_false_positive_counts
         ),
-        morphology_false_negative_counts=tuple(
-            tuple(int(value) for value in counts.detach().cpu().tolist())
-            for counts in morphology_false_negative_counts
+        morphology_false_negative_counts=(
+            overall_metrics.morphology_false_negative_counts
         ),
-        morphology_average_precisions=tuple(morphology_average_precisions),
+        morphology_average_precisions=(overall_metrics.morphology_average_precisions),
+        token_slices=tuple(
+            NamedTokenTaskEvaluationMetrics(
+                name=name,
+                metrics=accumulator.finish(
+                    empty_slice_message=(
+                        f"Evaluation slice {name!r} must select at least one token."
+                    ),
+                ),
+            )
+            for name, accumulator in slice_accumulators.items()
+        ),
     )

@@ -1,10 +1,12 @@
 import pytest
 
 from prism.evaluation.classification import ClassificationMetrics
+from prism.evaluation.metrics import TokenTaskEvaluationMetrics
 from prism.evaluation.reporting import (
     format_classification_metric_rows,
     format_morphology_accuracy_rows,
     format_scalar_metric_rows,
+    format_token_slice_metric_rows,
 )
 
 
@@ -90,3 +92,37 @@ def test_morphology_accuracy_rows_require_matching_lengths() -> None:
             annotated_accuracies=(1.0,),
             prefix="Development",
         )
+
+
+def test_token_slice_metric_rows_align_summary() -> None:
+    rows = format_token_slice_metric_rows(
+        slice_name="OOV",
+        metrics=TokenTaskEvaluationMetrics(
+            token_count=12,
+            lemma_target_count=10,
+            lemma_annotation_count=12,
+            upos_accuracy=0.75,
+            morphology_accuracies=(0.5,),
+            morphology_annotated_accuracies=(0.4,),
+            lemma_rule_accuracy=0.6,
+            lemma_rule_coverage=10 / 12,
+            lemma_end_to_end_accuracy=0.5,
+            morphology_true_positive_counts=((0, 3),),
+            morphology_false_positive_counts=((0, 1),),
+            morphology_false_negative_counts=((0, 2),),
+            morphology_average_precisions=((None, 0.7),),
+        ),
+    )
+
+    assert rows == (
+        "OOV tokens                        12",
+        "OOV UPOS accuracy                 0.750000",
+        "OOV lemma annotations             12",
+        "OOV lemma-rule targets            10",
+        "OOV lemma-rule coverage           0.833333",
+        "OOV lemma-rule accuracy           0.600000",
+        "OOV lemma end-to-end accuracy     0.500000",
+        "OOV morphology micro precision    0.750000",
+        "OOV morphology micro recall       0.600000",
+        "OOV morphology micro F1           0.666667",
+    )
