@@ -32,12 +32,13 @@ Prism currently provides:
 - explicit language profiles so another language can replace its tokenizer,
   backbone, schemas, decoding policy, and artifact metadata.
 
-The selected format-3 shared gold-only student reaches 93.18% Bokmål and
-89.61% Nynorsk morphology micro F1 while preserving 98.64%/98.36% UPOS and
-96.69%/96.63% lemma-rule accuracy. It improves morphology over the historical
-format-2 reference on both written standards. A new compatible teacher must be
-trained before distillation continues. Both official test splits remain
-untouched.
+The selected Mean-pooling, shared-MLP format-3 gold-only student reaches
+93.80% Bokmål and 90.24% Nynorsk morphology micro F1 while preserving
+98.71%/98.40% UPOS and 97.13%/97.12% lemma-rule accuracy. The shared residual
+projection improves every reported headline metric over the otherwise
+identical linear-head reference on both written standards while adding only
+148,790 checkpoint bytes. A new compatible teacher must be trained before
+distillation continues. Both official test splits remain untouched.
 See [the benchmark notes](docs/benchmarks.md) for the complete, comparable
 results.
 
@@ -203,14 +204,16 @@ are excluded through `.gitignore`.
 
 ## Roadmap
 
-1. Distill the selected shared NorBERT4-Base teacher into the same compact
-   student and compare it with the
-   gold-only ablation.
-2. Calibrate confidence, freeze the language artifact schema, and evaluate the
+1. Test whether an eight-epoch schedule improves the selected Mean-pooling,
+   shared-MLP student without changing its architecture.
+2. Train a format-3-compatible shared NorBERT4-Base teacher, distill it into
+   the selected compact architecture, and compare it with the gold-only
+   ablation.
+3. Calibrate confidence, freeze the language artifact schema, and evaluate the
    untouched test splits.
-3. Export the selected student and measure the 6,000-token document fixture on
+4. Export the selected student and measure the 6,000-token document fixture on
    production runtimes.
-4. Provide stable Swift, Java/Kotlin, and C++ packages over the versioned model
+5. Provide stable Swift, Java/Kotlin, and C++ packages over the versioned model
    artifact contract.
 
 ## Licensing

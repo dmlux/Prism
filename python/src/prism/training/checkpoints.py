@@ -1,6 +1,6 @@
 from collections.abc import Mapping
 
-from prism.modeling import TokenPoolingStrategy
+from prism.modeling import TokenPoolingStrategy, TokenTaskHeadArchitecture
 
 
 TOKEN_TASK_CHECKPOINT_FORMAT_VERSION = 3
@@ -34,4 +34,22 @@ def token_pooling_strategy_from_checkpoint(
     except ValueError as error:
         raise ValueError(
             f"Unsupported checkpoint token pooling strategy: {raw_strategy!r}."
+        ) from error
+
+
+def token_task_head_architecture_from_checkpoint(
+    checkpoint: Mapping[str, object],
+) -> TokenTaskHeadArchitecture:
+    raw_architecture = checkpoint.get(
+        "token_task_head_architecture",
+        TokenTaskHeadArchitecture.LINEAR.value,
+    )
+    if not isinstance(raw_architecture, str):
+        raise ValueError("Checkpoint task-head architecture must be a string.")
+
+    try:
+        return TokenTaskHeadArchitecture(raw_architecture)
+    except ValueError as error:
+        raise ValueError(
+            f"Unsupported checkpoint task-head architecture: {raw_architecture!r}."
         ) from error

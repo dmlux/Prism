@@ -411,8 +411,8 @@ linear task heads:
 
 The implementation is covered by focused schema, head, decoding, loss,
 weighting, distillation, training-step, epoch, and checkpoint-contract tests.
-The first controlled joint Bokmål-Nynorsk run is accepted as the new gold-only
-student reference:
+The first controlled joint Bokmål-Nynorsk run became the format-3
+First-pooling reference:
 
 - checkpoint: `runs/no-student-hybrid-weighted/best.pt`
 - checkpoint format: 3
@@ -452,12 +452,12 @@ morphology head tensor shapes and their meanings changed. The existing
 format-2 teacher and distilled checkpoints remain historical references and
 cannot be used for format-3 distillation.
 
-## Implemented token-pooling ablation
+## Selected Mean-pooling student
 
-The selected format-3 reference uses the first contextualized subword vector
-for every original token. A controlled Mean-pooling alternative is now
-implemented without changing the backbone, task heads, loss policy, or output
-schema:
+The first format-3 reference used the first contextualized subword vector for
+every original token. A controlled Mean-pooling alternative was trained
+without changing the backbone, task heads, loss policy, optimizer, seed, data,
+or output schema:
 
 - tokenized batches carry the start and exclusive end of every token's
   contiguous subword span;
@@ -470,13 +470,83 @@ schema:
 - existing format-3 checkpoints without this metadata resolve explicitly to
   `first` and remain compatible.
 
-Mean pooling adds no trainable parameters. It is implemented and tested but
-has not yet been trained or benchmarked. Export parity for the complete tagger
-remains required before a production runtime accepts either pooling path.
+Mean pooling adds no trainable parameters. The controlled run is accepted as
+the new gold-only student reference:
+
+- checkpoint: `runs/no-student-hybrid-mean-weighted/best.pt`
+- checkpoint format: 3
+- token pooling: `mean`
+- selected epoch: 5
+- checkpoint size: 68,735,131 bytes
+- end-to-end wall time: approximately 21 minutes 8 seconds
+- combined development loss: 0.189321
+
+| Development metric | First, Bokmål | Mean, Bokmål | First, Nynorsk | Mean, Nynorsk |
+| --- | ---: | ---: | ---: | ---: |
+| Joint loss | 0.173502 | **0.169886** | 0.214554 | **0.211940** |
+| UPOS accuracy | 98.64% | **98.67%** | **98.36%** | 98.35% |
+| Lemma-rule accuracy | 96.69% | **96.83%** | 96.63% | **96.70%** |
+| Morphology micro precision | 89.62% | **89.83%** | 84.32% | **84.45%** |
+| Morphology micro recall | 97.02% | **97.19%** | **95.62%** | 95.59% |
+| Morphology micro F1 | 93.18% | **93.36%** | 89.61% | **89.67%** |
+| Morphology macro F1 | 91.79% | **91.97%** | **86.74%** | 86.63% |
+| Morphology macro Average Precision | 95.25% | **95.56%** | **91.37%** | 91.28% |
+
+Mean pooling reduces the supervised loss and improves lemma accuracy,
+morphology precision, and morphology micro F1 on both written standards. Its
+small Nynorsk regressions in UPOS, recall, macro F1, and macro Average
+Precision are all at most 0.11 percentage points. The broader two-standard
+gain and unchanged model size justify selecting Mean pooling for new student
+training. First pooling remains an explicit ablation option. Existing format-3
+checkpoints without pooling metadata continue to resolve to `first`; they are
+never silently reinterpreted. Export parity for the complete tagger remains
+required before production runtime acceptance.
+
+## Selected shared-MLP student
+
+The controlled Student candidate keeps the selected Mean pooling and every
+existing task output contract. A single shared residual projection transforms
+the normalized token vector before all linear task heads:
+
+```text
+head_input = normalized + dropout(gelu(linear(normalized)))
+```
+
+- `--task-head-architecture {linear,shared-mlp}` selects the architecture;
+- `shared-mlp` is the default for new Norwegian training runs;
+- `shared-mlp` adds 37,056 parameters for hidden size 192;
+- checkpoints store `token_task_head_architecture`;
+- evaluation and teacher loading restore the stored architecture;
+- older format-3 checkpoints without the field resolve to `linear`;
+- `--epoch-count` exposes the training duration with default 5.
+
+The five-epoch candidate is accepted as the new gold-only Student reference:
+
+- checkpoint: `runs/no-student-hybrid-mean-shared-mlp-weighted/best.pt`
+- selected epoch: 5
+- checkpoint size: 68,883,921 bytes
+- end-to-end wall time: approximately 20 minutes 57 seconds
+- combined development loss: 0.171392
+
+| Development metric | Linear, Bokmål | Shared MLP, Bokmål | Linear, Nynorsk | Shared MLP, Nynorsk |
+| --- | ---: | ---: | ---: | ---: |
+| Joint loss | 0.169886 | **0.152651** | 0.211940 | **0.193203** |
+| UPOS accuracy | 98.67% | **98.71%** | 98.35% | **98.40%** |
+| Lemma-rule accuracy | 96.83% | **97.13%** | 96.70% | **97.12%** |
+| Morphology micro precision | 89.83% | **90.61%** | 84.45% | **85.18%** |
+| Morphology micro recall | 97.19% | **97.23%** | 95.59% | **95.94%** |
+| Morphology micro F1 | 93.36% | **93.80%** | 89.67% | **90.24%** |
+| Morphology macro F1 | 91.97% | **92.63%** | 86.63% | **87.49%** |
+| Morphology macro Average Precision | 95.56% | **96.06%** | 91.28% | **91.83%** |
+
+The shared MLP improves every reported headline metric on both written
+standards while adding only 148,790 checkpoint bytes and no measured training
+time. The explicit `linear` option and the checkpoint fallback preserve the
+controlled reference and compatibility.
 
 ## Repeatable commands
 
-Train the unweighted Bokmål control:
+Train an unweighted Bokmål model with the current defaults:
 
 ```bash
 python -m prism.languages.norwegian.train_baseline
@@ -488,18 +558,21 @@ Train the selected shared format-3 gold-only student:
 python -m prism.languages.norwegian.train_baseline \
   --language-tag no \
   --model-role student \
-  --checkpoint runs/no-student-hybrid-weighted/best.pt \
+  --token-pooling mean \
+  --task-head-architecture shared-mlp \
+  --epoch-count 5 \
+  --checkpoint runs/no-student-hybrid-mean-shared-mlp-weighted/best.pt \
   --morphology-weight-cap 10.0
 ```
 
-Train the controlled Mean-pooling candidate:
+Reproduce the rejected First-pooling control explicitly:
 
 ```bash
 python -m prism.languages.norwegian.train_baseline \
   --language-tag no \
   --model-role student \
-  --token-pooling mean \
-  --checkpoint runs/no-student-hybrid-mean-weighted/best.pt \
+  --token-pooling first \
+  --checkpoint runs/no-student-hybrid-weighted/best.pt \
   --morphology-weight-cap 10.0
 ```
 
@@ -508,8 +581,34 @@ Evaluate the selected checkpoint on Bokmål development:
 ```bash
 python -m prism.languages.norwegian.evaluate_baseline \
   --language-tag nb \
-  --checkpoint runs/no-student-hybrid-weighted/best.pt \
-  --analysis runs/no-student-hybrid-weighted/nb-development-analysis.json
+  --checkpoint runs/no-student-hybrid-mean-shared-mlp-weighted/best.pt \
+  --analysis runs/no-student-hybrid-mean-shared-mlp-weighted/nb-development-analysis.json
+```
+
+Reproduce the rejected linear-head control explicitly:
+
+```bash
+python -m prism.languages.norwegian.train_baseline \
+  --language-tag no \
+  --model-role student \
+  --token-pooling mean \
+  --task-head-architecture linear \
+  --epoch-count 5 \
+  --checkpoint runs/no-student-hybrid-mean-weighted/best.pt \
+  --morphology-weight-cap 10.0
+```
+
+Train the controlled eight-epoch candidate:
+
+```bash
+python -m prism.languages.norwegian.train_baseline \
+  --language-tag no \
+  --model-role student \
+  --token-pooling mean \
+  --task-head-architecture shared-mlp \
+  --epoch-count 8 \
+  --checkpoint runs/no-student-hybrid-mean-shared-mlp-e8-weighted/best.pt \
+  --morphology-weight-cap 10.0
 ```
 
 ## Repository cleanup decision
@@ -522,9 +621,10 @@ with the Transformer student generation.
 
 ## Immediate next step
 
-Train the controlled Mean-pooling student and evaluate it separately on
-Bokmål and Nynorsk development. Compare it with the selected First-pooling
-format-3 reference while holding every other training decision fixed. Only
-after selecting the token-pooling policy should Prism test a nonlinear head or
-train the expensive format-3 teacher. Do not evaluate either official test
-split until the architecture and calibration policy are fixed.
+Train the selected Mean-pooling, shared-MLP Student for eight epochs while
+keeping the backbone, data, losses, optimizer, seed, and evaluation policy
+fixed. Compare its best checkpoint against the selected five-epoch reference
+`runs/no-student-hybrid-mean-shared-mlp-weighted/best.pt` separately on Bokmål
+and Nynorsk. Train the expensive format-3 teacher only after selecting the
+training duration. Do not evaluate either official test split until the
+architecture and calibration policy are fixed.

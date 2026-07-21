@@ -1,6 +1,8 @@
 from pathlib import Path
 
-from prism.modeling import TokenPoolingStrategy
+import pytest
+
+from prism.modeling import TokenPoolingStrategy, TokenTaskHeadArchitecture
 from prism.languages.norwegian.train_baseline import (
     parse_training_arguments,
 )
@@ -12,7 +14,12 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
     assert default_arguments.language_tag == "nb"
     assert default_arguments.checkpoint_path == Path("runs/nb-student-baseline/best.pt")
     assert default_arguments.morphology_weight_cap is None
-    assert default_arguments.token_pooling_strategy is TokenPoolingStrategy.FIRST
+    assert default_arguments.token_pooling_strategy is TokenPoolingStrategy.MEAN
+    assert (
+        default_arguments.token_task_head_architecture
+        is TokenTaskHeadArchitecture.SHARED_MLP
+    )
+    assert default_arguments.epoch_count == 5
 
     weighted_arguments = parse_training_arguments(
         (
@@ -28,14 +35,29 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
     )
     assert weighted_arguments.morphology_weight_cap == 10.0
 
-    mean_pooling_arguments = parse_training_arguments(
+    first_pooling_arguments = parse_training_arguments(
         (
             "--token-pooling",
-            "mean",
+            "first",
         )
     )
 
-    assert mean_pooling_arguments.token_pooling_strategy is TokenPoolingStrategy.MEAN
+    assert first_pooling_arguments.token_pooling_strategy is TokenPoolingStrategy.FIRST
+
+    linear_arguments = parse_training_arguments(
+        (
+            "--task-head-architecture",
+            "linear",
+            "--epoch-count",
+            "8",
+        )
+    )
+
+    assert (
+        linear_arguments.token_task_head_architecture
+        is TokenTaskHeadArchitecture.LINEAR
+    )
+    assert linear_arguments.epoch_count == 8
 
     nynorsk_arguments = parse_training_arguments(
         (
@@ -100,3 +122,8 @@ def test_parse_training_arguments_accepts_distillation_policy() -> None:
     assert arguments.teacher_checkpoint_path == Path("runs/no-teacher-base/best.pt")
     assert arguments.distillation_temperature == 2.0
     assert arguments.distillation_weight == 0.5
+
+
+def test_parse_training_arguments_rejects_non_positive_epoch_count() -> None:
+    with pytest.raises(SystemExit):
+        parse_training_arguments(("--epoch-count", "0"))

@@ -583,8 +583,10 @@ Mean --> Result
 Die Strategie wird im Checkpoint gespeichert und bei der Evaluation
 automatisch wiederhergestellt. Format-3-Checkpoints ohne dieses neue Feld
 werden aus Kompatibilitätsgründen eindeutig als `first` interpretiert. Die
-erste kontrollierte Ablation vergleicht den akzeptierten First-Pooling-Student
-mit einem ansonsten identischen Mean-Pooling-Student.
+kontrollierte Ablation hat Mean-Pooling als neuen Standard für norwegische
+Student-Trainings ausgewählt: Es senkt den Development-Loss und verbessert
+Lemma-Accuracy sowie Morphologie-Micro-F1 auf Bokmål und Nynorsk. First-Pooling
+bleibt als explizite Vergleichs- und Kompatibilitätsstrategie verfügbar.
 
 Danach entsteht:
 
@@ -810,12 +812,31 @@ MultiDecision --> DerivedNone
 @enduml
 ```
 
-Die Heads selbst bleiben bewusst linear. Die nichtlineare, kontextabhängige
-Verarbeitung geschieht bereits in vielen Transformer-Schichten des Motors.
-Dieser Schritt verbessert zuerst die mathematische Formulierung der Ausgabe,
-ohne gleichzeitig eine zweite Architekturänderung einzuführen. Ob ein
-kleines MLP vor den Heads zusätzlichen Nutzen bringt, wird später als eigene
-Ablation gemessen.
+Die ausgewählte Kontrolle verwendet weiterhin direkt lineare Task-Heads. Als
+nächste isolierte Ablation implementiert Prism zusätzlich einen gemeinsamen
+residualen MLP-Projektionsblock vor allen Heads:
+
+```text
+normalisiert = LayerNorm(token_vector)
+transformiert = GELU(Linear(192 -> 192)(normalisiert))
+head_input = normalisiert + Dropout(transformiert)
+```
+
+Die Residualverbindung erhält den direkten Informationspfad vom Backbone. Der
+MLP kann zugleich nichtlineare Kombinationen der 192 Merkmale lernen, bevor
+UPOS, Morphologie und Lemma sie gemeinsam lesen. Eine einzige gemeinsame
+Projektion vermeidet 20 separate MLPs, fügt bei Hidden Size 192 nur 37.056
+Parameter hinzu und bleibt mit Linear, GELU, Dropout und Addition
+exportfreundlich.
+
+`TokenTaskHeadArchitecture` unterscheidet `linear` und `shared-mlp`. Die
+Training-CLI wählt mit `--task-head-architecture`, Checkpoints speichern die
+Auswahl, und Evaluation sowie Distillation rekonstruieren sie automatisch.
+Format-3-Checkpoints ohne das Feld bleiben aus Kompatibilitätsgründen
+eindeutig `linear`. Der kontrollierte Fünf-Epochen-Benchmark verbessert mit
+`shared-mlp` auf Bokmål und Nynorsk jede berichtete Hauptmetrik. Daher ist der
+gemeinsame residuale MLP der Standard für neue norwegische Trainingsläufe;
+`linear` bleibt als explizite Ablations- und Kompatibilitätsoption erhalten.
 
 ## Konfidenz und Kalibrierung
 
@@ -1111,14 +1132,28 @@ verbessert Morphologie-Micro-F1 und Macro Average Precision auf beiden
 Schriftstandards, während UPOS und Lemma praktisch stabil bleiben. Die
 Format-2-Benchmarks bleiben historische Kontrollen.
 
+Die anschließende kontrollierte Token-Pooling-Ablation wählt Mean-Pooling als
+neuen Student-Standard. Gegenüber dem ansonsten identischen First-Pooling-Modell
+sinken die Development-Losses auf beiden Schriftstandards; Lemma-Accuracy und
+Morphologie-Micro-F1 steigen ebenfalls auf beiden. Der ausgewählte Checkpoint
+`runs/no-student-hybrid-mean-weighted/best.pt` bildet die lineare Kontrolle.
+First-Pooling bleibt nur als explizite Ablations- und Kompatibilitätsoption
+erhalten.
+
+Die folgende Shared-MLP-Ablation verbessert gegenüber dieser linearen
+Mean-Pooling-Kontrolle jede berichtete Hauptmetrik auf Bokmål und Nynorsk. Der
+neue Student-Standard und ausgewählte Gold-only-Checkpoint ist
+`runs/no-student-hybrid-mean-shared-mlp-weighted/best.pt`.
+
 Checkpoint-Format 3 ist absichtlich nicht gewichtskompatibel mit Format 2:
 Bei exklusiven Features ändern sich Loss, Interpretation und teilweise die
 Anzahl der Head-Ausgänge. Ein alter State-Dict darf daher nicht stillschweigend
 in das neue Modell geladen werden.
 
-Der nächste Modellschritt ist ein frisches gemeinsames norwegisches
-Teacher-Training mit Format 3. Erst danach kann der Student wieder gegen einen
-tensor-kompatiblen Teacher destilliert werden.
+Der nächste kontrollierte Student-Schritt ist eine Acht-Epochen-Ablation mit
+unveränderter Mean-Pooling- und Shared-MLP-Architektur. Erst nach Auswahl der
+Trainingsdauer folgt das teure gemeinsame norwegische Teacher-Training mit
+demselben Format-3-Vertrag.
 
 ## Quellen
 

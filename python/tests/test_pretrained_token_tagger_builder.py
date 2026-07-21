@@ -5,6 +5,8 @@ from torch import nn
 
 from prism.modeling import (
     PretrainedBackboneSpec,
+    SharedResidualTokenProjection,
+    TokenTaskHeadArchitecture,
     build_pretrained_token_tagger,
 )
 from prism.schema import (
@@ -78,3 +80,19 @@ def test_build_pretrained_token_tagger_uses_backbone_hidden_size() -> None:
     assert model.backbone is backbone
     assert model.heads.upos_head.projection.in_features == 4
     assert model.heads.upos_head.projection.out_features == 2
+
+    with patch(
+        "prism.modeling.taggers.load_backbone_model",
+        return_value=backbone,
+    ):
+        nonlinear_model = build_pretrained_token_tagger(
+            backbone_spec=spec,
+            schema=schema,
+            dropout_probability=0.1,
+            head_architecture=TokenTaskHeadArchitecture.SHARED_MLP,
+        )
+
+    assert isinstance(
+        nonlinear_model.heads.input_projection,
+        SharedResidualTokenProjection,
+    )

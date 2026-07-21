@@ -25,6 +25,7 @@ from prism.modeling import (
     PretrainedBackboneSpec,
     TokenPoolingStrategy,
     TokenTagger,
+    TokenTaskHeadArchitecture,
     build_pretrained_token_tagger,
     load_backbone_tokenizer,
 )
@@ -48,6 +49,7 @@ from prism.training import (
     train_supervised_token_task_epoch,
     train_distilled_token_task_epoch,
     token_pooling_strategy_from_checkpoint,
+    token_task_head_architecture_from_checkpoint,
     validate_token_task_checkpoint_format,
 )
 
@@ -62,6 +64,8 @@ class BaselineTrainingArguments:
     distillation_temperature: float
     distillation_weight: float
     token_pooling_strategy: TokenPoolingStrategy
+    token_task_head_architecture: TokenTaskHeadArchitecture
+    epoch_count: int
 
 
 def parse_training_arguments(
@@ -105,7 +109,17 @@ def parse_training_arguments(
     parser.add_argument(
         "--token-pooling",
         choices=tuple(strategy.value for strategy in TokenPoolingStrategy),
-        default=TokenPoolingStrategy.FIRST.value,
+        default=TokenPoolingStrategy.MEAN.value,
+    )
+    parser.add_argument(
+        "--task-head-architecture",
+        choices=tuple(architecture.value for architecture in TokenTaskHeadArchitecture),
+        default=TokenTaskHeadArchitecture.SHARED_MLP.value,
+    )
+    parser.add_argument(
+        "--epoch-count",
+        type=int,
+        default=5,
     )
     parser.add_argument(
         "--morphology-weight-cap",
@@ -121,6 +135,8 @@ def parse_training_arguments(
         parser.error("--distillation-temperature must be greater than zero")
     if parsed_arguments.distillation_weight < 0.0:
         parser.error("--distillation-weight must be non-negative")
+    if parsed_arguments.epoch_count <= 0:
+        parser.error("--epoch-count must be greater than zero")
     if (
         parsed_arguments.teacher_checkpoint_path is not None
         and parsed_arguments.model_role != "student"
@@ -139,6 +155,10 @@ def parse_training_arguments(
         distillation_temperature=parsed_arguments.distillation_temperature,
         distillation_weight=parsed_arguments.distillation_weight,
         token_pooling_strategy=TokenPoolingStrategy(parsed_arguments.token_pooling),
+        token_task_head_architecture=TokenTaskHeadArchitecture(
+            parsed_arguments.task_head_architecture
+        ),
+        epoch_count=parsed_arguments.epoch_count,
     )
 
 
@@ -207,6 +227,7 @@ def _load_distillation_teacher(
         schema=schema,
         dropout_probability=0.1,
         pooling_strategy=token_pooling_strategy_from_checkpoint(checkpoint),
+        head_architecture=token_task_head_architecture_from_checkpoint(checkpoint),
     )
     teacher.load_state_dict(
         checkpoint["model_state_dict"],
@@ -245,6 +266,7 @@ def main() -> None:
 
     print("Model role:", arguments.model_role)
     print("Token pooling:", arguments.token_pooling_strategy.value)
+    print("Task-head architecture:", arguments.token_task_head_architecture.value)
     print("Training sentences:", len(training_tokens))
     print(
         "Development sentences:",
@@ -262,7 +284,7 @@ def main() -> None:
     )
 
     config = SupervisedTrainingConfig(
-        epoch_count=5,
+        epoch_count=arguments.epoch_count,
         batch_size=16,
         backbone_learning_rate=2e-5,
         task_head_learning_rate=5e-4,
@@ -296,6 +318,7 @@ def main() -> None:
         schema=schema,
         dropout_probability=0.1,
         pooling_strategy=arguments.token_pooling_strategy,
+        head_architecture=arguments.token_task_head_architecture,
     )
 
     teacher = _load_distillation_teacher(
@@ -447,6 +470,9 @@ def main() -> None:
                 "language_tag": arguments.language_tag,
                 "model_role": arguments.model_role,
                 "token_pooling_strategy": arguments.token_pooling_strategy.value,
+                "token_task_head_architecture": (
+                    arguments.token_task_head_architecture.value
+                ),
                 "teacher_checkpoint_path": (
                     None
                     if arguments.teacher_checkpoint_path is None

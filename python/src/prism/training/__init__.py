@@ -12,6 +12,7 @@ from prism.training.class_weights import (
 from prism.training.checkpoints import (
     TOKEN_TASK_CHECKPOINT_FORMAT_VERSION,
     token_pooling_strategy_from_checkpoint,
+    token_task_head_architecture_from_checkpoint,
     validate_token_task_checkpoint_format,
 )
 from prism.training.config import SupervisedTrainingConfig
@@ -79,5 +80,6 @@ __all__ = [
     "train_distilled_token_task_epoch",
     "TOKEN_TASK_CHECKPOINT_FORMAT_VERSION",
     "token_pooling_strategy_from_checkpoint",
+    "token_task_head_architecture_from_checkpoint",
     "validate_token_task_checkpoint_format",
 ]

@@ -297,7 +297,7 @@ single-standard controls. `Gender=Com` on Nynorsk improves from 0% to 9.77%
 F1 and from 2.32% to 58.44% Average Precision, demonstrating useful transfer
 from Bokmål training data. Both official test splits remain untouched.
 
-### Selected format-3 hybrid morphology reference
+### First-pooling format-3 hybrid morphology reference
 
 This controlled successor keeps the same shared NorBERT4-xsmall backbone,
 training data, seed, optimizer, five-epoch schedule, linear task heads, and
@@ -327,9 +327,71 @@ features use sigmoid/Binary Cross-Entropy over real values and derive
 Nynorsk summaries exclude the four real labels without development support.
 The hybrid contract improves morphology precision, recall, micro F1, macro F1,
 and macro Average Precision on both written standards while preserving UPOS
-and lemma quality. It is accepted as the new gold-only reference. Joint loss
+and lemma quality. It became the controlled First-pooling reference for the
+subsequent token-pooling ablation. Joint loss
 must not be compared numerically across formats because the morphology loss
 changed. Both official test splits remain untouched.
+
+### Selected Mean-pooling format-3 student
+
+This controlled ablation changes only subword-to-token pooling. Instead of
+using the first contextualized subword state, it averages every contextualized
+state in the original token's contiguous subword span. Backbone, schema,
+linear task heads, objectives, optimizer, seed, data, and five-epoch schedule
+remain unchanged.
+
+- Selected checkpoint: epoch 5
+- Checkpoint: `runs/no-student-hybrid-mean-weighted/best.pt`
+- Checkpoint size: 68,735,131 bytes
+- End-to-end wall time: approximately 21 minutes 8 seconds
+- Combined development loss: 0.189321
+
+| Development metric | First, Bokmål | Mean, Bokmål | First, Nynorsk | Mean, Nynorsk |
+| --- | ---: | ---: | ---: | ---: |
+| Joint loss | 0.173502 | **0.169886** | 0.214554 | **0.211940** |
+| UPOS accuracy | 98.64% | **98.67%** | **98.36%** | 98.35% |
+| Lemma-rule accuracy | 96.69% | **96.83%** | 96.63% | **96.70%** |
+| Morphology micro precision | 89.62% | **89.83%** | 84.32% | **84.45%** |
+| Morphology micro recall | 97.02% | **97.19%** | **95.62%** | 95.59% |
+| Morphology micro F1 | 93.18% | **93.36%** | 89.61% | **89.67%** |
+| Morphology macro F1 | 91.79% | **91.97%** | **86.74%** | 86.63% |
+| Morphology macro Average Precision | 95.25% | **95.56%** | **91.37%** | 91.28% |
+
+Mean pooling is selected as the new gold-only student standard because it
+reduces development loss and improves lemma accuracy, morphology precision,
+and morphology micro F1 on both written standards without adding parameters
+or material training time. Nynorsk UPOS, recall, macro F1, and macro Average
+Precision regress by at most 0.11 percentage points; these small tradeoffs are
+recorded rather than hidden. Both official test splits remain untouched.
+
+### Selected shared-MLP format-3 student
+
+This controlled ablation keeps Mean pooling and changes only the shared input
+path to the task heads. A residual `Linear(192, 192) -> GELU -> Dropout` block
+adds 37,056 parameters before the existing schema-driven linear heads.
+
+- Selected checkpoint: epoch 5
+- Checkpoint: `runs/no-student-hybrid-mean-shared-mlp-weighted/best.pt`
+- Checkpoint size: 68,883,921 bytes
+- End-to-end wall time: approximately 20 minutes 57 seconds
+- Combined development loss: 0.171392
+
+| Development metric | Linear, Bokmål | Shared MLP, Bokmål | Linear, Nynorsk | Shared MLP, Nynorsk |
+| --- | ---: | ---: | ---: | ---: |
+| Joint loss | 0.169886 | **0.152651** | 0.211940 | **0.193203** |
+| UPOS accuracy | 98.67% | **98.71%** | 98.35% | **98.40%** |
+| Lemma-rule accuracy | 96.83% | **97.13%** | 96.70% | **97.12%** |
+| Morphology micro precision | 89.83% | **90.61%** | 84.45% | **85.18%** |
+| Morphology micro recall | 97.19% | **97.23%** | 95.59% | **95.94%** |
+| Morphology micro F1 | 93.36% | **93.80%** | 89.67% | **90.24%** |
+| Morphology macro F1 | 91.97% | **92.63%** | 86.63% | **87.49%** |
+| Morphology macro Average Precision | 95.56% | **96.06%** | 91.28% | **91.83%** |
+
+The shared MLP improves every headline metric on both written standards while
+adding only 148,790 checkpoint bytes and no measured wall-time cost. It is
+therefore selected as the new gold-only Student architecture. The next
+controlled ablation changes only the training duration from five to eight
+epochs. Both official test splits remain untouched.
 
 ## Shared Norwegian NorBERT4-Base teacher
 

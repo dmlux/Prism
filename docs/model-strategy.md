@@ -1,7 +1,7 @@
 # Prism model and runtime strategy
 
-Status: active architectural direction with trained Bokmål student
-Last updated: 2026-07-20
+Status: active architectural direction with selected shared Norwegian student
+Last updated: 2026-07-21
 
 ## Purpose
 
@@ -116,10 +116,27 @@ later distillation. Threshold-independent development evaluation confirms that
 class weighting improves label ranking rather than merely increasing output
 volume.
 
-It is not yet a production release because Nynorsk, teacher distillation,
-confidence calibration, frozen artifact metadata, native runtime packaging,
-and the 6,000-token document benchmark remain incomplete. These are the active
-gaps; removed historical experiment architectures are not part of the current
+The selected format-3 student uses Mean pooling over every original token's
+contiguous contextualized subword span. A controlled comparison against First
+pooling held the backbone, schema, heads, losses, optimizer, seed, and data
+constant. Mean pooling reduced development loss and improved lemma accuracy
+and morphology micro F1 on both Bokmål and Nynorsk, so it is the default for
+new training runs. Checkpoints record the policy; older format-3 checkpoints
+without that field remain explicitly First pooling for compatibility.
+
+The selected student adds one shared residual `Linear -> GELU -> Dropout`
+projection before the schema-driven linear task heads. The controlled
+`linear` versus `shared-mlp` ablation improved every reported headline metric
+on Bokmål and Nynorsk, so `shared-mlp` is the default for new Norwegian
+training runs. Checkpoints record the architecture, and old format-3
+checkpoints default to `linear`. The selected architecture now proceeds to a
+separate training-duration ablation.
+
+It is not yet a production release because the final Student head
+architecture, a format-3-compatible teacher and distillation run, confidence
+calibration, frozen artifact metadata, native runtime packaging, and the
+6,000-token document benchmark remain incomplete. These are the active gaps;
+removed historical experiment architectures are not part of the current
 runtime or comparison contract.
 
 ## Teacher and student

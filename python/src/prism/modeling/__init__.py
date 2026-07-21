@@ -22,7 +22,12 @@ from prism.modeling.outputs import (
     TokenTaskLogits,
 )
 from prism.modeling.encoders import contextualize_subwords
-from prism.modeling.heads import TokenClassificationHead, TokenTaskHeads
+from prism.modeling.heads import (
+    SharedResidualTokenProjection,
+    TokenClassificationHead,
+    TokenTaskHeadArchitecture,
+    TokenTaskHeads,
+)
 from prism.modeling.taggers import (
     TokenTagger,
     build_pretrained_token_tagger,
@@ -44,7 +49,9 @@ __all__ = [
     "TokenTaskLogits",
     "contextualize_subwords",
     "TokenClassificationHead",
+    "TokenTaskHeadArchitecture",
     "TokenTaskHeads",
+    "SharedResidualTokenProjection",
     "TokenTagger",
     "build_pretrained_token_tagger",
 ]

@@ -3,7 +3,7 @@ from torch import nn
 from prism.modeling.alignment import TokenPoolingStrategy, align_subwords_to_tokens
 from prism.modeling.batches import TokenizedBatch
 from prism.modeling.encoders import contextualize_subwords
-from prism.modeling.heads import TokenTaskHeads
+from prism.modeling.heads import TokenTaskHeadArchitecture, TokenTaskHeads
 from prism.modeling.outputs import TokenTaskLogits
 from prism.schema import TokenTaskSchema
 from prism.modeling.backbones import (
@@ -46,6 +46,7 @@ def build_pretrained_token_tagger(
     schema: TokenTaskSchema,
     dropout_probability: float,
     pooling_strategy: TokenPoolingStrategy = TokenPoolingStrategy.FIRST,
+    head_architecture: TokenTaskHeadArchitecture = TokenTaskHeadArchitecture.LINEAR,
 ) -> TokenTagger:
     backbone = load_backbone_model(backbone_spec)
     hidden_size = getattr(
@@ -65,6 +66,7 @@ def build_pretrained_token_tagger(
         hidden_size=hidden_size,
         schema=schema,
         dropout_probability=dropout_probability,
+        architecture=head_architecture,
     )
 
     return TokenTagger(
