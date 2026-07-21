@@ -15,6 +15,7 @@ from prism.schema import (
     UposSchema,
 )
 from prism.schema.serialization import serialize_token_task_schema
+from prism.training import TOKEN_TASK_CHECKPOINT_FORMAT_VERSION
 
 
 def test_load_distillation_teacher_restores_frozen_model(
@@ -53,6 +54,7 @@ def test_load_distillation_teacher_restores_frozen_model(
 
     torch.save(
         {
+            "checkpoint_format_version": TOKEN_TASK_CHECKPOINT_FORMAT_VERSION,
             "language_tag": "no",
             "model_role": "teacher",
             "schema": serialize_token_task_schema(schema),

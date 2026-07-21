@@ -44,8 +44,8 @@ The head implementations are shared, but their output sizes are configured by
 the selected language schema. For example, every language can use the same
 per-feature morphology classifier implementation while exposing a different
 set of features and values. Generic task heads must therefore never hard-code
-the 18 Norwegian features, 17 UPOS labels, 622 Norwegian lemma rules, or a
-NorBERT hidden size.
+the 18 Norwegian features, 17 UPOS labels, the current shared Norwegian
+lemma-rule count, or a NorBERT hidden size.
 
 Generic batching, alignment, model composition, training, evaluation, and
 export code depend only on typed backbone and language-profile contracts. A
@@ -175,10 +175,12 @@ The first production bundle contains:
 - calibrated confidence for every reported prediction.
 
 Morphology uses one classifier per feature instead of treating an entire
-feature bundle as one class. Each head has an explicit `<NONE>` value for a
-token on which that feature does not apply. Multi-valued annotations require a
-documented representation and tests; they must not silently become a single
-rare label as in the current prototype.
+feature bundle as one class. Exclusive features classify `<NONE>` and their
+real values with softmax and Cross-Entropy. Genuinely multi-valued features
+emit independent logits only for real values, use sigmoid and Binary
+Cross-Entropy, and derive `<NONE>` when no real value is active. The versioned
+schema selects the contract per feature; generic training, distillation,
+decoding, evaluation, and export code must preserve the same distinction.
 
 The initial lemmatizer predicts a learned edit rule that transforms the token
 form into its lemma. A later character generator is permitted only if edit-rule

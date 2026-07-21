@@ -5,6 +5,7 @@ import torch
 from torch import Tensor
 
 from prism.data import TokenTargets
+from prism.schema import MorphologySchema
 from prism.training.config import SupervisedTrainingConfig
 from prism.training.losses import TokenTaskLossWeights
 
@@ -56,9 +57,10 @@ def calculate_binary_positive_weights(
     )
 
 
-def calculate_morphology_positive_weights(
+def calculate_morphology_weights(
     *,
     targets: Sequence[TokenTargets],
+    morphology_schema: MorphologySchema,
     maximum_weight: float,
 ) -> tuple[Tensor, ...]:
     if not targets:
@@ -66,6 +68,9 @@ def calculate_morphology_positive_weights(
 
     morphology_feature_count = len(targets[0].morphology)
     label_counts = tuple(len(labels) for labels in targets[0].morphology)
+
+    if morphology_feature_count != len(morphology_schema.features):
+        raise ValueError("Morphology targets must match the morphology schema.")
 
     for target in targets:
         if len(target.morphology) != morphology_feature_count:
@@ -79,33 +84,47 @@ def calculate_morphology_positive_weights(
         dtype=torch.bool,
     )
 
-    return tuple(
-        calculate_binary_positive_weights(
-            targets=torch.tensor(
-                [[target.morphology[feature_index] for target in targets]],
-                dtype=torch.bool,
-            ),
-            token_mask=token_mask,
-            maximum_weight=maximum_weight,
+    weights: list[Tensor] = []
+
+    for feature_index, feature_schema in enumerate(morphology_schema.features):
+        feature_targets = torch.tensor(
+            [[target.morphology[feature_index] for target in targets]],
+            dtype=torch.bool,
         )
-        for feature_index in range(morphology_feature_count)
-    )
+        if feature_targets.shape[-1] != len(feature_schema.labels):
+            raise ValueError(
+                "Morphology target labels must match the morphology schema."
+            )
+        if feature_schema.allows_multiple_values:
+            feature_targets = feature_targets[..., 1:]
+
+        weights.append(
+            calculate_binary_positive_weights(
+                targets=feature_targets,
+                token_mask=token_mask,
+                maximum_weight=maximum_weight,
+            )
+        )
+
+    return tuple(weights)
 
 
 def build_token_task_loss_weights(
     *,
     targets: Sequence[TokenTargets],
+    morphology_schema: MorphologySchema,
     config: SupervisedTrainingConfig,
 ) -> TokenTaskLossWeights | None:
-    maximum_weight = config.morphology_positive_weight_cap
+    maximum_weight = config.morphology_weight_cap
 
     if maximum_weight is None:
         return None
 
     return TokenTaskLossWeights(
-        morphology_positive_weights=(
-            calculate_morphology_positive_weights(
+        morphology_weights=(
+            calculate_morphology_weights(
                 targets=targets,
+                morphology_schema=morphology_schema,
                 maximum_weight=maximum_weight,
             )
         ),

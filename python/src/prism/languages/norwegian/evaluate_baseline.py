@@ -15,6 +15,10 @@ from prism.data import (
 from prism.evaluation.classification import (
     calculate_classification_metrics,
 )
+from prism.evaluation.reporting import (
+    format_classification_metric_rows,
+    format_scalar_metric_rows,
+)
 from prism.languages import ModelRole
 from prism.languages.norwegian import (
     norwegian_model_supports_language_tag,
@@ -30,6 +34,7 @@ from prism.schema.serialization import (
 from prism.training import (
     evaluate_supervised_token_task_epoch,
     iter_supervised_token_task_batches,
+    validate_token_task_checkpoint_format,
 )
 
 
@@ -81,6 +86,7 @@ def main() -> None:
         map_location="cpu",
         weights_only=True,
     )
+    validate_token_task_checkpoint_format(checkpoint)
 
     profile = norwegian_profile_for_language_tag(arguments.language_tag)
 
@@ -185,12 +191,19 @@ def main() -> None:
         morphology_schema=schema.morphology,
     )
 
-    print("Development loss:", metrics.losses.total_loss)
-    print("UPOS accuracy:", metrics.upos_accuracy)
-    print(
-        "Lemma-rule accuracy:",
-        metrics.lemma_rule_accuracy,
-    )
+    for row in format_scalar_metric_rows(
+        metric_names=(
+            "Development loss",
+            "UPOS accuracy",
+            "Lemma-rule accuracy",
+        ),
+        values=(
+            metrics.losses.total_loss,
+            metrics.upos_accuracy,
+            metrics.lemma_rule_accuracy,
+        ),
+    ):
+        print(row)
 
     for (
         feature,
@@ -209,38 +222,26 @@ def main() -> None:
         print()
         print(feature.name)
 
-        for (
-            label,
-            true_positive,
-            false_positive,
-            false_negative,
-            average_precision,
-        ) in zip(
-            feature.labels,
-            true_positive_counts,
-            false_positive_counts,
-            false_negative_counts,
-            average_precisions,
-            strict=True,
+        label_metrics = tuple(
+            calculate_classification_metrics(
+                true_positive_count=true_positive,
+                false_positive_count=false_positive,
+                false_negative_count=false_negative,
+            )
+            for true_positive, false_positive, false_negative in zip(
+                true_positive_counts,
+                false_positive_counts,
+                false_negative_counts,
+                strict=True,
+            )
+        )
+
+        for row in format_classification_metric_rows(
+            labels=feature.labels,
+            metrics=label_metrics,
+            average_precisions=average_precisions,
         ):
-            label_metrics = calculate_classification_metrics(
-                true_positive_count=(true_positive),
-                false_positive_count=(false_positive),
-                false_negative_count=(false_negative),
-            )
-
-            average_precision_text = (
-                "undefined" if average_precision is None else f"{average_precision:.4f}"
-            )
-
-            print(
-                f"  {label}: "
-                f"support={label_metrics.support}, "
-                f"precision={label_metrics.precision:.4f}, "
-                f"recall={label_metrics.recall:.4f}, "
-                f"f1={label_metrics.f1:.4f}, "
-                f"average_precision={average_precision_text}"
-            )
+            print(row)
 
     analysis_path = arguments.analysis_path
     analysis_path.parent.mkdir(

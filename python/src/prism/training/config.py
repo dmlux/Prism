@@ -12,7 +12,7 @@ class SupervisedTrainingConfig:
     max_gradient_norm: float
     warmup_ratio: float
     random_seed: int
-    morphology_positive_weight_cap: float | None = None
+    morphology_weight_cap: float | None = None
 
     def __post_init__(self) -> None:
         if self.epoch_count <= 0:
@@ -42,10 +42,8 @@ class SupervisedTrainingConfig:
         if self.random_seed < 0:
             raise ValueError("Random seed must be non-negative.")
 
-        if self.morphology_positive_weight_cap is not None and (
-            not math.isfinite(self.morphology_positive_weight_cap)
-            or self.morphology_positive_weight_cap < 1.0
+        if self.morphology_weight_cap is not None and (
+            not math.isfinite(self.morphology_weight_cap)
+            or self.morphology_weight_cap < 1.0
         ):
-            raise ValueError(
-                "Morphology positive-weight cap must be finite and at least one."
-            )
+            raise ValueError("Morphology weight cap must be finite and at least one.")

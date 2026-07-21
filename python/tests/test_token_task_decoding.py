@@ -1,6 +1,9 @@
 import torch
 
-from prism.modeling.decoding import decode_token_task_logits
+from prism.modeling.decoding import (
+    decode_token_task_logits,
+    morphology_label_scores,
+)
 from prism.modeling.outputs import TokenTaskLogits
 from prism.schema import (
     MorphologyFeatureSchema,
@@ -31,8 +34,8 @@ def test_decode_token_task_logits_produces_valid_predictions() -> None:
             torch.tensor(
                 [
                     [
-                        [0.0, 2.0, 1.0],
-                        [-3.0, -0.1, -2.0],
+                        [2.0, 1.0],
+                        [-0.1, -2.0],
                     ]
                 ]
             ),
@@ -66,4 +69,34 @@ def test_decode_token_task_logits_produces_valid_predictions() -> None:
     torch.testing.assert_close(
         predictions.token_mask,
         token_mask,
+    )
+
+
+def test_morphology_label_scores_restore_complete_label_space() -> None:
+    categorical_schema = MorphologyFeatureSchema(
+        name="Tense",
+        values=("Past", "Pres"),
+        allows_multiple_values=False,
+    )
+    categorical_scores = morphology_label_scores(
+        feature_logits=torch.zeros((1, 1, 3)),
+        feature_schema=categorical_schema,
+    )
+    torch.testing.assert_close(
+        categorical_scores,
+        torch.full((1, 1, 3), 1.0 / 3.0),
+    )
+
+    multi_label_schema = MorphologyFeatureSchema(
+        name="PronType",
+        values=("Art", "Dem"),
+        allows_multiple_values=True,
+    )
+    multi_label_scores = morphology_label_scores(
+        feature_logits=torch.zeros((1, 1, 2)),
+        feature_schema=multi_label_schema,
+    )
+    torch.testing.assert_close(
+        multi_label_scores,
+        torch.tensor([[[0.25, 0.5, 0.5]]]),
     )

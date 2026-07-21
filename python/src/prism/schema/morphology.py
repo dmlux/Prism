@@ -36,6 +36,13 @@ class MorphologyFeatureSchema:
     def labels(self) -> tuple[str, ...]:
         return (NO_MORPHOLOGY_VALUE, *self.values)
 
+    @property
+    def logit_count(self) -> int:
+        if self.allows_multiple_values:
+            return len(self.values)
+
+        return len(self.labels)
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MorphologySchema:

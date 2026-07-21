@@ -23,7 +23,7 @@ def test_token_task_heads_create_logits_from_schema() -> None:
                 MorphologyFeatureSchema(
                     name="Number",
                     values=("Plur", "Sing"),
-                    allows_multiple_values=False,
+                    allows_multiple_values=True,
                 ),
                 MorphologyFeatureSchema(
                     name="Tense",
@@ -66,7 +66,7 @@ def test_token_task_heads_create_logits_from_schema() -> None:
     assert tuple(
         feature_logits.shape for feature_logits in logits.morphology_logits
     ) == (
-        (2, 4, 3),
+        (2, 4, 2),
         (2, 4, 3),
     )
     assert logits.lemma_rule_logits.shape == (2, 4, 2)

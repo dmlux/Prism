@@ -19,6 +19,18 @@ from prism.schema import (
 )
 
 
+MORPHOLOGY_SCHEMA = MorphologySchema(
+    version=1,
+    features=(
+        MorphologyFeatureSchema(
+            name="Feature",
+            values=("Value",),
+            allows_multiple_values=False,
+        ),
+    ),
+)
+
+
 class TinyEpochModel(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -113,6 +125,7 @@ def test_training_epoch_runs_all_batches_and_scheduler_steps() -> None:
         scheduler=scheduler,
         device=torch.device("cpu"),
         max_gradient_norm=1.0,
+        morphology_schema=MORPHOLOGY_SCHEMA,
     )
 
     assert metrics.batch_count == 2
@@ -127,16 +140,6 @@ def test_training_epoch_runs_all_batches_and_scheduler_steps() -> None:
 
 def test_evaluation_epoch_reports_task_accuracies() -> None:
     model = TinyEpochModel()
-    morphology_schema = MorphologySchema(
-        version=1,
-        features=(
-            MorphologyFeatureSchema(
-                name="Feature",
-                values=("Value",),
-                allows_multiple_values=False,
-            ),
-        ),
-    )
     parameters_before_evaluation = tuple(
         parameter.detach().clone() for parameter in model.parameters()
     )
@@ -148,7 +151,7 @@ def test_evaluation_epoch_reports_task_accuracies() -> None:
             _training_batch(1),
         ),
         device=torch.device("cpu"),
-        morphology_schema=morphology_schema,
+        morphology_schema=MORPHOLOGY_SCHEMA,
     )
 
     assert metrics.losses.batch_count == 2
@@ -188,7 +191,7 @@ def test_training_epoch_forwards_loss_weights() -> None:
         warmup_ratio=0.0,
     )
     loss_weights = TokenTaskLossWeights(
-        morphology_positive_weights=(torch.tensor([1.0, 3.0]),),
+        morphology_weights=(torch.tensor([1.0, 3.0]),),
     )
 
     metrics = train_supervised_token_task_epoch(
@@ -198,12 +201,13 @@ def test_training_epoch_forwards_loss_weights() -> None:
         scheduler=scheduler,
         device=torch.device("cpu"),
         max_gradient_norm=1.0,
+        morphology_schema=MORPHOLOGY_SCHEMA,
         loss_weights=loss_weights,
     )
 
     assert math.isclose(
         metrics.morphology_loss,
-        2.0 * math.log(2.0),
+        3.0 * math.log(2.0),
         rel_tol=1e-6,
     )
 
@@ -237,6 +241,7 @@ def test_distilled_epoch_reports_both_learning_signals() -> None:
         max_gradient_norm=1.0,
         temperature=2.0,
         distillation_weight=0.5,
+        morphology_schema=MORPHOLOGY_SCHEMA,
     )
 
     assert metrics.supervised_metrics.batch_count == 1

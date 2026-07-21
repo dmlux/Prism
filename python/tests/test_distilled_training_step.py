@@ -3,10 +3,33 @@ from torch import nn
 
 from prism.data import TokenTaskTargetBatch
 from prism.modeling import TokenizedBatch, TokenTaskLogits
+from prism.schema import MorphologyFeatureSchema, MorphologySchema
 from prism.training import (
     SupervisedTokenTaskBatch,
     TokenTaskLossWeights,
     train_distilled_token_task_step,
+)
+
+
+CATEGORICAL_MORPHOLOGY_SCHEMA = MorphologySchema(
+    version=1,
+    features=(
+        MorphologyFeatureSchema(
+            name="Feature",
+            values=("Value",),
+            allows_multiple_values=False,
+        ),
+    ),
+)
+MULTI_LABEL_MORPHOLOGY_SCHEMA = MorphologySchema(
+    version=1,
+    features=(
+        MorphologyFeatureSchema(
+            name="Feature",
+            values=("First", "Second"),
+            allows_multiple_values=True,
+        ),
+    ),
 )
 
 
@@ -78,6 +101,7 @@ def test_distilled_training_step_only_updates_student() -> None:
         max_gradient_norm=1.0,
         temperature=2.0,
         distillation_weight=0.5,
+        morphology_schema=CATEGORICAL_MORPHOLOGY_SCHEMA,
     )
 
     assert torch.isfinite(losses.total_loss)
@@ -117,7 +141,12 @@ def test_distilled_training_step_forwards_morphology_weights() -> None:
         ),
         targets=TokenTaskTargetBatch(
             upos_ids=torch.tensor([[0]]),
-            morphology_targets=(torch.tensor([[[False, True]]]),),
+            morphology_targets=(
+                torch.tensor(
+                    [[[False, True, False]]],
+                    dtype=torch.bool,
+                ),
+            ),
             lemma_rule_ids=torch.tensor([[0]]),
             lemma_rule_mask=torch.tensor([[True]]),
             token_mask=torch.tensor([[True]]),
@@ -140,6 +169,7 @@ def test_distilled_training_step_forwards_morphology_weights() -> None:
         max_gradient_norm=1.0,
         temperature=1.0,
         distillation_weight=0.1,
+        morphology_schema=MULTI_LABEL_MORPHOLOGY_SCHEMA,
     )
     weighted_losses = train_distilled_token_task_step(
         student=weighted_student,
@@ -149,8 +179,9 @@ def test_distilled_training_step_forwards_morphology_weights() -> None:
         max_gradient_norm=1.0,
         temperature=1.0,
         distillation_weight=0.1,
+        morphology_schema=MULTI_LABEL_MORPHOLOGY_SCHEMA,
         loss_weights=TokenTaskLossWeights(
-            morphology_positive_weights=(torch.tensor([1.0, 3.0]),),
+            morphology_weights=(torch.tensor([3.0, 1.0]),),
         ),
     )
 

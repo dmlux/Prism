@@ -18,6 +18,14 @@ def test_morphology_feature_schema_exposes_deterministic_labels() -> None:
     assert schema.values == ("Plur", "Sing")
     assert schema.allows_multiple_values is True
     assert schema.labels == ("<NONE>", "Plur", "Sing")
+    assert schema.logit_count == 2
+
+    categorical_schema = MorphologyFeatureSchema(
+        name="Tense",
+        values=("Past", "Pres"),
+        allows_multiple_values=False,
+    )
+    assert categorical_schema.logit_count == 3
 
 
 @pytest.mark.parametrize(

@@ -10,13 +10,13 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
 
     assert default_arguments.language_tag == "nb"
     assert default_arguments.checkpoint_path == Path("runs/nb-student-baseline/best.pt")
-    assert default_arguments.morphology_positive_weight_cap is None
+    assert default_arguments.morphology_weight_cap is None
 
     weighted_arguments = parse_training_arguments(
         (
             "--checkpoint",
             "runs/nb-student-weighted/best.pt",
-            "--morphology-positive-weight-cap",
+            "--morphology-weight-cap",
             "10.0",
         )
     )
@@ -24,7 +24,7 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
     assert weighted_arguments.checkpoint_path == Path(
         "runs/nb-student-weighted/best.pt"
     )
-    assert weighted_arguments.morphology_positive_weight_cap == 10.0
+    assert weighted_arguments.morphology_weight_cap == 10.0
 
     nynorsk_arguments = parse_training_arguments(
         (

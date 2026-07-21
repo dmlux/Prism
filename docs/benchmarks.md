@@ -1,5 +1,10 @@
 # Prism Benchmarks
 
+Unless a section explicitly identifies checkpoint format 3, the measurements
+below are historical format-2 references using the former uniformly binary
+morphology objective. They remain the fixed comparison for the hybrid
+morphology architecture implemented on 2026-07-21.
+
 ## Norwegian Bokmål Transformer student
 
 All results use the official gold tokenization and the original
@@ -291,6 +296,40 @@ joint student improves UPOS and lemma-rule accuracy over both corresponding
 single-standard controls. `Gender=Com` on Nynorsk improves from 0% to 9.77%
 F1 and from 2.32% to 58.44% Average Precision, demonstrating useful transfer
 from Bokmål training data. Both official test splits remain untouched.
+
+### Selected format-3 hybrid morphology reference
+
+This controlled successor keeps the same shared NorBERT4-xsmall backbone,
+training data, seed, optimizer, five-epoch schedule, linear task heads, and
+class-weight cap. It changes only the morphology output contract: exclusive
+features use categorical softmax/Cross-Entropy, while genuinely multi-valued
+features use sigmoid/Binary Cross-Entropy over real values and derive
+`<NONE>`.
+
+- Checkpoint format: 3
+- Selected checkpoint: epoch 5
+- Checkpoint: `runs/no-student-hybrid-weighted/best.pt`
+- Checkpoint size: 68,735,067 bytes
+- End-to-end wall time: approximately 20 minutes 47 seconds
+- Combined development loss: 0.192474 under the format-3 objective
+
+| Development metric | Bokmål | Nynorsk |
+| --- | ---: | ---: |
+| Joint loss | 0.173502 | 0.214554 |
+| UPOS accuracy | 98.64% | 98.36% |
+| Lemma-rule accuracy | 96.69% | 96.63% |
+| Morphology micro precision | 89.62% | 84.32% |
+| Morphology micro recall | 97.02% | 95.62% |
+| Morphology micro F1 | 93.18% | 89.61% |
+| Morphology macro F1 | 91.79% | 86.74% |
+| Morphology macro Average Precision | 95.25% | 91.37% |
+
+Nynorsk summaries exclude the four real labels without development support.
+The hybrid contract improves morphology precision, recall, micro F1, macro F1,
+and macro Average Precision on both written standards while preserving UPOS
+and lemma quality. It is accepted as the new gold-only reference. Joint loss
+must not be compared numerically across formats because the morphology loss
+changed. Both official test splits remain untouched.
 
 ## Shared Norwegian NorBERT4-Base teacher
 

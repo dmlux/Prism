@@ -9,6 +9,10 @@ from prism.training.batches import (
 from prism.training.class_weights import (
     build_token_task_loss_weights,
 )
+from prism.training.checkpoints import (
+    TOKEN_TASK_CHECKPOINT_FORMAT_VERSION,
+    validate_token_task_checkpoint_format,
+)
 from prism.training.config import SupervisedTrainingConfig
 from prism.training.distillation import (
     CombinedTokenTaskLosses,
@@ -72,4 +76,6 @@ __all__ = [
     "combine_token_task_losses",
     "DistilledEpochMetrics",
     "train_distilled_token_task_epoch",
+    "TOKEN_TASK_CHECKPOINT_FORMAT_VERSION",
+    "validate_token_task_checkpoint_format",
 ]

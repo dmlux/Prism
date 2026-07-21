@@ -10,7 +10,10 @@ from prism.evaluation.metrics import count_token_task_predictions
 from prism.evaluation.ranking import (
     calculate_average_precision,
 )
-from prism.modeling.decoding import decode_token_task_logits
+from prism.modeling.decoding import (
+    decode_token_task_logits,
+    morphology_label_scores,
+)
 from prism.schema import MorphologySchema
 from prism.training.batches import SupervisedTokenTaskBatch
 from prism.training.losses import (
@@ -184,6 +187,7 @@ def train_supervised_token_task_epoch(
     scheduler: LRScheduler,
     device: torch.device,
     max_gradient_norm: float,
+    morphology_schema: MorphologySchema,
     loss_weights: TokenTaskLossWeights | None = None,
 ) -> SupervisedEpochMetrics:
     def process_batch(
@@ -194,6 +198,7 @@ def train_supervised_token_task_epoch(
             batch=batch,
             optimizer=optimizer,
             max_gradient_norm=max_gradient_norm,
+            morphology_schema=morphology_schema,
             loss_weights=loss_weights,
         )
         scheduler.step()
@@ -219,6 +224,7 @@ def train_distilled_token_task_epoch(
     max_gradient_norm: float,
     temperature: float,
     distillation_weight: float,
+    morphology_schema: MorphologySchema,
     loss_weights: TokenTaskLossWeights | None = None,
 ) -> DistilledEpochMetrics:
     student.to(device)
@@ -238,6 +244,7 @@ def train_distilled_token_task_epoch(
             max_gradient_norm=max_gradient_norm,
             temperature=temperature,
             distillation_weight=distillation_weight,
+            morphology_schema=morphology_schema,
             loss_weights=loss_weights,
         )
         scheduler.step()
@@ -328,6 +335,7 @@ def evaluate_supervised_token_task_epoch(
         logits, losses = evaluate_supervised_token_task_step(
             model=model,
             batch=batch,
+            morphology_schema=morphology_schema,
         )
         predictions = decode_token_task_logits(
             logits=logits,
@@ -344,15 +352,22 @@ def evaluate_supervised_token_task_epoch(
             target_batches,
             feature_logits,
             feature_targets,
+            feature_schema,
         ) in zip(
             morphology_score_batches,
             morphology_target_batches,
             logits.morphology_logits,
             batch.targets.morphology_targets,
+            morphology_schema.features,
             strict=True,
         ):
             score_batches.append(
-                feature_logits[batch.targets.token_mask].detach().cpu()
+                morphology_label_scores(
+                    feature_logits=feature_logits,
+                    feature_schema=feature_schema,
+                )[batch.targets.token_mask]
+                .detach()
+                .cpu()
             )
             target_batches.append(
                 feature_targets[batch.targets.token_mask].detach().cpu()

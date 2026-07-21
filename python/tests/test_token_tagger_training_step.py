@@ -145,6 +145,7 @@ def test_training_step_updates_backbone_and_task_heads() -> None:
         batch=batch,
         optimizer=optimizer,
         max_gradient_norm=1.0,
+        morphology_schema=schema.morphology,
     )
 
     assert torch.isfinite(losses.total_loss)

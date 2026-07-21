@@ -11,6 +11,10 @@ from prism.data import (
     build_norwegian_schema,
     encode_norwegian_sentences,
 )
+from prism.evaluation.reporting import (
+    format_morphology_accuracy_rows,
+    format_scalar_metric_rows,
+)
 from prism.languages import ModelRole
 from prism.languages.norwegian import (
     NORWEGIAN_WRITTEN_STANDARD_PROFILES,
@@ -26,6 +30,8 @@ from prism.modeling import (
 from prism.schema import TokenTaskSchema
 from prism.schema.serialization import serialize_token_task_schema
 from prism.training import (
+    TOKEN_TASK_CHECKPOINT_FORMAT_VERSION,
+    DistilledEpochMetrics,
     SupervisedEpochMetrics,
     SupervisedEvaluationMetrics,
     SupervisedTokenTaskBatch,
@@ -39,15 +45,15 @@ from prism.training import (
     iter_supervised_token_task_batches,
     run_supervised_training_epochs,
     train_supervised_token_task_epoch,
-    DistilledEpochMetrics,
     train_distilled_token_task_epoch,
+    validate_token_task_checkpoint_format,
 )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class BaselineTrainingArguments:
     checkpoint_path: Path
-    morphology_positive_weight_cap: float | None
+    morphology_weight_cap: float | None
     language_tag: str
     model_role: ModelRole
     teacher_checkpoint_path: Path | None
@@ -94,9 +100,11 @@ def parse_training_arguments(
         default=0.5,
     )
     parser.add_argument(
+        "--morphology-weight-cap",
         "--morphology-positive-weight-cap",
         type=float,
         default=None,
+        dest="morphology_weight_cap",
     )
 
     parsed_arguments = parser.parse_args(arguments)
@@ -114,9 +122,7 @@ def parse_training_arguments(
     return BaselineTrainingArguments(
         language_tag=parsed_arguments.language_tag,
         checkpoint_path=parsed_arguments.checkpoint_path,
-        morphology_positive_weight_cap=(
-            parsed_arguments.morphology_positive_weight_cap
-        ),
+        morphology_weight_cap=parsed_arguments.morphology_weight_cap,
         model_role=cast(
             ModelRole,
             parsed_arguments.model_role,
@@ -158,6 +164,7 @@ def _load_distillation_teacher(
         map_location="cpu",
         weights_only=True,
     )
+    validate_token_task_checkpoint_format(checkpoint)
 
     checkpoint_language_tag = checkpoint.get("language_tag")
     if not isinstance(
@@ -252,7 +259,7 @@ def main() -> None:
         max_gradient_norm=1.0,
         warmup_ratio=0.1,
         random_seed=42,
-        morphology_positive_weight_cap=(arguments.morphology_positive_weight_cap),
+        morphology_weight_cap=arguments.morphology_weight_cap,
     )
 
     torch.manual_seed(config.random_seed)
@@ -264,6 +271,7 @@ def main() -> None:
             for sentence in training_corpus.sentences
             for target in sentence.targets
         ),
+        morphology_schema=schema.morphology,
         config=config,
     )
 
@@ -348,6 +356,7 @@ def main() -> None:
                 scheduler=scheduler,
                 device=device,
                 max_gradient_norm=config.max_gradient_norm,
+                morphology_schema=schema.morphology,
                 loss_weights=loss_weights,
             )
 
@@ -361,6 +370,7 @@ def main() -> None:
             max_gradient_norm=config.max_gradient_norm,
             temperature=arguments.distillation_temperature,
             distillation_weight=arguments.distillation_weight,
+            morphology_schema=schema.morphology,
             loss_weights=loss_weights,
         )
 
@@ -386,28 +396,27 @@ def main() -> None:
             morphology_schema=schema.morphology,
         )
 
-        print(
-            "Development total loss:",
-            metrics.losses.total_loss,
-        )
-        print(
-            "Development UPOS accuracy:",
-            metrics.upos_accuracy,
-        )
-        print(
-            "Development lemma-rule accuracy:",
-            metrics.lemma_rule_accuracy,
-        )
-
-        for feature, overall, annotated in zip(
-            schema.morphology.features,
-            metrics.morphology_accuracies,
-            metrics.morphology_annotated_accuracies,
-            strict=True,
+        for row in format_scalar_metric_rows(
+            metric_names=(
+                "Development total loss",
+                "Development UPOS accuracy",
+                "Development lemma-rule accuracy",
+            ),
+            values=(
+                metrics.losses.total_loss,
+                metrics.upos_accuracy,
+                metrics.lemma_rule_accuracy,
+            ),
         ):
-            print(
-                f"Development {feature.name}: overall={overall}, annotated={annotated}"
-            )
+            print(row)
+
+        for row in format_morphology_accuracy_rows(
+            feature_names=tuple(feature.name for feature in schema.morphology.features),
+            overall_accuracies=metrics.morphology_accuracies,
+            annotated_accuracies=metrics.morphology_annotated_accuracies,
+            prefix="Development",
+        ):
+            print(row)
 
         return metrics
 
@@ -421,7 +430,7 @@ def main() -> None:
 
         torch.save(
             {
-                "checkpoint_format_version": 2,
+                "checkpoint_format_version": TOKEN_TASK_CHECKPOINT_FORMAT_VERSION,
                 "epoch_index": epoch.epoch_index,
                 "language_tag": arguments.language_tag,
                 "model_role": arguments.model_role,
@@ -453,12 +462,12 @@ def main() -> None:
                 "backbone_model_id": (backbone_spec.model_id),
                 "backbone_revision": (backbone_spec.revision),
                 "training_config": asdict(config),
-                "morphology_positive_weights": (
+                "morphology_weights": (
                     None
                     if loss_weights is None
                     else tuple(
                         weights.detach().cpu().tolist()
-                        for weights in (loss_weights.morphology_positive_weights)
+                        for weights in loss_weights.morphology_weights
                     )
                 ),
                 "schema": serialize_token_task_schema(schema),

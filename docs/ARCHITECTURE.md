@@ -109,7 +109,7 @@ Die Arten der Task-Heads bleiben gleich. Ihre konkrete Größe ist jedoch Teil
 des Sprachschemas. Der Morphologie-Code kann beispielsweise für jede Sprache
 einen Klassifikator pro Feature aufbauen, ohne die 18 norwegischen Features
 fest einzuprogrammieren. Ebenso darf ein gemeinsamer Lemma-Head nicht an die
-622 norwegischen Editierregeln gekoppelt sein.
+aktuell 1.059 norwegischen Editierregeln gekoppelt sein.
 
 ```plantuml
 @startuml language-profiles
@@ -583,7 +583,7 @@ skinparam shadowing false
 rectangle "Tokenvektor\n192 Dimensionen" as TokenVector
 
 rectangle "UPOS Linear\n192 -> 17" as Upos
-rectangle "Lemma Linear\n192 -> 622" as Lemma
+rectangle "Lemma Linear\n192 -> Schema-Regeln" as Lemma
 
 package "Morphologie" {
   rectangle "Case-Head" as Case
@@ -641,11 +641,12 @@ Der Head besitzt ungefähr:
 
 ### Lemma-Regel-Head
 
-Das aktuelle Trainingsschema enthält 622 normalisierte Lemma-Regeln:
+Das aktuelle gemeinsame norwegische Trainingsschema enthält 1.059
+normalisierte Lemma-Regeln:
 
 ```text
-Linear(192 -> 622)
-lemma_logits.shape = [batch, tokens, 622]
+Linear(192 -> 1.059)
+lemma_logits.shape = [batch, tokens, 1.059]
 ```
 
 Der Head erzeugt nicht direkt Zeichen. Er bewertet Regeln, die Präfix- und
@@ -655,7 +656,7 @@ das Original-Token an.
 Die lineare Schicht besitzt ungefähr:
 
 ```text
-192 * 622 + 622 = 120.046 Parameter
+192 * 1.059 + 1.059 = 204.387 Parameter
 ```
 
 Eine Gold-Regel, die nicht im Trainingsschema vorkommt, wird als
@@ -663,7 +664,7 @@ Eine Gold-Regel, die nicht im Trainingsschema vorkommt, wird als
 Token. Sie dürfen nicht mit wirklich fehlenden Lemma-Annotationen verwechselt
 werden.
 
-### Morphologie-Heads
+### Morphologie-Heads: ein hybrider Vertrag
 
 Prism verwendet einen separaten Head pro Feature:
 
@@ -673,20 +674,28 @@ Gender, Mood, NumType, Number, Person, Polarity,
 Poss, PronType, Reflex, Tense, VerbForm, Voice
 ```
 
-Jeder Head enthält ein explizites `<NONE>`-Label. Beispiel Number:
+Nicht jedes morphologische Feature stellt dieselbe Art von Frage. Deshalb
+verwendet Prism ab Checkpoint-Format 3 zwei Klassifikationsverträge. Das
+Sprachschema entscheidet pro Feature, welcher Vertrag gilt; die generischen
+Heads kennen keine fest einprogrammierten norwegischen Sonderfälle.
+
+#### Exklusive Features: Softmax und Cross-Entropy
+
+Bei einem exklusiven Feature ist genau eine Antwort richtig. `<NONE>` ist hier
+eine echte Klasse neben den annotierten Werten. Beispiel `Tense`:
 
 ```text
 <NONE>
-Plur
-Sing
+Past
+Pres
 ```
 
-Für `filmen`:
+Der lineare Head erzeugt einen Logit pro vollständigem Label:
 
 ```text
-<NONE>  0,01
-Plur    0,02
-Sing    0,97
+Linear(192 -> 3)
+    -> Softmax
+    -> genau eine Vorhersage per Argmax
 ```
 
 Für ein Token ohne Tense:
@@ -697,14 +706,83 @@ Past    0,005
 Pres    0,005
 ```
 
-Einwertige Features verwenden eine Softmax-Klassifikation. Features mit
-genuinen Mehrfachwerten verwenden unabhängige Sigmoid-Entscheidungen für ihre
-atomaren Werte. Der Decoder validiert dabei unter anderem:
+Trainiert wird dieser Head mit kategorialer Cross-Entropy. Optionale
+Klassengewichte wirken auf die jeweilige Gold-Klasse. Damit konkurrieren
+`<NONE>`, `Past` und `Pres` direkt miteinander, statt als voneinander
+unabhängige Ja/Nein-Fragen behandelt zu werden.
+
+#### Mehrwertige Features: Sigmoid und Binary Cross-Entropy
+
+Bei einem genuin mehrwertigen Feature können mehrere reale Werte gleichzeitig
+gelten. Beispiel `Case` mit `Acc,Dat`. Der Head erzeugt deshalb nur für die
+realen Werte unabhängige Logits:
+
+```text
+Linear(192 -> Anzahl reale Werte)
+    -> Sigmoid pro Wert
+    -> alle Werte oberhalb des Schwellenwerts
+```
+
+`<NONE>` besitzt hier keinen eigenen trainierbaren Logit. Es wird exakt dann
+abgeleitet, wenn kein realer Wert aktiv ist. Seine Wahrscheinlichkeit für
+Evaluation und spätere Kalibrierung ergibt sich aus:
+
+```text
+P(<NONE>) = Produkt(1 - P(realer Wert))
+```
+
+Trainiert wird mit Binary Cross-Entropy pro realem Wert. Positive
+Klassengewichte werden ebenfalls nur auf reale positive Ziele angewendet.
+Dadurch kann das sehr häufige Fehlen eines Features keinen künstlichen
+`<NONE>`-Ausgang dominieren.
+
+Das aktuelle gemeinsame norwegische Schema erkennt aus den gepinnten
+Trainingsdaten:
+
+- 12 exklusive Features: `Abbr`, `Animacy`, `Degree`, `Foreign`, `Mood`,
+  `NumType`, `Person`, `Polarity`, `Poss`, `Reflex`, `Tense`, `Voice`;
+- 6 mehrwertige Features: `Case`, `Definite`, `Gender`, `Number`, `PronType`,
+  `VerbForm`.
+
+Die gespeicherten Targets und die öffentliche Ausgabe behalten für beide
+Varianten den vollständigen Labelraum inklusive `<NONE>`. Nur der interne
+Logit-Vertrag unterscheidet sich. Der Decoder validiert dabei unter anderem:
 
 - mindestens ein aktives Label;
 - `<NONE>` nie zusammen mit echten Werten;
 - keine Mehrfachwerte bei einwertigen Features;
 - korrekte Label-Anzahl pro Feature.
+
+```plantuml
+@startuml hybrid-morphology-heads
+skinparam backgroundColor transparent
+skinparam shadowing false
+
+rectangle "Morphologie-Feature\naus dem Sprachschema" as Feature
+diamond "Mehrfachwerte\nerlaubt?" as Multi
+
+rectangle "Linearer Head\n<NONE> + reale Werte" as CategoricalHead
+rectangle "Cross-Entropy\nSoftmax / Argmax" as CategoricalDecision
+
+rectangle "Linearer Head\nnur reale Werte" as MultiHead
+rectangle "Binary Cross-Entropy\nSigmoid / Schwellenwert" as MultiDecision
+rectangle "<NONE> ableiten\nwenn kein Wert aktiv" as DerivedNone
+
+Feature --> Multi
+Multi --> CategoricalHead : nein
+CategoricalHead --> CategoricalDecision
+Multi --> MultiHead : ja
+MultiHead --> MultiDecision
+MultiDecision --> DerivedNone
+@enduml
+```
+
+Die Heads selbst bleiben bewusst linear. Die nichtlineare, kontextabhängige
+Verarbeitung geschieht bereits in vielen Transformer-Schichten des Motors.
+Dieser Schritt verbessert zuerst die mathematische Formulierung der Ausgabe,
+ohne gleichzeitig eine zweite Architekturänderung einzuführen. Ob ein
+kleines MLP vor den Heads zusätzlichen Nutzen bringt, wird später als eigene
+Ablation gemessen.
 
 ## Konfidenz und Kalibrierung
 
@@ -765,7 +843,10 @@ Lemma-Regeln
 ```
 
 Der Teacher wird zunächst auf Gold-Daten spezialisiert. Danach erzeugt er für
-jedes Token Logits oder Wahrscheinlichkeitsverteilungen.
+jedes Token Logits oder Wahrscheinlichkeitsverteilungen. Die Distillation
+spiegelt denselben hybriden Vertrag: exklusive Morphologie-Features verwenden
+kategoriale KL-Divergenz, mehrwertige Features binäre KL-Divergenz nur über
+die realen Werte.
 
 Gold:
 
@@ -955,13 +1036,13 @@ Der geplante Entwicklungsablauf ist:
 
 ## Was bereits implementiert ist
 
-Der nächste Datenvertrag enthält aktuell:
+Der implementierte Daten- und Modellvertrag enthält aktuell:
 
 - ein versioniertes UPOS-Schema;
 - ein versioniertes Schema für 18 Morphologie-Features;
 - atomare Multi-Value-Repräsentation;
 - validierte Morphologie-Kodierung und -Dekodierung;
-- 622 normalisierte Lemma-Regeln;
+- 1.059 normalisierte Lemma-Regeln im gemeinsamen norwegischen Schema;
 - stabile Klassen-IDs;
 - Unterscheidung zwischen fehlendem Lemma und unbekannter Lemma-Regel;
 - ein gebündeltes `TokenTaskSchema`;
@@ -978,29 +1059,33 @@ Der nächste Datenvertrag enthält aktuell:
 - Subword-zu-Token-Alignment und gepaddete Tokenmasken;
 - einen sprachunabhängigen Adapter von `PretokenizedSentence` zum
   `TokenizedBatch`, der mit dem echten gepinnten NorBERT4-Tokenizer verifiziert
-  wurde.
+  wurde;
+- NorBERT4-xsmall und NorBERT4-base als austauschbare Student- und
+  Teacher-Backbones des norwegischen Sprachprofils;
+- trainierbare UPOS-, Morphologie- und Lemma-Regel-Heads;
+- Gold-only-Training, Distillation und getrennte Development-Evaluation für
+  Bokmål und Nynorsk;
+- den hybriden Morphologievertrag aus kategorialen exklusiven Features und
+  binären mehrwertigen Features;
+- Checkpoint-Format 3 als explizite Grenze für die geänderten
+  Morphologie-Tensorformen.
 
-Der echte Development-Split lässt sich vollständig mit dem Trainingsschema
-kodieren:
+## Aktuelle Modellgrenze
 
-- 2.409 Sätze;
-- 36.369 Tokens;
-- keine unbekannten UPOS- oder Morphologie-Werte;
-- 33 unbekannte Lemma-Regeln;
-- keine fehlenden Lemma-Annotationen.
+Die Hybridarchitektur ist als gemeinsamer norwegischer Format-3-Student
+trainiert und getrennt auf Bokmål und Nynorsk Development ausgewertet. Sie
+verbessert Morphologie-Micro-F1 und Macro Average Precision auf beiden
+Schriftstandards, während UPOS und Lemma praktisch stabil bleiben. Die
+Format-2-Benchmarks bleiben historische Kontrollen.
 
-## Was als Nächstes fehlt
+Checkpoint-Format 3 ist absichtlich nicht gewichtskompatibel mit Format 2:
+Bei exklusiven Features ändern sich Loss, Interpretation und teilweise die
+Anzahl der Head-Ausgänge. Ein alter State-Dict darf daher nicht stillschweigend
+in das neue Modell geladen werden.
 
-Vor dem ersten trainierbaren Student fehlen:
-
-1. der Forward-Pass des Motors;
-2. die konfigurierbaren Task-Heads;
-3. die Loss-Funktionen;
-4. Training und Development-Evaluation.
-
-Der nächste konkrete Implementierungsschritt ist, NorBERT4-xsmall über das
-norwegische Sprachprofil zu laden und den ersten Forward-Pass vom
-`TokenizedBatch` zu kontextualisierten Subword-Vektoren zu beweisen.
+Der nächste Modellschritt ist ein frisches gemeinsames norwegisches
+Teacher-Training mit Format 3. Erst danach kann der Student wieder gegen einen
+tensor-kompatiblen Teacher destilliert werden.
 
 ## Quellen
 

@@ -8,11 +8,24 @@ from prism.modeling import (
     TokenizedBatch,
     TokenTaskLogits,
 )
+from prism.schema import MorphologyFeatureSchema, MorphologySchema
 from prism.training import (
     SupervisedTokenTaskBatch,
     TokenTaskLossWeights,
     evaluate_supervised_token_task_step,
     train_supervised_token_task_step,
+)
+
+
+MORPHOLOGY_SCHEMA = MorphologySchema(
+    version=1,
+    features=(
+        MorphologyFeatureSchema(
+            name="Feature",
+            values=("Value",),
+            allows_multiple_values=False,
+        ),
+    ),
 )
 
 
@@ -94,7 +107,7 @@ def test_training_step_updates_model_parameters() -> None:
     previous_upos = model.upos.detach().clone()
 
     loss_weights = TokenTaskLossWeights(
-        morphology_positive_weights=(torch.tensor([1.0, 3.0]),),
+        morphology_weights=(torch.tensor([1.0, 3.0]),),
     )
 
     losses = train_supervised_token_task_step(
@@ -102,12 +115,13 @@ def test_training_step_updates_model_parameters() -> None:
         batch=batch,
         optimizer=optimizer,
         max_gradient_norm=0.01,
+        morphology_schema=MORPHOLOGY_SCHEMA,
         loss_weights=loss_weights,
     )
 
     torch.testing.assert_close(
         losses.morphology_loss,
-        torch.tensor(2.0 * math.log(2.0)),
+        torch.tensor(3.0 * math.log(2.0)),
     )
 
     assert torch.isfinite(losses.total_loss)
@@ -136,6 +150,7 @@ def test_training_step_updates_model_parameters() -> None:
     evaluation_logits, evaluation_losses = evaluate_supervised_token_task_step(
         model=model,
         batch=batch,
+        morphology_schema=MORPHOLOGY_SCHEMA,
     )
 
     assert isinstance(evaluation_logits, TokenTaskLogits)

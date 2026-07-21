@@ -24,6 +24,7 @@ Prism currently provides:
 - language-owned UPOS, morphology, and lemma-rule schemas;
 - a compact NorBERT4-xsmall Transformer student for Norwegian;
 - shared UPOS, per-feature morphology, and lemma edit-rule heads;
+- schema-driven categorical and multi-label morphology objectives;
 - supervised Apple MPS training with reproducible checkpoints;
 - class-weighted morphology training derived only from the training split;
 - exact, per-label, and threshold-independent development metrics;
@@ -31,12 +32,12 @@ Prism currently provides:
 - explicit language profiles so another language can replace its tokenizer,
   backbone, schemas, decoding policy, and artifact metadata.
 
-The selected shared gold-only student reaches 98.64% Bokmål and 98.30%
-Nynorsk development UPOS accuracy. Lemma-rule accuracy is 96.70% and 96.64%,
-respectively. The selected NorBERT4-Base teacher raises those development
-scores to 99.20%/98.90% UPOS and 98.97%/98.87% lemma-rule accuracy. Both
-official test splits remain untouched while distillation development
-continues.
+The selected format-3 shared gold-only student reaches 93.18% Bokmål and
+89.61% Nynorsk morphology micro F1 while preserving 98.64%/98.36% UPOS and
+96.69%/96.63% lemma-rule accuracy. It improves morphology over the historical
+format-2 reference on both written standards. A new compatible teacher must be
+trained before distillation continues. Both official test splits remain
+untouched.
 See [the benchmark notes](docs/benchmarks.md) for the complete, comparable
 results.
 
@@ -142,7 +143,7 @@ unweighted checkpoint:
 ```bash
 python -m prism.languages.norwegian.train_baseline \
   --checkpoint runs/nb-student-weighted/best.pt \
-  --morphology-positive-weight-cap 10.0
+  --morphology-weight-cap 10.0
 ```
 
 Evaluate a fixed checkpoint on the development split:

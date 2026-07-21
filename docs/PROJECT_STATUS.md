@@ -1,6 +1,6 @@
 # Prism project status
 
-Last updated: 2026-07-20
+Last updated: 2026-07-21
 
 ## Product direction
 
@@ -118,6 +118,11 @@ Implemented shared components include:
 - shared normalization before task heads;
 - UPOS, per-feature morphology, and lemma edit-rule heads;
 - schema-aware targets, losses, decoding, and metrics;
+- a hybrid morphology contract: categorical softmax/Cross-Entropy for
+  exclusive features and sigmoid/Binary Cross-Entropy over real values for
+  genuinely multi-valued features;
+- derived `<NONE>` output for multi-valued features instead of a redundant
+  trainable `<NONE>` logit;
 - MPS-aware batches and device transfer;
 - differential AdamW, gradient clipping, and warmup/decay scheduling;
 - reproducible shuffled multi-epoch training;
@@ -138,6 +143,14 @@ Implemented shared components include:
 - `<NONE>` labels are excluded from real-label macro summaries.
 - A distilled student must be compared with the same student trained without
   teacher knowledge.
+
+## Historical format-2 benchmarks
+
+All checkpoints and measurements in the following benchmark sections use
+checkpoint format 2 and the former uniformly binary morphology objective.
+They remain the comparison baseline for the new architecture, but they cannot
+be loaded into the format-3 hybrid morphology heads and must not be presented
+as measurements of that implementation.
 
 ## Bokmål gold-only student
 
@@ -346,13 +359,98 @@ precision with slightly lower recall. A single temperature is not an adequate
 long-term policy for 17-way UPOS, binary morphology decisions, and the
 1,059-way lemma-rule head. Both official test splits remain untouched.
 
-Class-balanced morphology distillation is now implemented but not yet
-benchmarked. It reuses the positive-label weights derived exclusively from the
-training split and applies them to positive gold morphology targets in both
-the supervised and teacher-distillation objectives. The UPOS and lemma
-distillation losses remain unweighted, and the task heads remain unchanged.
-The selected temperature-1.0, weight-0.1 checkpoint remains the distilled
-reference until a controlled run demonstrates an improvement.
+The controlled class-balanced morphology-distillation ablation is complete:
+
+- checkpoint: `runs/no-student-distilled-balanced-w010-t100/best.pt`
+- temperature: 1.0
+- distillation weight: 0.1
+- selected epoch: 5
+- end-to-end wall time: approximately 34 minutes 32 seconds
+
+Bokmål development:
+
+- joint loss: 0.175663
+- UPOS accuracy: 98.65%
+- lemma-rule accuracy: 96.70%
+- morphology micro precision/recall/F1: 88.98% / 96.73% / 92.70%
+- morphology macro F1: 91.67%
+- morphology macro Average Precision: 94.07%
+
+Nynorsk development:
+
+- joint loss: 0.216049
+- UPOS accuracy: 98.29%
+- lemma-rule accuracy: 96.65%
+- supported-label morphology micro precision/recall/F1:
+  83.34% / 95.16% / 88.86%
+- supported-label morphology macro F1: 86.17%
+- supported-label morphology macro Average Precision: 90.45%
+
+This ablation is rejected as the selected reference. It raises recall and
+ranking quality slightly for some rare labels, but loses precision and micro
+F1 and does not produce a consistent UPOS or lemma improvement. The simpler
+temperature-1.0, weight-0.1 distilled checkpoint remains the historical
+format-2 distilled reference.
+
+## Selected format-3 hybrid gold-only student
+
+Checkpoint format 3 replaces the former uniformly binary morphology
+formulation with a schema-driven hybrid contract while retaining the compact
+linear task heads:
+
+- 12 exclusive Norwegian features emit `<NONE>` plus their real values and
+  train with categorical Cross-Entropy;
+- 6 genuinely multi-valued features (`Case`, `Definite`, `Gender`, `Number`,
+  `PronType`, and `VerbForm`) emit only real-value logits and train with Binary
+  Cross-Entropy;
+- `<NONE>` for a multi-valued feature is derived when no real value is active;
+- supervised class weights and teacher distillation follow the same
+  categorical-versus-binary split;
+- evaluation converts both variants back into the complete public label space
+  before accuracy, precision, recall, F1, and Average Precision are computed.
+
+The implementation is covered by focused schema, head, decoding, loss,
+weighting, distillation, training-step, epoch, and checkpoint-contract tests.
+The first controlled joint Bokmål-Nynorsk run is accepted as the new gold-only
+student reference:
+
+- checkpoint: `runs/no-student-hybrid-weighted/best.pt`
+- checkpoint format: 3
+- selected epoch: 5
+- checkpoint size: 68,735,067 bytes
+- end-to-end wall time: approximately 20 minutes 47 seconds
+- combined development loss: 0.192474
+
+Bokmål development:
+
+- joint loss: 0.173502 under the format-3 objective;
+- UPOS accuracy: 98.64%;
+- lemma-rule accuracy: 96.69%;
+- morphology micro precision/recall/F1: 89.62% / 97.02% / 93.18%;
+- morphology macro F1: 91.79%;
+- morphology macro Average Precision: 95.25%.
+
+Nynorsk development:
+
+- joint loss: 0.214554 under the format-3 objective;
+- UPOS accuracy: 98.36%;
+- lemma-rule accuracy: 96.63%;
+- supported-label morphology micro precision/recall/F1:
+  84.32% / 95.62% / 89.61%;
+- supported-label morphology macro F1: 86.74%;
+- supported-label morphology macro Average Precision: 91.37%.
+
+Relative to the selected format-2 gold-only reference, morphology improves on
+both written standards. Bokmål gains 0.48 percentage points micro F1 and 1.18
+points macro Average Precision. Nynorsk gains 0.53 points micro F1, 0.56
+points macro F1, and 0.93 points macro Average Precision. UPOS and lemma remain
+effectively stable. The format-2 and format-3 losses are not directly
+comparable because their morphology objectives differ.
+
+Format 2 is intentionally rejected by current checkpoint loaders because the
+morphology head tensor shapes and their meanings changed. The existing
+format-2 teacher and distilled checkpoints remain historical references and
+cannot be used for format-3 distillation.
 
 ## Repeatable commands
 
@@ -362,20 +460,23 @@ Train the unweighted Bokmål control:
 python -m prism.languages.norwegian.train_baseline
 ```
 
-Train the selected class-weighted control:
+Train the selected shared format-3 gold-only student:
 
 ```bash
 python -m prism.languages.norwegian.train_baseline \
-  --checkpoint runs/nb-student-weighted/best.pt \
-  --morphology-positive-weight-cap 10.0
+  --language-tag no \
+  --model-role student \
+  --checkpoint runs/no-student-hybrid-weighted/best.pt \
+  --morphology-weight-cap 10.0
 ```
 
-Evaluate a development checkpoint:
+Evaluate the selected checkpoint on Bokmål development:
 
 ```bash
 python -m prism.languages.norwegian.evaluate_baseline \
-  --checkpoint runs/nb-student-weighted/best.pt \
-  --analysis runs/nb-student-weighted/development-analysis.json
+  --language-tag nb \
+  --checkpoint runs/no-student-hybrid-weighted/best.pt \
+  --analysis runs/no-student-hybrid-weighted/nb-development-analysis.json
 ```
 
 ## Repository cleanup decision
@@ -388,9 +489,9 @@ with the Transformer student generation.
 
 ## Immediate next step
 
-Run and evaluate the implemented class-balanced morphology-distillation
-ablation. Compare it against both the selected gold-only student and the
-selected temperature-1.0, weight-0.1 distilled reference. If it is useful,
-continue by separating task-specific distillation settings for UPOS,
-morphology, and lemmas. Do not evaluate either official test split until the
-model and calibration policy are fixed.
+Train a fresh shared Norwegian NorBERT4-base teacher with the accepted
+format-3 hybrid morphology contract. Evaluate the fixed teacher checkpoint
+separately on Bokmål and Nynorsk development before resuming distillation.
+Do not change head depth, subword pooling, or the student training policy in
+the same experiment, and do not evaluate either official test split until the
+architecture and calibration policy are fixed.

@@ -54,7 +54,7 @@ class TokenTaskHeads(nn.Module):
         self.morphology_heads = nn.ModuleList(
             TokenClassificationHead(
                 hidden_size=hidden_size,
-                label_count=len(feature.labels),
+                label_count=feature.logit_count,
                 dropout_probability=dropout_probability,
             )
             for feature in schema.morphology.features

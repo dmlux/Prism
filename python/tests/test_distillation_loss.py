@@ -1,6 +1,7 @@
 import torch
 
 from prism.modeling import TokenTaskLogits
+from prism.schema import MorphologyFeatureSchema, MorphologySchema
 from prism.training import (
     TokenTaskLossWeights,
     TokenTaskLosses,
@@ -8,6 +9,28 @@ from prism.training import (
     calculate_categorical_distillation_loss,
     combine_token_task_losses,
     compute_token_task_distillation_loss,
+)
+
+
+CATEGORICAL_MORPHOLOGY_SCHEMA = MorphologySchema(
+    version=1,
+    features=(
+        MorphologyFeatureSchema(
+            name="Feature",
+            values=("Value",),
+            allows_multiple_values=False,
+        ),
+    ),
+)
+MULTI_LABEL_MORPHOLOGY_SCHEMA = MorphologySchema(
+    version=1,
+    features=(
+        MorphologyFeatureSchema(
+            name="Feature",
+            values=("First", "Second"),
+            allows_multiple_values=True,
+        ),
+    ),
 )
 
 
@@ -124,6 +147,7 @@ def test_token_task_distillation_combines_all_tasks() -> None:
         token_mask=token_mask,
         lemma_rule_mask=lemma_rule_mask,
         temperature=2.0,
+        morphology_schema=CATEGORICAL_MORPHOLOGY_SCHEMA,
     )
 
     torch.testing.assert_close(
@@ -205,6 +229,7 @@ def test_distillation_only_backpropagates_into_student() -> None:
         token_mask=token_mask,
         lemma_rule_mask=token_mask,
         temperature=2.0,
+        morphology_schema=CATEGORICAL_MORPHOLOGY_SCHEMA,
     )
     losses.total_loss.backward()
 
@@ -255,6 +280,35 @@ def test_binary_distillation_weights_positive_targets() -> None:
     )
 
 
+def test_categorical_distillation_weights_target_class() -> None:
+    teacher_logits = torch.tensor([[[2.0, -2.0]]])
+    student_logits = torch.tensor(
+        [[[-2.0, 2.0]]],
+        requires_grad=True,
+    )
+    token_mask = torch.tensor([[True]], dtype=torch.bool)
+
+    unweighted_loss = calculate_categorical_distillation_loss(
+        student_logits=student_logits,
+        teacher_logits=teacher_logits,
+        token_mask=token_mask,
+        temperature=1.0,
+    )
+    weighted_loss = calculate_categorical_distillation_loss(
+        student_logits=student_logits,
+        teacher_logits=teacher_logits,
+        token_mask=token_mask,
+        temperature=1.0,
+        target_ids=torch.tensor([[1]], dtype=torch.long),
+        class_weights=torch.tensor([1.0, 3.0]),
+    )
+
+    torch.testing.assert_close(
+        weighted_loss,
+        unweighted_loss * 3.0,
+    )
+
+
 def test_token_task_distillation_forwards_morphology_weights() -> None:
     teacher_logits = TokenTaskLogits(
         upos_logits=torch.zeros((1, 1, 2)),
@@ -272,7 +326,12 @@ def test_token_task_distillation_forwards_morphology_weights() -> None:
         lemma_rule_logits=torch.zeros((1, 1, 2), requires_grad=True),
     )
     token_mask = torch.tensor([[True]], dtype=torch.bool)
-    morphology_targets = (torch.tensor([[[True, False]]]),)
+    morphology_targets = (
+        torch.tensor(
+            [[[False, True, False]]],
+            dtype=torch.bool,
+        ),
+    )
 
     unweighted_losses = compute_token_task_distillation_loss(
         student_logits=student_logits,
@@ -280,6 +339,7 @@ def test_token_task_distillation_forwards_morphology_weights() -> None:
         token_mask=token_mask,
         lemma_rule_mask=token_mask,
         temperature=1.0,
+        morphology_schema=MULTI_LABEL_MORPHOLOGY_SCHEMA,
     )
     weighted_losses = compute_token_task_distillation_loss(
         student_logits=student_logits,
@@ -287,9 +347,10 @@ def test_token_task_distillation_forwards_morphology_weights() -> None:
         token_mask=token_mask,
         lemma_rule_mask=token_mask,
         temperature=1.0,
+        morphology_schema=MULTI_LABEL_MORPHOLOGY_SCHEMA,
         morphology_targets=morphology_targets,
         loss_weights=TokenTaskLossWeights(
-            morphology_positive_weights=(torch.tensor([3.0, 1.0]),),
+            morphology_weights=(torch.tensor([3.0, 1.0]),),
         ),
     )
 

@@ -3,11 +3,12 @@ import math
 import torch
 
 from prism.data import TokenTargets
+from prism.schema import MorphologyFeatureSchema, MorphologySchema
 from prism.training import SupervisedTrainingConfig, TokenTaskLossWeights
 from prism.training.class_weights import (
     build_token_task_loss_weights,
     calculate_binary_positive_weights,
-    calculate_morphology_positive_weights,
+    calculate_morphology_weights,
 )
 
 
@@ -36,7 +37,7 @@ def test_calculate_binary_positive_weights_ignores_padding() -> None:
     )
 
 
-def test_calculate_morphology_positive_weights_uses_all_tokens() -> None:
+def test_calculate_morphology_weights_uses_all_tokens() -> None:
     targets = (
         TokenTargets(
             upos_id=0,
@@ -64,8 +65,18 @@ def test_calculate_morphology_positive_weights_uses_all_tokens() -> None:
         ),
     )
 
-    weights = calculate_morphology_positive_weights(
+    weights = calculate_morphology_weights(
         targets=targets,
+        morphology_schema=MorphologySchema(
+            version=1,
+            features=(
+                MorphologyFeatureSchema(
+                    name="Feature",
+                    values=("First", "Second"),
+                    allows_multiple_values=False,
+                ),
+            ),
+        ),
         maximum_weight=1.5,
     )
 
@@ -73,6 +84,50 @@ def test_calculate_morphology_positive_weights_uses_all_tokens() -> None:
     torch.testing.assert_close(
         weights[0],
         torch.tensor([1.0, 1.5, 1.0]),
+    )
+
+
+def test_multi_label_morphology_weights_exclude_derived_none_label() -> None:
+    targets = (
+        TokenTargets(
+            upos_id=0,
+            morphology=((True, False, False),),
+            lemma_is_annotated=False,
+            lemma_rule_id=None,
+        ),
+        TokenTargets(
+            upos_id=0,
+            morphology=((False, True, False),),
+            lemma_is_annotated=False,
+            lemma_rule_id=None,
+        ),
+        TokenTargets(
+            upos_id=0,
+            morphology=((False, True, True),),
+            lemma_is_annotated=False,
+            lemma_rule_id=None,
+        ),
+    )
+
+    weights = calculate_morphology_weights(
+        targets=targets,
+        morphology_schema=MorphologySchema(
+            version=1,
+            features=(
+                MorphologyFeatureSchema(
+                    name="Feature",
+                    values=("First", "Second"),
+                    allows_multiple_values=True,
+                ),
+            ),
+        ),
+        maximum_weight=2.0,
+    )
+
+    assert len(weights) == 1
+    torch.testing.assert_close(
+        weights[0],
+        torch.tensor([1.0, math.sqrt(2.0)]),
     )
 
 
@@ -120,7 +175,7 @@ def test_build_token_task_loss_weights_uses_training_config() -> None:
         max_gradient_norm=1.0,
         warmup_ratio=0.1,
         random_seed=42,
-        morphology_positive_weight_cap=1.5,
+        morphology_weight_cap=1.5,
     )
     targets = (
         TokenTargets(
@@ -151,11 +206,21 @@ def test_build_token_task_loss_weights_uses_training_config() -> None:
 
     loss_weights = build_token_task_loss_weights(
         targets=targets,
+        morphology_schema=MorphologySchema(
+            version=1,
+            features=(
+                MorphologyFeatureSchema(
+                    name="Feature",
+                    values=("Value",),
+                    allows_multiple_values=False,
+                ),
+            ),
+        ),
         config=config,
     )
 
     assert isinstance(loss_weights, TokenTaskLossWeights)
     torch.testing.assert_close(
-        loss_weights.morphology_positive_weights[0],
+        loss_weights.morphology_weights[0],
         torch.tensor([1.0, 1.5]),
     )

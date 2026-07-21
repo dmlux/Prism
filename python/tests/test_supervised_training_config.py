@@ -11,7 +11,7 @@ def test_supervised_training_config_exposes_reproducible_policy() -> None:
         max_gradient_norm=1.0,
         warmup_ratio=0.1,
         random_seed=42,
-        morphology_positive_weight_cap=10.0,
+        morphology_weight_cap=10.0,
     )
 
     assert config.epoch_count == 3
@@ -22,4 +22,4 @@ def test_supervised_training_config_exposes_reproducible_policy() -> None:
     assert config.max_gradient_norm == 1.0
     assert config.warmup_ratio == 0.1
     assert config.random_seed == 42
-    assert config.morphology_positive_weight_cap == 10.0
+    assert config.morphology_weight_cap == 10.0
