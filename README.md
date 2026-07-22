@@ -34,6 +34,10 @@ Prism currently provides:
   frequencies;
 - a selected, export-tested character-CNN branch that feeds complete-token form
   information into morphology and lemma while leaving UPOS unchanged;
+- a typed task-specific distillation policy with independent UPOS, morphology,
+  and lemma temperatures and weights;
+- optional categorical DKD with independently weighted target-class and
+  non-target-class knowledge while preserving binary KL for multi-value tasks;
 - a versioned ExecuTorch export spike with PyTorch parity coverage;
 - explicit language profiles so another language can replace its tokenizer,
   backbone, schemas, decoding policy, and artifact metadata.
@@ -45,9 +49,10 @@ NorBERT4-Base Teacher at temperature 1.0 and weight 0.1. The character branch
 improves Rare end-to-end lemma accuracy by 2.67/2.42 percentage points and Rare
 morphology micro F1 by 1.76/1.50 points on Bokmål/Nynorsk. OOV lemma,
 morphology, and UPOS also improve on both written standards. The 69.9 MB
-checkpoint remains below the 100 MB target. Distillation further lowers loss
-and improves lemma on both standards without any OOV regression; its small
-Bokmål Rare tradeoffs remain explicit. Both official test splits remain
+checkpoint remains below the 100 MB target. Decoupled knowledge distillation
+further lowers loss and improves overall UPOS, lemma, and Rare/OOV lemma and
+morphology on both standards without changing inference cost. Its localized
+Rare/OOV UPOS tradeoffs remain explicit. Both official test splits remain
 untouched.
 See [the benchmark notes](docs/benchmarks.md) for the complete, comparable
 results.

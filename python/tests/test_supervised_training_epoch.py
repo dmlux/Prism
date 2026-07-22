@@ -7,11 +7,12 @@ from prism.data import TokenTaskTargetBatch
 from prism.modeling import TokenizedBatch, TokenTaskLogits
 from prism.training import (
     SupervisedTokenTaskBatch,
+    TokenTaskDistillationPolicy,
+    TokenTaskLossWeights,
     build_linear_warmup_decay_scheduler,
     evaluate_supervised_token_task_epoch,
-    train_supervised_token_task_epoch,
-    TokenTaskLossWeights,
     train_distilled_token_task_epoch,
+    train_supervised_token_task_epoch,
 )
 from prism.schema import (
     MorphologyFeatureSchema,
@@ -272,8 +273,10 @@ def test_distilled_epoch_reports_both_learning_signals() -> None:
         scheduler=scheduler,
         device=torch.device("cpu"),
         max_gradient_norm=1.0,
-        temperature=2.0,
-        distillation_weight=0.5,
+        distillation_policy=TokenTaskDistillationPolicy.uniform(
+            temperature=2.0,
+            weight=0.5,
+        ),
         morphology_schema=MORPHOLOGY_SCHEMA,
     )
 

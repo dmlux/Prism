@@ -1,5 +1,6 @@
 import math
 from dataclasses import dataclass
+from typing import Literal, TypeAlias
 
 import torch
 from torch.nn import functional as F
@@ -9,11 +10,85 @@ from prism.schema import MorphologySchema
 from prism.training.losses import TokenTaskLosses, TokenTaskLossWeights
 
 
+CategoricalDistillationObjective: TypeAlias = Literal["kl", "dkd"]
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CombinedTokenTaskLosses:
     supervised_losses: TokenTaskLosses
     distillation_losses: TokenTaskLosses
     total_loss: torch.Tensor
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TokenTaskDistillationPolicy:
+    upos_temperature: float
+    morphology_temperature: float
+    lemma_rule_temperature: float
+    upos_weight: float
+    morphology_weight: float
+    lemma_rule_weight: float
+    categorical_objective: CategoricalDistillationObjective = "kl"
+    target_class_weight: float = 1.0
+    non_target_class_weight: float = 1.0
+
+    def __post_init__(self) -> None:
+        temperatures = (
+            self.upos_temperature,
+            self.morphology_temperature,
+            self.lemma_rule_temperature,
+        )
+        if any(
+            not math.isfinite(temperature) or temperature <= 0.0
+            for temperature in temperatures
+        ):
+            raise ValueError(
+                "Distillation temperatures must be finite and greater than zero."
+            )
+
+        weights = (
+            self.upos_weight,
+            self.morphology_weight,
+            self.lemma_rule_weight,
+        )
+        if any(not math.isfinite(weight) or weight < 0.0 for weight in weights):
+            raise ValueError("Distillation weights must be finite and non-negative.")
+
+        if self.categorical_objective not in ("kl", "dkd"):
+            raise ValueError(
+                "Categorical distillation objective must be 'kl' or 'dkd'."
+            )
+
+        decoupled_weights = (
+            self.target_class_weight,
+            self.non_target_class_weight,
+        )
+        if any(
+            not math.isfinite(weight) or weight < 0.0 for weight in decoupled_weights
+        ):
+            raise ValueError("DKD component weights must be finite and non-negative.")
+
+    @classmethod
+    def uniform(
+        cls,
+        *,
+        temperature: float,
+        weight: float,
+        categorical_objective: CategoricalDistillationObjective = "kl",
+        target_class_weight: float = 1.0,
+        non_target_class_weight: float = 1.0,
+    ) -> "TokenTaskDistillationPolicy":
+        return cls(
+            upos_temperature=temperature,
+            morphology_temperature=temperature,
+            lemma_rule_temperature=temperature,
+            upos_weight=weight,
+            morphology_weight=weight,
+            lemma_rule_weight=weight,
+            categorical_objective=categorical_objective,
+            target_class_weight=target_class_weight,
+            non_target_class_weight=non_target_class_weight,
+        )
 
 
 def calculate_categorical_distillation_loss(
@@ -159,15 +234,166 @@ def calculate_binary_distillation_loss(
     return selected_losses.mean()
 
 
+def calculate_decoupled_categorical_distillation_loss(
+    *,
+    student_logits: torch.Tensor,
+    teacher_logits: torch.Tensor,
+    target_ids: torch.Tensor,
+    token_mask: torch.Tensor,
+    temperature: float,
+    target_class_weight: float,
+    non_target_class_weight: float,
+    class_weights: torch.Tensor | None = None,
+) -> torch.Tensor:
+    if student_logits.shape != teacher_logits.shape:
+        raise ValueError("Student and teacher logits must have identical shapes.")
+    if token_mask.shape != student_logits.shape[:-1]:
+        raise ValueError("Token mask must match the batch and token dimensions.")
+    if target_ids.shape != token_mask.shape:
+        raise ValueError("Target IDs must match the token mask.")
+    if target_ids.dtype != torch.long:
+        raise ValueError("Target IDs must use torch.long.")
+    if student_logits.shape[-1] < 2:
+        raise ValueError("DKD requires at least two categorical classes.")
+    if not math.isfinite(temperature) or temperature <= 0.0:
+        raise ValueError("Temperature must be finite and greater than zero.")
+    if any(
+        not math.isfinite(weight) or weight < 0.0
+        for weight in (target_class_weight, non_target_class_weight)
+    ):
+        raise ValueError("DKD component weights must be finite and non-negative.")
+
+    selected_student_logits = student_logits[token_mask]
+    selected_teacher_logits = teacher_logits[token_mask].detach()
+    selected_target_ids = target_ids[token_mask]
+
+    if selected_student_logits.numel() == 0:
+        return student_logits.sum() * 0.0
+    if torch.any(selected_target_ids < 0) or torch.any(
+        selected_target_ids >= student_logits.shape[-1]
+    ):
+        raise ValueError("Target IDs must refer to valid categorical classes.")
+
+    if class_weights is not None:
+        if class_weights.ndim != 1:
+            raise ValueError("Class weights must have one dimension.")
+        if class_weights.shape[0] != student_logits.shape[-1]:
+            raise ValueError("Class weights must match the logit count.")
+        if not class_weights.is_floating_point():
+            raise ValueError("Class weights must be floating point.")
+        if not torch.isfinite(class_weights).all():
+            raise ValueError("Class weights must be finite.")
+        if torch.any(class_weights <= 0):
+            raise ValueError("Class weights must be positive.")
+
+    scaled_student_logits = selected_student_logits / temperature
+    scaled_teacher_logits = selected_teacher_logits / temperature
+    student_probabilities = F.softmax(scaled_student_logits, dim=-1)
+    teacher_probabilities = F.softmax(scaled_teacher_logits, dim=-1)
+
+    target_indices = selected_target_ids.unsqueeze(-1)
+    student_target_probabilities = student_probabilities.gather(
+        dim=-1,
+        index=target_indices,
+    ).squeeze(-1)
+    teacher_target_probabilities = teacher_probabilities.gather(
+        dim=-1,
+        index=target_indices,
+    ).squeeze(-1)
+    student_binary_probabilities = torch.stack(
+        (
+            student_target_probabilities,
+            1.0 - student_target_probabilities,
+        ),
+        dim=-1,
+    )
+    teacher_binary_probabilities = torch.stack(
+        (
+            teacher_target_probabilities,
+            1.0 - teacher_target_probabilities,
+        ),
+        dim=-1,
+    )
+    probability_floor = torch.finfo(student_logits.dtype).tiny
+    target_class_losses = F.kl_div(
+        student_binary_probabilities.clamp_min(probability_floor).log(),
+        teacher_binary_probabilities,
+        reduction="none",
+    ).sum(dim=-1)
+
+    target_class_mask = F.one_hot(
+        selected_target_ids,
+        num_classes=student_logits.shape[-1],
+    ).to(torch.bool)
+    masked_student_logits = scaled_student_logits.masked_fill(
+        target_class_mask,
+        torch.finfo(student_logits.dtype).min,
+    )
+    masked_teacher_logits = scaled_teacher_logits.masked_fill(
+        target_class_mask,
+        torch.finfo(teacher_logits.dtype).min,
+    )
+    non_target_class_losses = F.kl_div(
+        F.log_softmax(masked_student_logits, dim=-1),
+        F.softmax(masked_teacher_logits, dim=-1),
+        reduction="none",
+    ).sum(dim=-1)
+
+    per_token_losses = (
+        target_class_weight * target_class_losses
+        + non_target_class_weight * non_target_class_losses
+    ) * (temperature**2)
+    if class_weights is not None:
+        per_token_losses = per_token_losses * class_weights[selected_target_ids]
+
+    return per_token_losses.mean()
+
+
+def _calculate_configured_categorical_distillation_loss(
+    *,
+    student_logits: torch.Tensor,
+    teacher_logits: torch.Tensor,
+    target_ids: torch.Tensor | None,
+    token_mask: torch.Tensor,
+    temperature: float,
+    policy: TokenTaskDistillationPolicy,
+    class_weights: torch.Tensor | None = None,
+) -> torch.Tensor:
+    if policy.categorical_objective == "dkd":
+        if target_ids is None:
+            raise ValueError("DKD requires categorical target IDs.")
+        return calculate_decoupled_categorical_distillation_loss(
+            student_logits=student_logits,
+            teacher_logits=teacher_logits,
+            target_ids=target_ids,
+            token_mask=token_mask,
+            temperature=temperature,
+            target_class_weight=policy.target_class_weight,
+            non_target_class_weight=policy.non_target_class_weight,
+            class_weights=class_weights,
+        )
+
+    return calculate_categorical_distillation_loss(
+        student_logits=student_logits,
+        teacher_logits=teacher_logits,
+        token_mask=token_mask,
+        temperature=temperature,
+        target_ids=target_ids if class_weights is not None else None,
+        class_weights=class_weights,
+    )
+
+
 def compute_token_task_distillation_loss(
     *,
     student_logits: TokenTaskLogits,
     teacher_logits: TokenTaskLogits,
     token_mask: torch.Tensor,
     lemma_rule_mask: torch.Tensor,
-    temperature: float,
+    policy: TokenTaskDistillationPolicy,
     morphology_schema: MorphologySchema,
+    upos_ids: torch.Tensor | None = None,
     morphology_targets: tuple[torch.Tensor, ...] | None = None,
+    lemma_rule_ids: torch.Tensor | None = None,
     loss_weights: TokenTaskLossWeights | None = None,
 ) -> TokenTaskLosses:
     if (
@@ -194,8 +420,10 @@ def compute_token_task_distillation_loss(
                 "Morphology targets must match the morphology feature count."
             )
         resolved_morphology_targets: tuple[torch.Tensor | None, ...] = (
-            None,
-        ) * morphology_feature_count
+            (None,) * morphology_feature_count
+            if morphology_targets is None
+            else morphology_targets
+        )
         morphology_weights: tuple[torch.Tensor | None, ...] = (
             None,
         ) * morphology_feature_count
@@ -215,11 +443,13 @@ def compute_token_task_distillation_loss(
             )
         morphology_weights = loss_weights.morphology_weights
 
-    upos_loss = calculate_categorical_distillation_loss(
+    upos_loss = _calculate_configured_categorical_distillation_loss(
         student_logits=student_logits.upos_logits,
         teacher_logits=teacher_logits.upos_logits,
+        target_ids=upos_ids,
         token_mask=token_mask,
-        temperature=temperature,
+        temperature=policy.upos_temperature,
+        policy=policy,
     )
 
     morphology_feature_losses: list[torch.Tensor] = []
@@ -260,8 +490,10 @@ def compute_token_task_distillation_loss(
                 student_logits=student_feature_logits,
                 teacher_logits=teacher_feature_logits,
                 token_mask=token_mask,
-                temperature=temperature,
-                positive_targets=value_targets,
+                temperature=policy.morphology_temperature,
+                positive_targets=(
+                    value_targets if feature_weights is not None else None
+                ),
                 positive_weights=feature_weights,
             )
         else:
@@ -270,12 +502,13 @@ def compute_token_task_distillation_loss(
                 if feature_targets is None
                 else feature_targets.to(torch.long).argmax(dim=-1)
             )
-            feature_loss = calculate_categorical_distillation_loss(
+            feature_loss = _calculate_configured_categorical_distillation_loss(
                 student_logits=student_feature_logits,
                 teacher_logits=teacher_feature_logits,
-                token_mask=token_mask,
-                temperature=temperature,
                 target_ids=target_ids,
+                token_mask=token_mask,
+                temperature=policy.morphology_temperature,
+                policy=policy,
                 class_weights=feature_weights,
             )
 
@@ -283,11 +516,13 @@ def compute_token_task_distillation_loss(
 
     morphology_loss = torch.stack(morphology_feature_losses).mean()
 
-    lemma_rule_loss = calculate_categorical_distillation_loss(
+    lemma_rule_loss = _calculate_configured_categorical_distillation_loss(
         student_logits=student_logits.lemma_rule_logits,
         teacher_logits=teacher_logits.lemma_rule_logits,
+        target_ids=lemma_rule_ids,
         token_mask=token_mask & lemma_rule_mask,
-        temperature=temperature,
+        temperature=policy.lemma_rule_temperature,
+        policy=policy,
     )
 
     total_loss = upos_loss + morphology_loss + lemma_rule_loss
@@ -304,14 +539,13 @@ def combine_token_task_losses(
     *,
     supervised_losses: TokenTaskLosses,
     distillation_losses: TokenTaskLosses,
-    distillation_weight: float,
+    policy: TokenTaskDistillationPolicy,
 ) -> CombinedTokenTaskLosses:
-    if not math.isfinite(distillation_weight) or distillation_weight < 0.0:
-        raise ValueError("Distillation weight must be finite and non-negative.")
-
     total_loss = (
         supervised_losses.total_loss
-        + distillation_weight * distillation_losses.total_loss
+        + policy.upos_weight * distillation_losses.upos_loss
+        + policy.morphology_weight * distillation_losses.morphology_loss
+        + policy.lemma_rule_weight * distillation_losses.lemma_rule_loss
     )
 
     return CombinedTokenTaskLosses(

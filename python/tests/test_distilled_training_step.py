@@ -6,6 +6,7 @@ from prism.modeling import CharacterTokenBatch, TokenizedBatch, TokenTaskLogits
 from prism.schema import MorphologyFeatureSchema, MorphologySchema
 from prism.training import (
     SupervisedTokenTaskBatch,
+    TokenTaskDistillationPolicy,
     TokenTaskLossWeights,
     train_distilled_token_task_step,
 )
@@ -115,8 +116,13 @@ def test_distilled_training_step_only_updates_student() -> None:
         batch=batch,
         optimizer=optimizer,
         max_gradient_norm=1.0,
-        temperature=2.0,
-        distillation_weight=0.5,
+        distillation_policy=TokenTaskDistillationPolicy.uniform(
+            temperature=2.0,
+            weight=0.5,
+            categorical_objective="dkd",
+            target_class_weight=1.0,
+            non_target_class_weight=1.0,
+        ),
         morphology_schema=CATEGORICAL_MORPHOLOGY_SCHEMA,
     )
 
@@ -172,8 +178,10 @@ def test_distilled_training_step_forwards_character_inputs_to_teacher() -> None:
         batch=batch,
         optimizer=optimizer,
         max_gradient_norm=1.0,
-        temperature=2.0,
-        distillation_weight=0.5,
+        distillation_policy=TokenTaskDistillationPolicy.uniform(
+            temperature=2.0,
+            weight=0.5,
+        ),
         morphology_schema=CATEGORICAL_MORPHOLOGY_SCHEMA,
     )
 
@@ -224,8 +232,10 @@ def test_distilled_training_step_forwards_morphology_weights() -> None:
         batch=batch,
         optimizer=unweighted_optimizer,
         max_gradient_norm=1.0,
-        temperature=1.0,
-        distillation_weight=0.1,
+        distillation_policy=TokenTaskDistillationPolicy.uniform(
+            temperature=1.0,
+            weight=0.1,
+        ),
         morphology_schema=MULTI_LABEL_MORPHOLOGY_SCHEMA,
     )
     weighted_losses = train_distilled_token_task_step(
@@ -234,8 +244,10 @@ def test_distilled_training_step_forwards_morphology_weights() -> None:
         batch=batch,
         optimizer=weighted_optimizer,
         max_gradient_norm=1.0,
-        temperature=1.0,
-        distillation_weight=0.1,
+        distillation_policy=TokenTaskDistillationPolicy.uniform(
+            temperature=1.0,
+            weight=0.1,
+        ),
         morphology_schema=MULTI_LABEL_MORPHOLOGY_SCHEMA,
         loss_weights=TokenTaskLossWeights(
             morphology_weights=(torch.tensor([3.0, 1.0]),),

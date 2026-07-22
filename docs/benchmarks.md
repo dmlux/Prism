@@ -876,6 +876,138 @@ selection keeps the small Bokmål Rare-UPOS and Rare-morphology regressions of
 smaller than the Teacher headroom, so future distillation work should be
 task-specific rather than another blind global temperature/weight sweep.
 
+### Rejected task-specific distillation ablation
+
+Prism supports independent temperatures and loss weights for UPOS, morphology,
+and lemma. The first predeclared candidate changed only the three task weights
+relative to the selected uniform-policy Student:
+
+| Task | Temperature | Selected reference weight | Candidate weight |
+| --- | ---: | ---: | ---: |
+| UPOS | 1.0 | 0.10 | 0.05 |
+| Morphology | 1.0 | 0.10 | 0.20 |
+| Lemma rules | 1.0 | 0.10 | 0.10 |
+
+The run used the same data, seed, architecture, optimizer, twelve-epoch
+schedule, Teacher checkpoint, and development selection as the accepted
+reference. Epoch 8 was selected after approximately 1 hour 35 minutes 21
+seconds. Its 69,863,260-byte checkpoint has joint development loss 0.109877,
+only 0.000064 below the uniform reference.
+
+```shell
+python -m prism.languages.norwegian.train_baseline \
+  --language-tag no \
+  --model-role student \
+  --checkpoint runs/no-student-character-cnn-distilled-task-policy-e12-weighted/best.pt \
+  --teacher-checkpoint runs/no-teacher-base-character-cnn-e12-weighted/best.pt \
+  --distillation-temperature 1.0 \
+  --upos-distillation-weight 0.05 \
+  --morphology-distillation-weight 0.20 \
+  --lemma-rule-distillation-weight 0.10 \
+  --morphology-weight-cap 10.0
+```
+
+Bokmål is mixed and misses the morphology objective:
+
+| Bokmål metric | Uniform 0.10 | Task-specific | Change |
+| --- | ---: | ---: | ---: |
+| Development loss | 0.084777 | **0.084125** | -0.000652 |
+| Overall UPOS accuracy | **98.9469%** | 98.9442% | -0.0027 pp |
+| Overall lemma-rule accuracy | **98.8415%** | 98.8250% | -0.0165 pp |
+| Rare UPOS accuracy | 98.2222% | **98.3492%** | +0.1270 pp |
+| Rare lemma end-to-end accuracy | 97.0794% | 97.0794% | 0.0000 pp |
+| Rare morphology micro F1 | **93.6418%** | 93.6274% | -0.0144 pp |
+| OOV UPOS accuracy | 98.2187% | 98.2187% | 0.0000 pp |
+| OOV lemma end-to-end accuracy | **92.9106%** | 92.6612% | -0.2494 pp |
+| OOV morphology micro F1 | **92.7381%** | 92.7156% | -0.0225 pp |
+
+Nynorsk gains morphology but regresses more broadly:
+
+| Nynorsk metric | Uniform 0.10 | Task-specific | Change |
+| --- | ---: | ---: | ---: |
+| Development loss | **0.139228** | 0.139848 | +0.000620 |
+| Overall UPOS accuracy | **98.5920%** | 98.5824% | -0.0096 pp |
+| Overall lemma-rule accuracy | **98.5812%** | 98.5588% | -0.0224 pp |
+| Rare UPOS accuracy | **98.2449%** | 98.2031% | -0.0418 pp |
+| Rare lemma end-to-end accuracy | 96.9076% | **96.9494%** | +0.0418 pp |
+| Rare morphology micro F1 | 88.4933% | **88.8060%** | +0.3127 pp |
+| OOV UPOS accuracy | 97.4763% | 97.4763% | 0.0000 pp |
+| OOV lemma end-to-end accuracy | **91.1672%** | 91.1278% | -0.0394 pp |
+| OOV morphology micro F1 | 85.7792% | **85.8340%** | +0.0549 pp |
+
+The candidate is rejected because its Nynorsk morphology gains do not transfer
+to Bokmål and come with broader regressions on both written standards. The
+uniform temperature-1.0, weight-0.1 Student remains selected. This experiment
+tests task-specific logit weighting, not full DKD; the official test splits
+remain untouched.
+
+### Selected categorical DKD ablation
+
+The implemented DKD objective separates target-class knowledge (TCKD) from the
+renormalized non-target distribution (NCKD) for categorical outputs. It applies
+to UPOS, lemma rules, and exclusive morphology features. Multi-value
+morphology remains on binary KL because it has no single target class.
+
+The first candidate isolates this objective change. It restores the selected
+uniform temperature 1.0 and outer task weight 0.1, then assigns both TCKD and
+NCKD component weight 1.0. Data, seed, model architecture, optimizer,
+twelve-epoch schedule, Teacher, checkpoint selection, and evaluation remain
+fixed. Development-loss selection chose epoch 12 after approximately 1 hour
+41 minutes 49 seconds:
+
+- Checkpoint: `runs/no-student-character-cnn-dkd-t100-a100-b100-e12-weighted/best.pt`
+- Joint development loss: 0.101139
+- Uniform-KL reference joint development loss: 0.109941
+- Checkpoint size: 69,863,388 bytes
+
+```shell
+.venv/bin/python -m prism.languages.norwegian.train_baseline \
+  --language-tag no \
+  --model-role student \
+  --checkpoint runs/no-student-character-cnn-dkd-t100-a100-b100-e12-weighted/best.pt \
+  --teacher-checkpoint runs/no-teacher-base-character-cnn-e12-weighted/best.pt \
+  --distillation-temperature 1.0 \
+  --distillation-weight 0.1 \
+  --categorical-distillation-objective dkd \
+  --dkd-target-class-weight 1.0 \
+  --dkd-non-target-class-weight 1.0 \
+  --morphology-weight-cap 10.0
+```
+
+Separate Bokmål evaluation favors DKD:
+
+| Bokmål metric | Uniform KL | DKD | Change |
+| --- | ---: | ---: | ---: |
+| Development loss | 0.084777 | **0.077811** | -0.006966 |
+| Overall UPOS accuracy | 98.9469% | **98.9634%** | +0.0165 pp |
+| Overall lemma-rule accuracy | 98.8415% | **99.0231%** | +0.1816 pp |
+| Rare UPOS accuracy | 98.2222% | **98.3810%** | +0.1588 pp |
+| Rare lemma end-to-end accuracy | 97.0794% | **97.5238%** | +0.4444 pp |
+| Rare morphology micro F1 | 93.6418% | **94.4867%** | +0.8449 pp |
+| OOV UPOS accuracy | **98.2187%** | 98.0406% | -0.1781 pp |
+| OOV lemma end-to-end accuracy | 92.9106% | **93.0887%** | +0.1781 pp |
+| OOV morphology micro F1 | 92.7381% | **93.3333%** | +0.5952 pp |
+
+Nynorsk independently confirms the broader gain:
+
+| Nynorsk metric | Uniform KL | DKD | Change |
+| --- | ---: | ---: | ---: |
+| Development loss | 0.139228 | **0.128288** | -0.010940 |
+| Overall UPOS accuracy | 98.5920% | **98.6368%** | +0.0448 pp |
+| Overall lemma-rule accuracy | 98.5812% | **98.6357%** | +0.0545 pp |
+| Rare UPOS accuracy | **98.2449%** | 98.1195% | -0.1254 pp |
+| Rare lemma end-to-end accuracy | 96.9076% | **97.0748%** | +0.1672 pp |
+| Rare morphology micro F1 | 88.4933% | **89.4502%** | +0.9569 pp |
+| OOV UPOS accuracy | **97.4763%** | 97.3975% | -0.0788 pp |
+| OOV lemma end-to-end accuracy | 91.1672% | **91.6009%** | +0.4337 pp |
+| OOV morphology micro F1 | 85.7792% | **86.7135%** | +0.9343 pp |
+
+DKD is selected as the new compact Student reference. It improves joint and
+per-standard loss, overall UPOS and lemma, and Rare/OOV lemma and morphology
+on both written standards without changing inference cost. The smaller OOV
+UPOS regressions on both standards and the Nynorsk Rare-UPOS regression remain
+explicit tradeoffs. The official test splits remain untouched.
+
 ## Historical format-2 NorBERT4-Base teacher
 
 The first historical teacher uses the same supervised data, schema, task heads, and

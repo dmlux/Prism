@@ -301,12 +301,12 @@ Ziele:
 Die aktuelle Rollenverteilung ist:
 
 - `ltg/norbert4-xsmall` ist der ausgewählte Backbone des kompakten Students;
-- `ltg/norbert4-base` wurde bereits als größerer Teacher-Backbone erprobt und
-  hat die damalige Gold-only-Referenz klar übertroffen;
-- der vorhandene Base-Teacher gehört jedoch zum historischen Format-2-Vertrag
-  und ist nicht gewichtskompatibel mit dem ausgewählten Format-3-Modell;
-- vor der nächsten Distillation wird deshalb ein neuer Base-Teacher mit dem
-  aktuellen Schema und der ausgewählten Aufgabenarchitektur trainiert;
+- `ltg/norbert4-base` ist der akzeptierte Format-3-Teacher-Backbone; sein
+  zeichenbewusster Checkpoint verwendet dasselbe Schema und dieselbe
+  Aufgabenarchitektur wie der Student und übertrifft ihn auf beiden
+  Schriftstandards einschließlich Rare/OOV;
+- der frühere Base-Teacher gehört zum historischen Format-2-Vertrag und bleibt
+  ein inkompatibler Vergleichswert;
 - `ltg/norbert4-large` bleibt ein späterer Teacher-Vergleich, falls Base den
   finalen Student nicht ausreichend verbessert.
 
@@ -1301,16 +1301,18 @@ Lemma-Regeln
 Der Teacher wird zunächst auf Gold-Daten spezialisiert. Danach erzeugt er für
 jedes Token Logits oder Wahrscheinlichkeitsverteilungen. Die Distillation
 spiegelt denselben hybriden Vertrag: exklusive Morphologie-Features verwenden
-kategoriale KL-Divergenz, mehrwertige Features binäre KL-Divergenz nur über
-die realen Werte.
+wahlweise klassische kategoriale KL-Divergenz oder DKD, mehrwertige Features
+binäre KL-Divergenz nur über die realen Werte.
 
 Teacher und Student laufen auf denselben typisierten Token-Batches. Der
 Teacher steht im Evaluationsmodus, seine Parameter sind eingefroren und sein
 Forward-Pass läuft ohne Gradienten. Der Student erhält weiterhin den normalen
 Gold-Loss. Zusätzlich werden seine **finalen** UPOS-, verfeinerten
 Morphologie- und Lemma-Logits mit den entsprechenden finalen Teacher-Logits
-verglichen. Die Temperatur skaliert beide Verteilungen; der Distillation-Loss
-wird wie üblich mit `Temperatur²` zurückskaliert.
+verglichen. Eine typisierte `TokenTaskDistillationPolicy` besitzt getrennte
+Temperaturen für UPOS, Morphologie und Lemma. Die jeweilige Temperatur skaliert
+Teacher- und Student-Verteilung; der zugehörige Distillation-Loss wird wie
+üblich mit `Temperatur²` zurückskaliert.
 
 Gold:
 
@@ -1370,26 +1372,58 @@ Vereinfacht:
 ```text
 Student-Loss =
     Gold-Loss
-  + alpha * Distillation-Loss
+  + alpha_upos  * Distillation-Loss_upos
+  + alpha_morph * Distillation-Loss_morph
+  + alpha_lemma * Distillation-Loss_lemma
 ```
 
-Der vorhandene NorBERT4-Base-Teacher und die bisherigen
-Distillationsbenchmarks beweisen den Mechanismus, verwenden aber den alten
-Format-2-Morphologievertrag. Sie können nicht in den ausgewählten
-Format-3-Student geladen werden. Der neu trainierte Teacher verwendet deshalb
-das ausgewählte zeichenbewusste Format-3-Aufgabenmodell.
+Die drei Temperaturen und drei Gewichte werden validiert, im Checkpoint als
+`distillation_policy` gespeichert und beim Start eines Trainingslaufs
+ausgegeben. Die bisherigen globalen CLI-Optionen bleiben als Kurzform erhalten
+und setzen alle drei Tasks gleich. Task-spezifische Optionen überschreiben nur
+den jeweiligen Wert. Die Policy verändert ausschließlich das Training: Modell,
+Checkpoint-Größe und Inferenzpfad des ausgelieferten Students bleiben gleich.
+
+Für kategoriale Ausgaben kann die Policy `dkd` statt `kl` wählen. DKD nutzt die
+Gold-Ziel-ID und zerlegt den weichen Teacher-Loss in:
+
+```text
+DKD = beta_target * TCKD + beta_non_target * NCKD
+```
+
+- TCKD vergleicht die binäre Verteilung „Gold-Zielklasse gegen alle übrigen
+  Klassen";
+- NCKD entfernt die Zielklasse und vergleicht die renormalisierte Verteilung
+  über alle Nicht-Zielklassen.
+
+Beide Komponenten werden separat gewichtet und gemeinsam mit `Temperatur²`
+skaliert. Das gilt für UPOS, Lemma-Regeln und exklusive Morphologie-Features.
+Mehrwertige Morphologie besitzt mehrere gleichzeitig richtige Werte und damit
+keine einzelne Zielklasse; sie bleibt deshalb beim bestehenden binären
+KL-Vertrag. Diese Grenze ist schema-getrieben und nicht norwegisch
+hardcodiert.
+
+Der ausgewählte NorBERT4-Base-Teacher verwendet denselben zeichenbewussten
+Format-3-Aufgabenvertrag wie der Student. Historische Format-2-Teacher bleiben
+inkompatible Vergleichswerte und dürfen nicht in diesen Pfad geladen werden.
 
 Der Teacher überträgt keine Gewichte direkt. Er liefert zusätzliche
 Trainingssignale. Der Student wird gegen dieselbe Architektur ohne
 Distillation verglichen. Nur dadurch lässt sich zeigen, dass der Teacher den
 ausgelieferten Student tatsächlich verbessert.
 
-Spätere Ablationen können zusätzlich prüfen:
+Die DKD-Implementierung ist eine optionale Trainingsstrategie und der
+kontrollierte Kandidat mit Temperatur 1,0, äußerem Task-Gewicht 0,1 sowie
+TCKD/NCKD-Gewichten 1,0/1,0 ist der ausgewählte Student-Standard. Gegenüber
+der uniformen KL-Referenz sinken gemeinsamer, Bokmål- und Nynorsk-Loss; zudem
+steigen Gesamt-UPOS, Lemma sowie Rare/OOV-Lemma und -Morphologie auf beiden
+Schriftstandards. Die kleineren Rare/OOV-UPOS-Rückgänge bleiben dokumentierte
+Tradeoffs. Der uniforme KL-Student bleibt unverändert rekonstruierbar. Spätere
+Ablationen können zusätzlich prüfen:
 
 - reine Logit-Distillation;
 - Hidden-State-Distillation mit Projektionsschicht;
-- unterschiedliche Temperaturen;
-- unterschiedliche Loss-Gewichte;
+- dynamische statt fixer Temperaturen;
 - Teacher base gegen Teacher large.
 
 ## Dokument-Inferenz für LexKeep
@@ -1510,6 +1544,8 @@ von offenen Arbeiten:
 | Kompakter zeichenbewusster Morphologie-/Lemma-Zweig | kontrolliert gemessen und ausgewählt |
 | Neuer Format-3-Teacher mit finaler Aufgabenarchitektur | trainiert, auf Bokmål/Nynorsk bestätigt und akzeptiert |
 | Distillation gegen gleich großen Gold-only-Student | kontrolliert gemessen und ausgewählt |
+| Task-spezifische Distillationstemperaturen und -gewichte | implementiert; erster kontrollierter Kandidat verworfen |
+| Kategoriale DKD mit TCKD/NCKD | kontrolliert gemessen und als neuer Student-Standard ausgewählt |
 | Konfidenzkalibrierung und feste Ausgabeentscheidung | offen |
 | Dynamischer Export, Quantisierung und Runtime-Parität | offen |
 | 6.000-Token-Dokumentbenchmark | offen |

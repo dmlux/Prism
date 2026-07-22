@@ -21,8 +21,10 @@ from prism.training.checkpoints import (
 from prism.training.config import SupervisedTrainingConfig
 from prism.training.distillation import (
     CombinedTokenTaskLosses,
+    TokenTaskDistillationPolicy,
     calculate_binary_distillation_loss,
     calculate_categorical_distillation_loss,
+    calculate_decoupled_categorical_distillation_loss,
     combine_token_task_losses,
     compute_token_task_distillation_loss,
 )
@@ -76,8 +78,10 @@ __all__ = [
     "build_token_task_loss_weights",
     "calculate_binary_distillation_loss",
     "calculate_categorical_distillation_loss",
+    "calculate_decoupled_categorical_distillation_loss",
     "compute_token_task_distillation_loss",
     "CombinedTokenTaskLosses",
+    "TokenTaskDistillationPolicy",
     "combine_token_task_losses",
     "DistilledEpochMetrics",
     "train_distilled_token_task_epoch",

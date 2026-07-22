@@ -198,7 +198,19 @@ All three gold-only decisions are now recorded. Teacher fine-tuning and its
 separate Bokmål/Nynorsk plus Rare/OOV evaluation have completed successfully.
 The first distillation run and its separate Bokmål/Nynorsk plus Rare/OOV
 evaluation have completed. The distilled Student is selected as the compact
-reference; later distillation refinement must be task-specific.
+reference. A typed task-specific policy now exposes separate UPOS,
+morphology, and lemma temperatures and weights without changing inference.
+The first controlled candidate kept all temperatures at 1.0 and used weights
+0.05/0.20/0.10 for UPOS/morphology/lemma. It has been measured and rejected:
+Nynorsk Rare/OOV morphology improves, but both standards regress on broader
+quality measures and Bokmål Rare/OOV morphology does not improve. Full
+categorical DKD is implemented as a separate optional objective: it splits
+target and non-target class knowledge for UPOS, lemma, and exclusive morphology
+while preserving binary KL for multi-value morphology. Its first controlled
+temperature-1.0, outer-weight-0.1 and component-weight-1.0/1.0 candidate is
+measured and selected as the compact reference. It improves loss, overall
+UPOS, lemma, and Rare/OOV lemma and morphology on both written standards;
+localized Rare/OOV UPOS regressions remain explicit.
 
 The rejected adapter candidate shares one adapter across all morphology
 feature heads, adds 111,456 parameters at `H = 192`, and changes neither task

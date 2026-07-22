@@ -7,6 +7,7 @@ from prism.schema import MorphologySchema
 from prism.training.batches import SupervisedTokenTaskBatch
 from prism.training.distillation import (
     CombinedTokenTaskLosses,
+    TokenTaskDistillationPolicy,
     combine_token_task_losses,
     compute_token_task_distillation_loss,
 )
@@ -89,8 +90,7 @@ def train_distilled_token_task_step(
     batch: SupervisedTokenTaskBatch,
     optimizer: Optimizer,
     max_gradient_norm: float,
-    temperature: float,
-    distillation_weight: float,
+    distillation_policy: TokenTaskDistillationPolicy,
     morphology_schema: MorphologySchema,
     loss_weights: TokenTaskLossWeights | None = None,
     teacher_model_inputs: TokenizedBatch | None = None,
@@ -133,15 +133,17 @@ def train_distilled_token_task_step(
         teacher_logits=teacher_logits,
         token_mask=batch.targets.token_mask,
         lemma_rule_mask=batch.targets.lemma_rule_mask,
-        temperature=temperature,
+        policy=distillation_policy,
         morphology_schema=morphology_schema,
+        upos_ids=batch.targets.upos_ids,
         morphology_targets=batch.targets.morphology_targets,
+        lemma_rule_ids=batch.targets.lemma_rule_ids,
         loss_weights=loss_weights,
     )
     losses = combine_token_task_losses(
         supervised_losses=supervised_losses,
         distillation_losses=distillation_losses,
-        distillation_weight=distillation_weight,
+        policy=distillation_policy,
     )
 
     losses.total_loss.backward()

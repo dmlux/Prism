@@ -125,6 +125,18 @@ modernere, robustere Variante davon.
 
 ### 3. Task-spezifische Distillation-Policy auf DKD-Basis (bereits als nächster Schritt notiert)
 
+**Umsetzungsstand:** Die Grundlage ist implementiert: UPOS, Morphologie und
+Lemma besitzen getrennte Temperaturen und Loss-Gewichte. Der erste kontrollierte
+Kandidat mit Gewichten 0,05/0,20/0,10 wurde gemessen und verworfen: Er verbessert
+Nynorsk Rare/OOV-Morphologie, regressiert aber breitere Metriken auf beiden
+Schriftstandards und verbessert Bokmål Rare/OOV-Morphologie nicht. Die echte
+DKD-Zerlegung in TCKD und NCKD ist als optionale kategoriale
+Trainingsstrategie implementiert und ihr erster kontrollierter Kandidat wurde
+ausgewählt. Er senkt den Loss und verbessert Gesamt-UPOS, Lemma sowie
+Rare/OOV-Lemma und -Morphologie auf beiden Schriftstandards. Mehrwertige
+Morphologie bleibt bewusst beim binären KL-Loss, da dort keine einzelne
+Zielklasse existiert.
+
 **Idee:** Statt einer globalen Temperatur/Gewichtung je eine passende
 Einstellung pro Kopf: Softmax-UPOS (17 Klassen), binäre Morphologie-Werte und
 der 1.059-Wege-Lemma-Kopf reagieren völlig unterschiedlich auf Temperatur. Die
@@ -514,20 +526,18 @@ um überhaupt zu entscheiden, ob sich 14/17 lohnen.
 
 ## Empfohlene Reihenfolge zum Bewerten
 
-1. **DKD-basierte task-spezifische Distillation (3)** – geringster Aufwand, exakt
-   der dokumentierte nächste Schritt, sofort messbar gegen die bestehende
-   Referenz und die passende Antwort auf das „Über-Glätten" aus `benchmarks.md`.
-2. **Silber-Daten-Distillation (1)** – wahrscheinlich größter Genauigkeitssprung,
+1. **Silber-Daten-Distillation (1)** – wahrscheinlich größter nächster
+   Genauigkeitssprung, nachdem DKD erfolgreich ausgewählt wurde;
    weil reine Logit-Distillation auf dem kleinen Gold-Set nachweislich ausgereizt
    ist.
-3. **Embedding quantisieren + Vokabular-Beschneidung (6 + 7)** – größter
+2. **Embedding quantisieren + Vokabular-Beschneidung (6 + 7)** – größter
    Größensprung, zahlt aufs 100-MiB-Ziel ein, ohne den Backbone umzubauen.
-4. **MatQuant/QAT-Quantisierung (8)** – Größe und Geschwindigkeit zugleich.
-5. **MiniLMv2-Attention-Distillation (2)** – zusätzlicher Genauigkeitshebel, wenn
+3. **MatQuant/QAT-Quantisierung (8)** – Größe und Geschwindigkeit zugleich.
+4. **MiniLMv2-Attention-Distillation (2)** – zusätzlicher Genauigkeitshebel, wenn
    Logit-Distillation und Silber-Daten ausgeschöpft sind.
-6. **Prune-then-Distill (9)** – der am besten belegte Latenz-/Größenhebel, aber
+5. **Prune-then-Distill (9)** – der am besten belegte Latenz-/Größenhebel, aber
    höherer Aufwand; erst nach den günstigeren Schritten.
-7. **Konformale Mondrian-Abstention (12)** – Qualitäts-/Vertrauens-
+6. **Konformale Mondrian-Abstention (12)** – Qualitäts-/Vertrauens-
    Differenzierung gegenüber UDPipe.
 
 Ergänzende Architektur-Experimente (parallel bewertbar):
@@ -539,7 +549,7 @@ Ergänzende Architektur-Experimente (parallel bewertbar):
   Verhältnis unter den Architektur-Ideen, allein mit UD-Daten trainierbar.
 
 Jeder Punkt wird gegen zwei Referenzen gemessen: den gold-only Student und den
-gewählten distillierten Student (`t1.0/w0.1`). Kein Testsplit wird angefasst,
+gewählten DKD-Student (`t1.0/w0.1`, TCKD/NCKD `1.0/1.0`). Kein Testsplit wird angefasst,
 bevor Modell und Kalibrierung fixiert sind.
 
 ---

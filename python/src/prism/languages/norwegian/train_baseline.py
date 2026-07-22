@@ -1,4 +1,5 @@
 import argparse
+import math
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -47,6 +48,7 @@ from prism.training import (
     SupervisedTokenTaskBatch,
     SupervisedTrainingConfig,
     SupervisedTrainingEpochResult,
+    TokenTaskDistillationPolicy,
     build_linear_warmup_decay_scheduler,
     build_supervised_adamw_optimizer,
     build_supervised_sentence_batches,
@@ -74,8 +76,7 @@ class BaselineTrainingArguments:
     language_tag: str
     model_role: ModelRole
     teacher_checkpoint_path: Path | None
-    distillation_temperature: float
-    distillation_weight: float
+    distillation_policy: TokenTaskDistillationPolicy
     token_pooling_strategy: TokenPoolingStrategy
     token_task_head_architecture: TokenTaskHeadArchitecture
     backbone_layer_aggregation: BackboneLayerAggregationStrategy
@@ -121,6 +122,51 @@ def parse_training_arguments(
         default=0.1,
     )
     parser.add_argument(
+        "--upos-distillation-temperature",
+        type=float,
+        default=None,
+    )
+    parser.add_argument(
+        "--morphology-distillation-temperature",
+        type=float,
+        default=None,
+    )
+    parser.add_argument(
+        "--lemma-rule-distillation-temperature",
+        type=float,
+        default=None,
+    )
+    parser.add_argument(
+        "--upos-distillation-weight",
+        type=float,
+        default=None,
+    )
+    parser.add_argument(
+        "--morphology-distillation-weight",
+        type=float,
+        default=None,
+    )
+    parser.add_argument(
+        "--lemma-rule-distillation-weight",
+        type=float,
+        default=None,
+    )
+    parser.add_argument(
+        "--categorical-distillation-objective",
+        choices=("kl", "dkd"),
+        default="kl",
+    )
+    parser.add_argument(
+        "--dkd-target-class-weight",
+        type=float,
+        default=1.0,
+    )
+    parser.add_argument(
+        "--dkd-non-target-class-weight",
+        type=float,
+        default=1.0,
+    )
+    parser.add_argument(
         "--token-pooling",
         choices=tuple(strategy.value for strategy in TokenPoolingStrategy),
         default=TokenPoolingStrategy.MEAN.value,
@@ -152,10 +198,58 @@ def parse_training_arguments(
 
     parsed_arguments = parser.parse_args(arguments)
 
-    if parsed_arguments.distillation_temperature <= 0.0:
-        parser.error("--distillation-temperature must be greater than zero")
-    if parsed_arguments.distillation_weight < 0.0:
-        parser.error("--distillation-weight must be non-negative")
+    resolved_temperatures = {
+        "upos": (
+            parsed_arguments.upos_distillation_temperature
+            if parsed_arguments.upos_distillation_temperature is not None
+            else parsed_arguments.distillation_temperature
+        ),
+        "morphology": (
+            parsed_arguments.morphology_distillation_temperature
+            if parsed_arguments.morphology_distillation_temperature is not None
+            else parsed_arguments.distillation_temperature
+        ),
+        "lemma_rule": (
+            parsed_arguments.lemma_rule_distillation_temperature
+            if parsed_arguments.lemma_rule_distillation_temperature is not None
+            else parsed_arguments.distillation_temperature
+        ),
+    }
+    resolved_weights = {
+        "upos": (
+            parsed_arguments.upos_distillation_weight
+            if parsed_arguments.upos_distillation_weight is not None
+            else parsed_arguments.distillation_weight
+        ),
+        "morphology": (
+            parsed_arguments.morphology_distillation_weight
+            if parsed_arguments.morphology_distillation_weight is not None
+            else parsed_arguments.distillation_weight
+        ),
+        "lemma_rule": (
+            parsed_arguments.lemma_rule_distillation_weight
+            if parsed_arguments.lemma_rule_distillation_weight is not None
+            else parsed_arguments.distillation_weight
+        ),
+    }
+    if any(
+        not math.isfinite(temperature) or temperature <= 0.0
+        for temperature in resolved_temperatures.values()
+    ):
+        parser.error("distillation temperatures must be finite and greater than zero")
+    if any(
+        not math.isfinite(weight) or weight < 0.0
+        for weight in resolved_weights.values()
+    ):
+        parser.error("distillation weights must be finite and non-negative")
+    if any(
+        not math.isfinite(weight) or weight < 0.0
+        for weight in (
+            parsed_arguments.dkd_target_class_weight,
+            parsed_arguments.dkd_non_target_class_weight,
+        )
+    ):
+        parser.error("DKD component weights must be finite and non-negative")
     if parsed_arguments.epoch_count <= 0:
         parser.error("--epoch-count must be greater than zero")
     if (
@@ -173,8 +267,17 @@ def parse_training_arguments(
             parsed_arguments.model_role,
         ),
         teacher_checkpoint_path=parsed_arguments.teacher_checkpoint_path,
-        distillation_temperature=parsed_arguments.distillation_temperature,
-        distillation_weight=parsed_arguments.distillation_weight,
+        distillation_policy=TokenTaskDistillationPolicy(
+            upos_temperature=resolved_temperatures["upos"],
+            morphology_temperature=resolved_temperatures["morphology"],
+            lemma_rule_temperature=resolved_temperatures["lemma_rule"],
+            upos_weight=resolved_weights["upos"],
+            morphology_weight=resolved_weights["morphology"],
+            lemma_rule_weight=resolved_weights["lemma_rule"],
+            categorical_objective=parsed_arguments.categorical_distillation_objective,
+            target_class_weight=parsed_arguments.dkd_target_class_weight,
+            non_target_class_weight=(parsed_arguments.dkd_non_target_class_weight),
+        ),
         token_pooling_strategy=TokenPoolingStrategy(parsed_arguments.token_pooling),
         token_task_head_architecture=TokenTaskHeadArchitecture(
             parsed_arguments.task_head_architecture
@@ -384,6 +487,28 @@ def main() -> None:
         student_character_vocabulary=character_vocabulary,
     )
 
+    if teacher is not None:
+        policy = arguments.distillation_policy
+        print("Categorical distillation objective:", policy.categorical_objective)
+        print(
+            "Distillation temperatures: "
+            f"UPOS={policy.upos_temperature:g}, "
+            f"morphology={policy.morphology_temperature:g}, "
+            f"lemma={policy.lemma_rule_temperature:g}"
+        )
+        print(
+            "Distillation weights: "
+            f"UPOS={policy.upos_weight:g}, "
+            f"morphology={policy.morphology_weight:g}, "
+            f"lemma={policy.lemma_rule_weight:g}"
+        )
+        if policy.categorical_objective == "dkd":
+            print(
+                "DKD component weights: "
+                f"target={policy.target_class_weight:g}, "
+                f"non-target={policy.non_target_class_weight:g}"
+            )
+
     training_batch_count = (
         len(training_corpus.sentences) + config.batch_size - 1
     ) // config.batch_size
@@ -463,8 +588,7 @@ def main() -> None:
             scheduler=scheduler,
             device=device,
             max_gradient_norm=config.max_gradient_norm,
-            temperature=arguments.distillation_temperature,
-            distillation_weight=arguments.distillation_weight,
+            distillation_policy=arguments.distillation_policy,
             morphology_schema=schema.morphology,
             loss_weights=loss_weights,
         )
@@ -561,11 +685,8 @@ def main() -> None:
                     if teacher is None
                     else training_profiles[0].teacher_backbone.revision
                 ),
-                "distillation_temperature": (
-                    None if teacher is None else arguments.distillation_temperature
-                ),
-                "distillation_weight": (
-                    None if teacher is None else arguments.distillation_weight
+                "distillation_policy": (
+                    None if teacher is None else asdict(arguments.distillation_policy)
                 ),
                 "schema_language_tags": tuple(
                     schema_profile.language_tag

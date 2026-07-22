@@ -19,6 +19,7 @@ from prism.training.losses import (
     TokenTaskLosses,
     TokenTaskLossWeights,
 )
+from prism.training.distillation import TokenTaskDistillationPolicy
 from prism.training.steps import (
     evaluate_supervised_token_task_step,
     train_distilled_token_task_step,
@@ -232,8 +233,7 @@ def train_distilled_token_task_epoch(
     scheduler: LRScheduler,
     device: torch.device,
     max_gradient_norm: float,
-    temperature: float,
-    distillation_weight: float,
+    distillation_policy: TokenTaskDistillationPolicy,
     morphology_schema: MorphologySchema,
     loss_weights: TokenTaskLossWeights | None = None,
 ) -> DistilledEpochMetrics:
@@ -252,8 +252,7 @@ def train_distilled_token_task_epoch(
             batch=device_batch,
             optimizer=optimizer,
             max_gradient_norm=max_gradient_norm,
-            temperature=temperature,
-            distillation_weight=distillation_weight,
+            distillation_policy=distillation_policy,
             morphology_schema=morphology_schema,
             loss_weights=loss_weights,
         )
@@ -280,7 +279,11 @@ def train_distilled_token_task_epoch(
         distillation_metrics=distillation_metrics,
         combined_loss=(
             supervised_metrics.total_loss
-            + distillation_weight * distillation_metrics.total_loss
+            + distillation_policy.upos_weight * distillation_metrics.upos_loss
+            + distillation_policy.morphology_weight
+            * distillation_metrics.morphology_loss
+            + distillation_policy.lemma_rule_weight
+            * distillation_metrics.lemma_rule_loss
         ),
     )
 

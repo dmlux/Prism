@@ -10,6 +10,7 @@ from prism.modeling import (
 from prism.languages.norwegian.train_baseline import (
     parse_training_arguments,
 )
+from prism.training import TokenTaskDistillationPolicy
 
 
 def test_parse_training_arguments_preserves_baseline_variants() -> None:
@@ -18,8 +19,12 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
     assert default_arguments.language_tag == "nb"
     assert default_arguments.checkpoint_path == Path("runs/nb-student-baseline/best.pt")
     assert default_arguments.morphology_weight_cap is None
-    assert default_arguments.distillation_temperature == 1.0
-    assert default_arguments.distillation_weight == 0.1
+    assert default_arguments.distillation_policy == (
+        TokenTaskDistillationPolicy.uniform(
+            temperature=1.0,
+            weight=0.1,
+        )
+    )
     assert default_arguments.token_pooling_strategy is TokenPoolingStrategy.MEAN
     assert (
         default_arguments.token_task_head_architecture
@@ -202,8 +207,59 @@ def test_parse_training_arguments_accepts_distillation_policy() -> None:
     )
 
     assert arguments.teacher_checkpoint_path == Path("runs/no-teacher-base/best.pt")
-    assert arguments.distillation_temperature == 2.0
-    assert arguments.distillation_weight == 0.5
+    assert arguments.distillation_policy == TokenTaskDistillationPolicy.uniform(
+        temperature=2.0,
+        weight=0.5,
+    )
+
+
+def test_parse_training_arguments_accepts_task_specific_distillation_policy() -> None:
+    arguments = parse_training_arguments(
+        (
+            "--upos-distillation-temperature",
+            "1.0",
+            "--morphology-distillation-temperature",
+            "1.5",
+            "--lemma-rule-distillation-temperature",
+            "2.0",
+            "--upos-distillation-weight",
+            "0.05",
+            "--morphology-distillation-weight",
+            "0.2",
+            "--lemma-rule-distillation-weight",
+            "0.1",
+        )
+    )
+
+    assert arguments.distillation_policy == TokenTaskDistillationPolicy(
+        upos_temperature=1.0,
+        morphology_temperature=1.5,
+        lemma_rule_temperature=2.0,
+        upos_weight=0.05,
+        morphology_weight=0.2,
+        lemma_rule_weight=0.1,
+    )
+
+
+def test_parse_training_arguments_accepts_decoupled_distillation() -> None:
+    arguments = parse_training_arguments(
+        (
+            "--categorical-distillation-objective",
+            "dkd",
+            "--dkd-target-class-weight",
+            "1.0",
+            "--dkd-non-target-class-weight",
+            "2.0",
+        )
+    )
+
+    assert arguments.distillation_policy == TokenTaskDistillationPolicy.uniform(
+        temperature=1.0,
+        weight=0.1,
+        categorical_objective="dkd",
+        target_class_weight=1.0,
+        non_target_class_weight=2.0,
+    )
 
 
 def test_parse_training_arguments_rejects_non_positive_epoch_count() -> None:

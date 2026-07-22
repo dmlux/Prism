@@ -1025,3 +1025,60 @@ UPOS remains unchanged, and Nynorsk UPOS improves. The small Bokmål Rare-UPOS
 and Rare-morphology regressions remain explicit. The Teacher-to-Student gap is
 still large, so any later distillation refinement must use task-specific
 policies rather than another blind global sweep.
+
+The first task-specific distillation-policy implementation is complete and
+benchmarked. `TokenTaskDistillationPolicy` independently controls the
+temperature and loss weight for UPOS, morphology, and lemma while retaining
+the selected global 1.0/0.1 CLI values as backward-compatible fallbacks.
+Training steps and epochs consume the typed policy, new checkpoints serialize
+all six resolved values, and the CLI prints them before a distilled run. This
+does not change the Student architecture, checkpoint parameter count, export,
+or inference cost. That first implementation deliberately preceded full DKD
+and did not yet separate target-class and non-target-class losses; the later
+DKD implementation below now adds that separation.
+
+The controlled candidate kept all temperatures at 1.0, lowered UPOS
+distillation to 0.05, raised morphology distillation to 0.20, and retained
+lemma distillation at 0.10. Epoch 8 again produced the best checkpoint at
+`runs/no-student-character-cnn-distilled-task-policy-e12-weighted/best.pt`;
+joint development loss improved by only 0.000064 to 0.109877.
+
+Separate evaluation rejects the candidate. On Bokmål, loss improves by
+0.000652 and Rare UPOS by 0.1270 percentage points, but overall UPOS and lemma,
+Rare morphology, OOV lemma, and OOV morphology regress. The OOV-lemma drop is
+0.2494 points. On Nynorsk, Rare/OOV morphology micro F1 improves by 0.3127 and
+0.0549 points and Rare lemma by 0.0418 points, but loss worsens by 0.000620;
+overall UPOS and lemma, Rare UPOS, and OOV lemma also regress. The candidate
+therefore fails the two-standard acceptance rule. The uniform temperature-1.0,
+weight-0.1 Student remains the selected compact reference. The official test
+splits remain untouched.
+
+True categorical DKD is now implemented as an optional, language-independent
+distillation objective. It separates target-class knowledge (TCKD) from the
+renormalized non-target distribution (NCKD), exposes independent component
+weights, and keeps the selected classic KL objective as the default. UPOS,
+lemma rules, and exclusive morphology features use DKD when selected;
+multi-value morphology remains on binary KL because it has no single target
+class. Gold target IDs flow through the typed training step, the resolved
+objective and component weights are checkpointed, and focused loss, masking,
+gradient, CLI, and end-to-end training-step tests cover the contract.
+
+The first DKD ablation is complete and selected as the new compact Student
+reference. It restored the uniform outer policy (temperature 1.0 and task
+weight 0.1) and used TCKD/NCKD component weights of 1.0/1.0. Epoch 12 selected
+`runs/no-student-character-cnn-dkd-t100-a100-b100-e12-weighted/best.pt` at
+69,863,388 bytes. Joint development loss falls from the uniform-KL
+reference's 0.109941 to 0.101139.
+
+On Bokmål, loss falls from 0.084777 to 0.077811, overall UPOS gains 0.0165
+percentage points, and lemma gains 0.1816 points. Rare/OOV morphology micro F1
+gains 0.8449/0.5952 points and Rare/OOV lemma end-to-end gains 0.4444/0.1781
+points. OOV UPOS regresses by 0.1781 points.
+
+On Nynorsk, loss falls from 0.139228 to 0.128288, overall UPOS gains 0.0448
+points, and lemma gains 0.0545 points. Rare/OOV morphology micro F1 gains
+0.9569/0.9343 points and Rare/OOV lemma end-to-end gains 0.1672/0.4337 points.
+Rare and OOV UPOS regress by 0.1254 and 0.0788 points. The much broader
+two-standard gains select DKD while keeping these localized UPOS tradeoffs
+explicit. The model architecture and inference cost are unchanged, and both
+official test splits remain untouched.
