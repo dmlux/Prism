@@ -4,7 +4,11 @@ import torch
 from torch import nn
 
 from prism.data import TokenTaskTargetBatch
-from prism.modeling import TokenizedBatch, TokenTaskLogits
+from prism.modeling import (
+    MorphologyLogitCorrection,
+    TokenizedBatch,
+    TokenTaskLogits,
+)
 from prism.training import (
     SupervisedTokenTaskBatch,
     TokenTaskDistillationPolicy,
@@ -211,6 +215,26 @@ def test_evaluation_epoch_reports_named_token_slice() -> None:
     assert token_slice.metrics.upos_accuracy == 1.0
     assert token_slice.metrics.lemma_rule_accuracy == 1.0
     assert token_slice.metrics.morphology_accuracies == (1.0,)
+
+
+def test_evaluation_epoch_applies_optional_morphology_logit_correction() -> None:
+    model = TinyEpochModel()
+    with torch.no_grad():
+        model.morphology.copy_(torch.tensor([0.0, 1.0]))
+
+    metrics = evaluate_supervised_token_task_epoch(
+        model=model,
+        batches=(_training_batch(0),),
+        device=torch.device("cpu"),
+        morphology_schema=MORPHOLOGY_SCHEMA,
+        morphology_logit_correction=MorphologyLogitCorrection(
+            strength=1.0,
+            weights=(torch.tensor([1.0, 4.0]),),
+        ),
+    )
+
+    assert metrics.morphology_accuracies == (1.0,)
+    assert math.isclose(metrics.losses.morphology_loss, 1.3132616, rel_tol=1e-6)
 
 
 def test_training_epoch_forwards_loss_weights() -> None:

@@ -81,6 +81,7 @@ class BaselineTrainingArguments:
     token_task_head_architecture: TokenTaskHeadArchitecture
     backbone_layer_aggregation: BackboneLayerAggregationStrategy
     epoch_count: int
+    treebank_release: str
 
 
 def parse_training_arguments(
@@ -93,6 +94,11 @@ def parse_training_arguments(
         "--language-tag",
         choices=("nb", "nn", "no"),
         default="nb",
+    )
+    parser.add_argument(
+        "--treebank-release",
+        choices=("current", "2.17"),
+        default="current",
     )
     parser.add_argument(
         "--model-role",
@@ -286,6 +292,7 @@ def parse_training_arguments(
             parsed_arguments.backbone_layer_aggregation
         ),
         epoch_count=parsed_arguments.epoch_count,
+        treebank_release=parsed_arguments.treebank_release,
     )
 
 
@@ -311,6 +318,7 @@ def _load_distillation_teacher(
     backbone_spec: PretrainedBackboneSpec,
     schema: TokenTaskSchema,
     requested_language_tag: str,
+    requested_treebank_release: str,
     student_character_vocabulary: CharacterVocabularySchema | None = None,
 ) -> TokenTagger | None:
     if checkpoint_path is None:
@@ -338,6 +346,13 @@ def _load_distillation_teacher(
 
     if checkpoint.get("model_role") != "teacher":
         raise ValueError("Distillation requires a teacher checkpoint.")
+
+    checkpoint_treebank_release = checkpoint.get("treebank_release", "current")
+    if checkpoint_treebank_release != requested_treebank_release:
+        raise ValueError(
+            "Teacher checkpoint treebank release does not match student "
+            f"training: {checkpoint_treebank_release!r}"
+        )
 
     if checkpoint.get("schema") != serialize_token_task_schema(schema):
         raise ValueError(
@@ -388,7 +403,8 @@ def _load_distillation_teacher(
 def main() -> None:
     arguments = parse_training_arguments()
     training_profiles = norwegian_training_profiles_for_language_tag(
-        arguments.language_tag
+        arguments.language_tag,
+        treebank_release=arguments.treebank_release,
     )
 
     training_tokens = tuple(
@@ -404,13 +420,17 @@ def main() -> None:
 
     schema_training_tokens = tuple(
         sentence
-        for written_standard_profile in (NORWEGIAN_WRITTEN_STANDARD_PROFILES)
+        for written_standard_profile in norwegian_training_profiles_for_language_tag(
+            "no",
+            treebank_release=arguments.treebank_release,
+        )
         for sentence in read_sentences(
             written_standard_profile.gold_treebank.training_path
         )
     )
 
     print("Model role:", arguments.model_role)
+    print("Treebank release:", arguments.treebank_release)
     print("Token pooling:", arguments.token_pooling_strategy.value)
     print("Task-head architecture:", arguments.token_task_head_architecture.value)
     print("Backbone layer aggregation:", arguments.backbone_layer_aggregation.value)
@@ -484,6 +504,7 @@ def main() -> None:
         backbone_spec=training_profiles[0].teacher_backbone,
         schema=schema,
         requested_language_tag=arguments.language_tag,
+        requested_treebank_release=arguments.treebank_release,
         student_character_vocabulary=character_vocabulary,
     )
 
@@ -654,6 +675,14 @@ def main() -> None:
                 "checkpoint_format_version": TOKEN_TASK_CHECKPOINT_FORMAT_VERSION,
                 "epoch_index": epoch.epoch_index,
                 "language_tag": arguments.language_tag,
+                "treebank_release": arguments.treebank_release,
+                "treebank_revisions": {
+                    profile.language_tag: profile.gold_treebank.revision
+                    for profile in norwegian_training_profiles_for_language_tag(
+                        "no",
+                        treebank_release=arguments.treebank_release,
+                    )
+                },
                 "model_role": arguments.model_role,
                 "token_pooling_strategy": arguments.token_pooling_strategy.value,
                 "token_task_head_architecture": (

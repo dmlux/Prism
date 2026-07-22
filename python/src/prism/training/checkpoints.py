@@ -1,7 +1,10 @@
 from collections.abc import Mapping
 
+import torch
+
 from prism.modeling import (
     BackboneLayerAggregationStrategy,
+    MorphologyLogitCorrection,
     TokenPoolingStrategy,
     TokenTaskHeadArchitecture,
 )
@@ -10,6 +13,43 @@ from prism.schema.serialization import deserialize_character_vocabulary_schema
 
 
 TOKEN_TASK_CHECKPOINT_FORMAT_VERSION = 3
+
+
+def morphology_logit_correction_from_checkpoint(
+    checkpoint: Mapping[str, object],
+    *,
+    strength: float,
+) -> MorphologyLogitCorrection | None:
+    """Build an optional evaluation correction from checkpointed loss weights."""
+
+    if not 0.0 <= strength <= 1.0:
+        raise ValueError(
+            "Morphology logit-correction strength must be between zero and one."
+        )
+    if strength == 0.0:
+        return None
+
+    raw_weights = checkpoint.get("morphology_weights")
+    if not isinstance(raw_weights, (list, tuple)) or not raw_weights:
+        raise ValueError(
+            "Morphology logit correction requires weights stored in the checkpoint."
+        )
+
+    weights: list[torch.Tensor] = []
+    for feature_weights in raw_weights:
+        if not isinstance(feature_weights, (list, tuple)) or not feature_weights:
+            raise ValueError("Checkpoint morphology weights are invalid.")
+        if any(
+            isinstance(weight, bool) or not isinstance(weight, (int, float))
+            for weight in feature_weights
+        ):
+            raise ValueError("Checkpoint morphology weights must be numeric.")
+        weights.append(torch.tensor(feature_weights, dtype=torch.float32))
+
+    return MorphologyLogitCorrection(
+        strength=strength,
+        weights=tuple(weights),
+    )
 
 
 def validate_token_task_checkpoint_format(

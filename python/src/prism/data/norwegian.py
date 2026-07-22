@@ -1,6 +1,7 @@
 """Shared transformations for Norwegian UD treebanks."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from prism.conllu import Token
 from prism.data.examples import (
@@ -21,6 +22,39 @@ from prism.schema import (
 
 def normalize_norwegian_ud_lemma(raw_lemma: str) -> str:
     return raw_lemma.removeprefix("$")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NorwegianUdLemmaDecoder:
+    """Restore the treebank's ``$`` marker after internal normalization."""
+
+    marker_token_forms: frozenset[str]
+
+    def __call__(
+        self,
+        token_form: str,
+        normalized_lemma: str,
+        predicted_upos: str,
+    ) -> str:
+        del predicted_upos
+        if token_form in self.marker_token_forms and not normalized_lemma.startswith(
+            "$"
+        ):
+            return "$" + normalized_lemma
+        return normalized_lemma
+
+
+def build_norwegian_ud_lemma_decoder(
+    training_sentences: Sequence[Sequence[Token]],
+) -> NorwegianUdLemmaDecoder:
+    return NorwegianUdLemmaDecoder(
+        marker_token_forms=frozenset(
+            token.text
+            for sentence in training_sentences
+            for token in sentence
+            if token.lemma.startswith("$")
+        )
+    )
 
 
 def encode_norwegian_sentence(

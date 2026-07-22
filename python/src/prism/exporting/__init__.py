@@ -3,11 +3,13 @@
 from prism.exporting.backbone import BackboneExportAdapter
 from prism.exporting.token_tagger import (
     CharacterAwareTokenTaggerExportAdapter,
+    MorphologyLogitCorrectionExportLayer,
     TokenTaggerExportAdapter,
 )
 
 __all__ = [
     "BackboneExportAdapter",
     "CharacterAwareTokenTaggerExportAdapter",
+    "MorphologyLogitCorrectionExportLayer",
     "TokenTaggerExportAdapter",
 ]

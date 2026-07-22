@@ -14,6 +14,12 @@ def test_parse_evaluation_arguments_accepts_language_profile() -> None:
             "runs/nn-student-weighted/best.pt",
             "--analysis",
             "runs/nn-student-weighted/development-analysis.json",
+            "--device",
+            "cpu",
+            "--treebank-release",
+            "2.17",
+            "--morphology-logit-correction-strength",
+            "0.5",
         )
     )
 
@@ -22,3 +28,6 @@ def test_parse_evaluation_arguments_accepts_language_profile() -> None:
     assert arguments.analysis_path == Path(
         "runs/nn-student-weighted/development-analysis.json"
     )
+    assert arguments.device == "cpu"
+    assert arguments.treebank_release == "2.17"
+    assert arguments.morphology_logit_correction_strength == 0.5

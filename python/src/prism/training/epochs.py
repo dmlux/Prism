@@ -10,7 +10,13 @@ from prism.evaluation.metrics import (
     TokenTaskEvaluationAccumulator,
     TokenTaskEvaluationMetrics,
 )
+from prism.evaluation.universal_dependencies import (
+    UniversalDependenciesEvaluationAccumulator,
+    UniversalDependenciesEvaluationMetrics,
+)
 from prism.modeling.decoding import (
+    MorphologyLogitCorrection,
+    apply_morphology_logit_correction,
     decode_token_task_logits,
 )
 from prism.schema import MorphologySchema
@@ -67,6 +73,7 @@ class SupervisedEvaluationMetrics:
         tuple[float | None, ...],
         ...,
     ]
+    universal_dependencies: UniversalDependenciesEvaluationMetrics | None = None
     token_slices: tuple["NamedTokenTaskEvaluationMetrics", ...] = ()
 
 
@@ -295,6 +302,10 @@ def evaluate_supervised_token_task_epoch(
     device: torch.device,
     morphology_schema: MorphologySchema,
     token_slice_masks: Mapping[str, Sequence[torch.Tensor]] | None = None,
+    universal_dependencies_accumulator: (
+        UniversalDependenciesEvaluationAccumulator | None
+    ) = None,
+    morphology_logit_correction: MorphologyLogitCorrection | None = None,
 ) -> SupervisedEvaluationMetrics:
     resolved_slice_masks = {} if token_slice_masks is None else token_slice_masks
     if any(not name or name.strip() != name for name in resolved_slice_masks):
@@ -323,17 +334,28 @@ def evaluate_supervised_token_task_epoch(
             batch=batch,
             morphology_schema=morphology_schema,
         )
+        prediction_logits = (
+            logits
+            if morphology_logit_correction is None
+            else apply_morphology_logit_correction(
+                logits=logits,
+                morphology_schema=morphology_schema,
+                correction=morphology_logit_correction,
+            )
+        )
         predictions = decode_token_task_logits(
-            logits=logits,
+            logits=prediction_logits,
             token_mask=batch.targets.token_mask,
             morphology_schema=morphology_schema,
         )
         overall_accumulator.add(
-            logits=logits,
+            logits=prediction_logits,
             predictions=predictions,
             targets=batch.targets,
             evaluation_mask=batch.targets.token_mask,
         )
+        if universal_dependencies_accumulator is not None:
+            universal_dependencies_accumulator.add(predictions=predictions)
 
         for name, masks in resolved_slice_masks.items():
             if batch_index >= len(masks):
@@ -342,7 +364,7 @@ def evaluate_supervised_token_task_epoch(
                 )
 
             slice_accumulators[name].add(
-                logits=logits,
+                logits=prediction_logits,
                 predictions=predictions,
                 targets=batch.targets,
                 evaluation_mask=masks[batch_index].to(device=device),
@@ -391,6 +413,11 @@ def evaluate_supervised_token_task_epoch(
             overall_metrics.morphology_false_negative_counts
         ),
         morphology_average_precisions=(overall_metrics.morphology_average_precisions),
+        universal_dependencies=(
+            None
+            if universal_dependencies_accumulator is None
+            else universal_dependencies_accumulator.finish()
+        ),
         token_slices=tuple(
             NamedTokenTaskEvaluationMetrics(
                 name=name,

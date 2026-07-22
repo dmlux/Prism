@@ -408,12 +408,62 @@ At minimum, every candidate report includes:
   accuracy at documented abstention thresholds;
 - model size, peak memory, cold latency, warm latency, and tokens per second.
 
+For UDPipe-compatible gold-token comparisons, Prism additionally reports the
+official word-alignment score objects for `UPOS`, complete universal `UFeats`,
+and `Lemmas`: correct/gold/system/aligned counts, precision, recall, F1, and
+aligned accuracy. Prism must not label its per-feature morphology accuracy or
+micro-F1 as UDPipe `UFeats`; UDPipe requires the complete universal feature
+bundle of one word to match exactly. `XPOS`, `AllTags`, UAS, LAS, MLAS, BLEX,
+Words, and Sentences remain unavailable until Prism implements the
+corresponding outputs or raw-text tasks.
+
 The distilled student must be compared with the same student trained without
 distillation, its teacher, and an independently reproduced external pipeline
 such as UDPipe on compatible data and input conditions. Gold-token and
 raw-text evaluations must never be mixed. Prism can claim to match or beat
 another system only when the dataset revision, splits, tokenization condition,
 tasks, and metrics are genuinely comparable.
+
+### Closing the complete-bundle UFeats gap
+
+The first UDPipe comparison localizes most of the remaining morphology gap in
+`Gender`, followed by `Number` and `Definite`; it does not justify a broad
+backbone-size increase. Prism will test the following interventions in order:
+
+1. analytically remove a controlled share of the prior shift introduced by
+   morphology class weighting before decoding;
+2. represent treebank annotation conventions as language-profile output
+   policies around one canonical shared Norwegian prediction space;
+3. add a compact bundle-aware candidate scorer only if independent feature
+   decoding remains the measured bottleneck;
+4. add licensed Norwegian silver data only after the teacher, canonical target
+   space, and output policies are frozen, so pseudo-labels cannot amplify an
+   annotation-contract mistake.
+
+The first intervention is a selected output policy, not a trained model
+change. For class weight `w`, raw logit `z`, and strength `a`, decoding uses
+`z_corrected = z - a * log(w)`. The checkpointed training weights are the only
+weight source. The fixed Development grid of `0.0/0.25/0.5/0.75/1.0` selects
+full correction at `a = 1.0` for the shared Norwegian release policy. It closes
+44.4% of the Bokmål and 45.2% of the Nynorsk Development UFeats gap to UDPipe;
+both test splits remain untouched.
+
+The release contract stores the resolved per-feature offset vectors
+`-log(w)`, the selected strength, their schema association, and provenance in
+the versioned artifact. The tensor-only export adapters now register the
+resolved `strength * log(w)` vectors as fixed model buffers and subtract them
+inside the exported graph after the model's raw morphology logits. Strict
+export parity covers the selected character-aware path, so native runtimes do
+not have to reimplement or remember the correction. The CLI stays at zero by
+default for backward compatibility with checkpoints that do not contain
+training weights. Manifest serialization and production artifact construction
+must still record and automatically select the policy.
+
+Treebank-specific output policies must not silently redefine Prism's public
+morphology. They exist to map a documented canonical representation to an
+external annotation convention. Mixed Norwegian input continues to use one
+shared model and canonical output unless a caller explicitly requests a
+compatible external convention.
 
 ## Repository structure
 

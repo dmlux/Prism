@@ -17,6 +17,7 @@ from prism.training.checkpoints import (
     validate_token_task_checkpoint_format,
     character_vocabulary_from_checkpoint,
     maximum_character_count_from_checkpoint,
+    morphology_logit_correction_from_checkpoint,
 )
 from prism.training.config import SupervisedTrainingConfig
 from prism.training.distillation import (
@@ -92,4 +93,5 @@ __all__ = [
     "validate_token_task_checkpoint_format",
     "character_vocabulary_from_checkpoint",
     "maximum_character_count_from_checkpoint",
+    "morphology_logit_correction_from_checkpoint",
 ]

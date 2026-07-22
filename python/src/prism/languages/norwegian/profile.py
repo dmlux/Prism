@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 from prism.data.treebanks import UniversalDependenciesTreebankSpec
@@ -21,6 +22,30 @@ NORWEGIAN_NYNORSK_TREEBANK = UniversalDependenciesTreebankSpec(
     license_id="CC-BY-SA-4.0",
     training_path=Path("data/raw/UD_Norwegian-Nynorsk/no_nynorsk-ud-train.conllu"),
     development_path=Path("data/raw/UD_Norwegian-Nynorsk/no_nynorsk-ud-dev.conllu"),
+)
+
+NORWEGIAN_BOKMAAL_UD_2_17_TREEBANK = UniversalDependenciesTreebankSpec(
+    repository_id="UniversalDependencies/UD_Norwegian-Bokmaal",
+    revision="b8618a2b935762d6ccd2dc997180c3e46f74f6b7",
+    license_id="CC-BY-SA-4.0",
+    training_path=Path(
+        "data/raw/ud-2.17/UD_Norwegian-Bokmaal/no_bokmaal-ud-train.conllu"
+    ),
+    development_path=Path(
+        "data/raw/ud-2.17/UD_Norwegian-Bokmaal/no_bokmaal-ud-dev.conllu"
+    ),
+)
+
+NORWEGIAN_NYNORSK_UD_2_17_TREEBANK = UniversalDependenciesTreebankSpec(
+    repository_id="UniversalDependencies/UD_Norwegian-Nynorsk",
+    revision="2bbe9c67d5e81eadf237b7840ebac31bffca38ae",
+    license_id="CC-BY-SA-4.0",
+    training_path=Path(
+        "data/raw/ud-2.17/UD_Norwegian-Nynorsk/no_nynorsk-ud-train.conllu"
+    ),
+    development_path=Path(
+        "data/raw/ud-2.17/UD_Norwegian-Nynorsk/no_nynorsk-ud-dev.conllu"
+    ),
 )
 
 NORWEGIAN_BOKMAAL_PROFILE = LanguageProfileSpec(
@@ -48,25 +73,54 @@ _NORWEGIAN_PROFILES_BY_LANGUAGE_TAG = {
     profile.language_tag: profile for profile in NORWEGIAN_WRITTEN_STANDARD_PROFILES
 }
 
+_NORWEGIAN_UD_2_17_TREEBANKS_BY_LANGUAGE_TAG = {
+    "nb": NORWEGIAN_BOKMAAL_UD_2_17_TREEBANK,
+    "nn": NORWEGIAN_NYNORSK_UD_2_17_TREEBANK,
+}
+
 
 def norwegian_profile_for_language_tag(
     language_tag: str,
+    *,
+    treebank_release: str = "current",
 ) -> LanguageProfileSpec:
     try:
-        return _NORWEGIAN_PROFILES_BY_LANGUAGE_TAG[language_tag]
+        profile = _NORWEGIAN_PROFILES_BY_LANGUAGE_TAG[language_tag]
     except KeyError as error:
         raise ValueError(
             f"Unsupported Norwegian language tag: {language_tag}"
         ) from error
 
+    if treebank_release == "current":
+        return profile
+    if treebank_release == "2.17":
+        return replace(
+            profile,
+            gold_treebank=_NORWEGIAN_UD_2_17_TREEBANKS_BY_LANGUAGE_TAG[language_tag],
+        )
+    raise ValueError(f"Unsupported Norwegian treebank release: {treebank_release}")
+
 
 def norwegian_training_profiles_for_language_tag(
     language_tag: str,
+    *,
+    treebank_release: str = "current",
 ) -> tuple[LanguageProfileSpec, ...]:
     if language_tag == "no":
-        return NORWEGIAN_WRITTEN_STANDARD_PROFILES
+        return tuple(
+            norwegian_profile_for_language_tag(
+                profile.language_tag,
+                treebank_release=treebank_release,
+            )
+            for profile in NORWEGIAN_WRITTEN_STANDARD_PROFILES
+        )
 
-    return (norwegian_profile_for_language_tag(language_tag),)
+    return (
+        norwegian_profile_for_language_tag(
+            language_tag,
+            treebank_release=treebank_release,
+        ),
+    )
 
 
 def norwegian_model_supports_language_tag(

@@ -1008,6 +1008,146 @@ on both written standards without changing inference cost. The smaller OOV
 UPOS regressions on both standards and the Nynorsk Rare-UPOS regression remain
 explicit tradeoffs. The official test splits remain untouched.
 
+## Gold-tokenized UDPipe 2.17 comparison
+
+This comparison uses the official word-level CoNLL evaluation definitions for
+`UPOS`, complete universal `UFeats`, and `Lemmas`. It does **not** compare
+Prism's easier per-feature morphology accuracies with UDPipe `UFeats`: every
+universal feature on a word must match for that word to count as correct.
+Because both systems receive gold tokenization, precision, recall, F1, and
+aligned accuracy are numerically identical; JSON retains all counts and all
+four values.
+
+The exact UD 2.17 data references are:
+
+- Bokmål `r2.17` / `b8618a2b935762d6ccd2dc997180c3e46f74f6b7`;
+- Nynorsk `r2.17` / `2bbe9c67d5e81eadf237b7840ebac31bffca38ae`;
+- both treebanks: CC BY-SA 4.0.
+
+SHA-256 comparison confirms that their train, development, and test CoNLL-U
+files are byte-identical to the currently pinned Norwegian files. The selected
+DKD Student therefore trained on the exact same train content and is evaluated
+on the exact same development content used here. The test files were hashed
+only to establish dataset identity; neither test split was evaluated.
+
+UDPipe uses the official service models
+`norwegian-bokmaal-ud-2.17-251125` and
+`norwegian-nynorsk-ud-2.17-251125`. UDPipe predictions are persisted under
+`runs/udpipe-2.17-251125/ud-2.17/` and the local score implementation was
+cross-checked against the official updated CoNLL-2018 evaluator on all 36,369
+Bokmål development tokens. UPOS, UFeats, and Lemmas matched exactly to full
+floating-point precision.
+
+| Development F1 | Prism DKD Student | UDPipe 2.17 | Prism change |
+| --- | ---: | ---: | ---: |
+| Bokmål UPOS | **98.9634%** | 98.9497% | +0.0137 pp |
+| Bokmål UFeats | 93.9151% | **98.0698%** | -4.1547 pp |
+| Bokmål Lemmas | 98.9469% | **98.9744%** | -0.0275 pp |
+| Nynorsk UPOS | **98.6368%** | 98.5728% | +0.0640 pp |
+| Nynorsk UFeats | 91.5232% | **95.6608%** | -4.1376 pp |
+| Nynorsk Lemmas | 98.5536% | **98.8288%** | -0.2752 pp |
+
+The result is specific and actionable: the compact shared Prism model already
+matches or narrowly exceeds UDPipe on UPOS and is close on lemma, while exact
+morphology bundles remain substantially behind. The next quality work should
+therefore target joint morphology consistency rather than broadly enlarging
+every task.
+
+### UFeats error concentration and logit-correction ablation
+
+Per-feature exact comparison localizes most of the complete-bundle deficit:
+
+| Feature accuracy | Prism Bokmål | UDPipe Bokmål | Prism Nynorsk | UDPipe Nynorsk |
+| --- | ---: | ---: | ---: | ---: |
+| Gender | 95.4467% | 98.7764% | 93.4784% | 96.3584% |
+| Number | 98.6857% | 99.1614% | 98.5376% | 99.5424% |
+| Definite | 99.0954% | 99.4418% | 99.1936% | 99.6064% |
+
+The selected Student makes 3,007 individual feature errors across 2,213 wrong
+Bokmål bundles and 3,364 feature errors across 2,649 wrong Nynorsk bundles.
+That is only 1.36 and 1.27 wrong features per incorrect bundle on average.
+Gender alone contributes 1,656 Bokmål and 2,038 Nynorsk feature errors.
+
+Nynorsk also reveals an annotation-policy conflict in the shared raw target
+space. `Gender=Com` recall is 3.27% over 733 gold tokens, while `Fem` and `Masc`
+receive 1,314 and 1,291 false positives. `Number=Sing` has only two gold tokens
+but 285 false positives; `Definite=Def` has no gold support but 64 false
+positives. These must be separated into linguistic model quality and external
+treebank-output convention before changing model capacity.
+
+The completed predeclared, no-retraining ablation evaluates correction
+strengths `0.0`, `0.25`, `0.5`, `0.75`, and `1.0`. For each morphology logit
+`z` and its checkpointed training class weight `w`, evaluation uses
+`z - strength * log(w)`. Development loss stays raw and comparable; exact
+UFeats, per-feature metrics, label precision/recall/AP, and Rare/OOV summaries
+use the corrected prediction logits.
+
+| Strength | Bokmål UFeats | Bokmål Rare F1 | Bokmål OOV F1 | Nynorsk UFeats | Nynorsk Rare F1 | Nynorsk OOV F1 |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.00 | 93.9151% | 94.4867% | 93.3333% | 91.5232% | 89.4502% | 86.7135% |
+| 0.25 | 94.7070% | 94.9243% | 93.8073% | 92.0064% | 90.0961% | 87.1035% |
+| 0.50 | 95.3202% | 95.1857% | 94.0294% | 92.5376% | 90.4159% | 87.6099% |
+| 0.75 | 95.7271% | 95.4009% | **94.1721%** | 93.0720% | 90.5719% | 88.0380% |
+| **1.00** | **95.7601%** | **95.4817%** | 94.0673% | **93.3920%** | **90.7920%** | **88.3686%** |
+
+Full correction closes 1.8450 of the original 4.1547 percentage-point Bokmål
+gap and 1.8688 of the 4.1376-point Nynorsk gap to UDPipe, or 44.4% and 45.2%.
+Strength `1.0` is selected as the shared Norwegian output policy because it
+maximizes exact UFeats on both standards and clearly improves the Nynorsk
+Rare/OOV slices. Bokmål OOV morphology peaks at `0.75`, but its 0.1048-point
+advantage over `1.0` is smaller than the joint exact-UFeats and Nynorsk gains.
+The evaluator keeps zero as its backward-compatible CLI default; the selected
+release artifact will carry `1.0` and its derived correction offsets
+explicitly. Both test splits remain untouched.
+
+The tensor-only export adapters now embed these fixed offsets as registered
+buffers and subtract them inside the exported graph. Strict eager/export
+parity covers the selected character-aware architecture, removing any need for
+Swift or C++ to reproduce the correction formula. Production manifest wiring
+and backend-specific artifact generation remain separate release work.
+
+Example for the full correction endpoint:
+
+```shell
+.venv/bin/python -m prism.languages.norwegian.evaluate_baseline \
+  --language-tag nb \
+  --checkpoint runs/no-student-character-cnn-dkd-t100-a100-b100-e12-weighted/best.pt \
+  --analysis runs/no-student-character-cnn-dkd-t100-a100-b100-e12-weighted/nb-development-analysis-logit-correction-100.json \
+  --morphology-logit-correction-strength 1.0
+```
+
+The reproducible external commands are:
+
+```shell
+.venv/bin/python -m prism.languages.norwegian.benchmark_udpipe \
+  --language-tag nb \
+  --treebank-release 2.17
+
+.venv/bin/python -m prism.languages.norwegian.benchmark_udpipe \
+  --language-tag nn \
+  --treebank-release 2.17
+```
+
+Pass `--reuse-prediction` to recompute results without contacting the service.
+Future comparison-only training and evaluation use
+`--treebank-release 2.17`; the release and exact treebank revisions are stored
+in new checkpoints.
+
+### License boundary
+
+Independent Prism training on these Norwegian UD 2.17 treebanks is permitted
+under CC BY-SA 4.0, including commercial use, subject to attribution,
+license-link, change-notice, and ShareAlike obligations where they apply. The
+published UDPipe 2.17 **model weights** are a separate CC BY-NC-SA artifact:
+they are suitable as an external benchmark but must not be bundled into or
+used as a commercial LexKeep runtime/teacher without separate permission.
+
+Whether trained weights legally constitute adapted material of a dataset can
+depend on jurisdiction and facts. Prism therefore keeps source-code,
+treebank, backbone, and released-model licensing separate, records complete
+provenance, and should obtain legal review before choosing the distribution
+license of a commercial model artifact. This project note is not legal advice.
+
 ## Historical format-2 NorBERT4-Base teacher
 
 The first historical teacher uses the same supervised data, schema, task heads, and

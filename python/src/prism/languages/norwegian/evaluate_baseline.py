@@ -10,6 +10,7 @@ import torch
 from prism.conllu import read_sentences
 from prism.data import (
     build_norwegian_schema,
+    build_norwegian_ud_lemma_decoder,
     encode_norwegian_sentences,
 )
 from prism.evaluation.classification import (
@@ -18,6 +19,9 @@ from prism.evaluation.classification import (
 from prism.evaluation import (
     TokenFrequencyClass,
     TokenFrequencyProfile,
+    UniversalDependenciesEvaluationAccumulator,
+    build_universal_dependencies_reference_batch,
+    serialize_universal_dependencies_evaluation_metrics,
 )
 from prism.evaluation.reporting import (
     format_classification_metric_rows,
@@ -45,6 +49,7 @@ from prism.training import (
     validate_token_task_checkpoint_format,
     character_vocabulary_from_checkpoint,
     maximum_character_count_from_checkpoint,
+    morphology_logit_correction_from_checkpoint,
 )
 
 
@@ -53,6 +58,9 @@ class BaselineEvaluationArguments:
     checkpoint_path: Path
     analysis_path: Path
     language_tag: str
+    device: str
+    treebank_release: str
+    morphology_logit_correction_strength: float
 
 
 def parse_evaluation_arguments(
@@ -67,6 +75,11 @@ def parse_evaluation_arguments(
         default="nb",
     )
     parser.add_argument(
+        "--treebank-release",
+        choices=("current", "2.17"),
+        default="current",
+    )
+    parser.add_argument(
         "--checkpoint",
         type=Path,
         default=Path("runs/nb-student-baseline/best.pt"),
@@ -78,13 +91,34 @@ def parse_evaluation_arguments(
         default=Path("runs/nb-student-baseline/development-analysis-logit-zero.json"),
         dest="analysis_path",
     )
+    parser.add_argument(
+        "--device",
+        choices=("cpu", "mps"),
+        default="mps",
+    )
+    parser.add_argument(
+        "--morphology-logit-correction-strength",
+        type=float,
+        default=0.0,
+        help=(
+            "Subtract this fraction of log checkpoint class weights before "
+            "morphology decoding (0 disables the evaluation ablation)."
+        ),
+    )
 
     parsed_arguments = parser.parse_args(arguments)
+    if not 0.0 <= parsed_arguments.morphology_logit_correction_strength <= 1.0:
+        parser.error("--morphology-logit-correction-strength must be between 0 and 1")
 
     return BaselineEvaluationArguments(
         language_tag=parsed_arguments.language_tag,
         checkpoint_path=parsed_arguments.checkpoint_path,
         analysis_path=parsed_arguments.analysis_path,
+        device=parsed_arguments.device,
+        treebank_release=parsed_arguments.treebank_release,
+        morphology_logit_correction_strength=(
+            parsed_arguments.morphology_logit_correction_strength
+        ),
     )
 
 
@@ -97,8 +131,22 @@ def main() -> None:
         weights_only=True,
     )
     validate_token_task_checkpoint_format(checkpoint)
+    morphology_logit_correction = morphology_logit_correction_from_checkpoint(
+        checkpoint,
+        strength=arguments.morphology_logit_correction_strength,
+    )
 
-    profile = norwegian_profile_for_language_tag(arguments.language_tag)
+    profile = norwegian_profile_for_language_tag(
+        arguments.language_tag,
+        treebank_release=arguments.treebank_release,
+    )
+
+    checkpoint_treebank_release = checkpoint.get("treebank_release", "current")
+    if checkpoint_treebank_release != arguments.treebank_release:
+        raise ValueError(
+            "Checkpoint treebank release does not match the requested release: "
+            f"{checkpoint_treebank_release!r}"
+        )
 
     checkpoint_language_tag = checkpoint.get("language_tag")
     if not isinstance(
@@ -137,7 +185,10 @@ def main() -> None:
         raise ValueError("Checkpoint schema language tags are invalid.")
 
     schema_profiles = tuple(
-        norwegian_profile_for_language_tag(language_tag)
+        norwegian_profile_for_language_tag(
+            language_tag,
+            treebank_release=arguments.treebank_release,
+        )
         for language_tag in schema_language_tags
     )
 
@@ -171,6 +222,16 @@ def main() -> None:
         for start in range(
             0,
             len(development_corpus.sentences),
+            batch_size,
+        )
+    )
+    development_reference_batches = tuple(
+        build_universal_dependencies_reference_batch(
+            development_tokens[start : start + batch_size]
+        )
+        for start in range(
+            0,
+            len(development_tokens),
             batch_size,
         )
     )
@@ -229,9 +290,14 @@ def main() -> None:
         "Evaluating checkpoint epoch:",
         int(checkpoint["epoch_index"]) + 1,
     )
+    print("Treebank release:", arguments.treebank_release)
     print("Token pooling:", pooling_strategy.value)
     print("Task-head architecture:", head_architecture.value)
     print("Backbone layer aggregation:", layer_aggregation_strategy.value)
+    print(
+        "Morphology logit correction:",
+        f"{arguments.morphology_logit_correction_strength:.2f}",
+    )
 
     metrics = evaluate_supervised_token_task_epoch(
         model=model,
@@ -243,21 +309,38 @@ def main() -> None:
                 32 if maximum_character_count is None else maximum_character_count
             ),
         ),
-        device=torch.device("mps"),
+        device=torch.device(arguments.device),
         morphology_schema=schema.morphology,
         token_slice_masks=token_slice_masks,
+        universal_dependencies_accumulator=(
+            UniversalDependenciesEvaluationAccumulator(
+                schema=schema,
+                reference_batches=development_reference_batches,
+                lemma_decoder=build_norwegian_ud_lemma_decoder(schema_training_tokens),
+            )
+        ),
+        morphology_logit_correction=morphology_logit_correction,
     )
+
+    if metrics.universal_dependencies is None:
+        raise RuntimeError("UD-compatible metrics were not calculated.")
 
     for row in format_scalar_metric_rows(
         metric_names=(
             "Development loss",
             "UPOS accuracy",
             "Lemma-rule accuracy",
+            "UD UPOS F1",
+            "UD UFeats F1",
+            "UD Lemmas F1",
         ),
         values=(
             metrics.losses.total_loss,
             metrics.upos_accuracy,
             metrics.lemma_rule_accuracy,
+            metrics.universal_dependencies.upos.f1,
+            metrics.universal_dependencies.ufeats.f1,
+            metrics.universal_dependencies.lemmas.f1,
         ),
     ):
         print(row)
@@ -319,13 +402,27 @@ def main() -> None:
         parents=True,
         exist_ok=True,
     )
+    serialized_metrics = asdict(metrics)
+    serialized_metrics["universal_dependencies"] = (
+        serialize_universal_dependencies_evaluation_metrics(
+            metrics.universal_dependencies
+        )
+    )
     analysis_path.write_text(
         json.dumps(
             {
                 "checkpoint": str(checkpoint_path),
                 "checkpoint_epoch_index": int(checkpoint["epoch_index"]),
+                "evaluation_policy": {
+                    "morphology_logit_correction_strength": (
+                        arguments.morphology_logit_correction_strength
+                    ),
+                    "morphology_logit_correction_weight_source": (
+                        None if morphology_logit_correction is None else "checkpoint"
+                    ),
+                },
                 "schema": (serialize_token_task_schema(schema)),
-                "metrics": asdict(metrics),
+                "metrics": serialized_metrics,
             },
             ensure_ascii=False,
             indent=2,

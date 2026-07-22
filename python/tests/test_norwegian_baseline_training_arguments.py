@@ -31,6 +31,7 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
         is TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY_CHARACTER_CNN
     )
     assert default_arguments.epoch_count == 12
+    assert default_arguments.treebank_release == "current"
     assert (
         default_arguments.backbone_layer_aggregation
         is BackboneLayerAggregationStrategy.LEARNED_LAST_FOUR
@@ -49,6 +50,9 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
         "runs/nb-student-weighted/best.pt"
     )
     assert weighted_arguments.morphology_weight_cap == 10.0
+
+    ud_2_17_arguments = parse_training_arguments(("--treebank-release", "2.17"))
+    assert ud_2_17_arguments.treebank_release == "2.17"
 
     first_pooling_arguments = parse_training_arguments(
         (

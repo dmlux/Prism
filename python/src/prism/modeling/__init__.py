@@ -43,6 +43,10 @@ from prism.modeling.heads import (
     WideSharedResidualTokenProjection,
 )
 from prism.modeling.structured_morphology import StructuredMorphologyDecoder
+from prism.modeling.decoding import (
+    MorphologyLogitCorrection,
+    apply_morphology_logit_correction,
+)
 from prism.modeling.taggers import (
     TokenTagger,
     build_pretrained_token_tagger,
@@ -76,6 +80,8 @@ __all__ = [
     "TaskResidualAdapter",
     "WideSharedResidualTokenProjection",
     "StructuredMorphologyDecoder",
+    "MorphologyLogitCorrection",
+    "apply_morphology_logit_correction",
     "TokenTagger",
     "build_pretrained_token_tagger",
 ]

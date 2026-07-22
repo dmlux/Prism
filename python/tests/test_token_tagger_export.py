@@ -10,6 +10,7 @@ from prism.exporting import (
 )
 from prism.modeling import (
     CharacterCnnTokenEncoder,
+    MorphologyLogitCorrection,
     TokenPoolingStrategy,
     TokenTagger,
     TokenTaskHeadArchitecture,
@@ -85,6 +86,43 @@ def test_token_tagger_export_adapter_has_flat_tensor_contract() -> None:
         torch.testing.assert_close(exported_output, eager)
 
 
+def test_token_tagger_export_embeds_morphology_logit_correction() -> None:
+    correction = MorphologyLogitCorrection(
+        strength=1.0,
+        weights=(torch.tensor([1.0, 4.0]),),
+    )
+    adapter = TokenTaggerExportAdapter(
+        model=TinyExportTokenTagger(),
+        morphology_logit_correction=correction,
+    )
+    inputs = (
+        torch.tensor([[1, 2, 3]], dtype=torch.long),
+        torch.tensor([[True, True, True]]),
+        torch.tensor([[1, 2]], dtype=torch.long),
+        torch.tensor([[2, 3]], dtype=torch.long),
+        torch.tensor([[True, True]]),
+    )
+
+    raw_outputs = TokenTaggerExportAdapter(model=TinyExportTokenTagger())(*inputs)
+    corrected_outputs = adapter(*inputs)
+    exported = torch.export.export(adapter, inputs, strict=True)
+    exported_outputs = exported.module()(*inputs)
+
+    assert "morphology_logit_correction.offset_0" in adapter.state_dict()
+    torch.testing.assert_close(corrected_outputs[0], raw_outputs[0])
+    torch.testing.assert_close(
+        corrected_outputs[1],
+        raw_outputs[1] - correction.weights[0].log(),
+    )
+    torch.testing.assert_close(corrected_outputs[2], raw_outputs[2])
+    for eager, exported_output in zip(
+        corrected_outputs,
+        exported_outputs,
+        strict=True,
+    ):
+        torch.testing.assert_close(exported_output, eager)
+
+
 def test_character_aware_token_tagger_has_strict_export_parity() -> None:
     schema = TokenTaskSchema(
         upos=UposSchema(version=1, labels=("NOUN", "VERB")),
@@ -134,7 +172,14 @@ def test_character_aware_token_tagger_has_strict_export_parity() -> None:
         ),
     )
     model.eval()
-    adapter = CharacterAwareTokenTaggerExportAdapter(model=model)
+    correction = MorphologyLogitCorrection(
+        strength=1.0,
+        weights=(torch.tensor([1.0, 4.0]),),
+    )
+    adapter = CharacterAwareTokenTaggerExportAdapter(
+        model=model,
+        morphology_logit_correction=correction,
+    )
     inputs = (
         torch.tensor([[101, 11, 12, 102]], dtype=torch.long),
         torch.tensor([[True, True, True, True]]),
@@ -153,6 +198,7 @@ def test_character_aware_token_tagger_has_strict_export_parity() -> None:
     ).module()(*inputs)
 
     assert len(exported_outputs) == 3
+    assert "morphology_logit_correction.offset_0" in adapter.state_dict()
     for eager, exported_output in zip(
         eager_outputs,
         exported_outputs,

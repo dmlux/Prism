@@ -1,6 +1,6 @@
 # Prism project status
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 
 ## Product direction
 
@@ -151,6 +151,87 @@ Implemented shared components include:
 - `<NONE>` labels are excluded from real-label macro summaries.
 - A distilled student must be compared with the same student trained without
   teacher knowledge.
+- External gold-token comparisons use the official UD word-level definitions
+  for `UPOS`, complete universal `UFeats`, and `Lemmas`. The three values are
+  precision/recall/F1 plus aligned accuracy; with fixed gold tokenization they
+  are numerically equal, but counts and all four fields remain serialized.
+- `XPOS`, `AllTags`, tokenization, and dependency-parser scores are not emitted
+  because the current Prism bundle does not predict those outputs.
+
+## UDPipe 2.17 comparison benchmark
+
+The reproducible gold-token comparison path is implemented. Prism evaluation
+now emits official-compatible `UPOS`, `UFeats`, and `Lemmas` metrics, restores
+the Norwegian treebank's normalized `$` lemma marker before scoring, and
+records the complete score objects in JSON. The separate
+`prism.languages.norwegian.benchmark_udpipe` command obtains or reuses
+versioned UDPipe CoNLL-U predictions and scores them with the same local
+implementation. Its output was cross-checked against the official updated
+CoNLL-2018 evaluator on the complete Bokmål development split with identical
+results.
+
+UD 2.17 is pinned separately at Bokmål commit
+`b8618a2b935762d6ccd2dc997180c3e46f74f6b7` and Nynorsk commit
+`2bbe9c67d5e81eadf237b7840ebac31bffca38ae`. SHA-256 checks confirm that all
+six Norwegian train/development/test CoNLL-U files are byte-identical to the
+currently pinned files. The selected DKD Student therefore already used the
+same training and development content as the UDPipe 2.17 comparison; no
+retraining is required for this development result. New comparison checkpoints
+can nevertheless select `--treebank-release 2.17`, and store the release plus
+both exact revisions.
+
+On the shared development data, Prism leads UDPipe slightly on UPOS for both
+written standards and trails slightly on lemmas. Complete-bundle UFeats is the
+clear remaining gap: 4.1547 percentage points on Bokmål and 4.1376 points on
+Nynorsk. Full numbers and commands are recorded in `docs/benchmarks.md`. The
+official test splits remain unevaluated.
+
+### UFeats recovery plan
+
+The gap is concentrated rather than model-wide. Against the selected DKD
+Student, `Gender` trails UDPipe by 3.3297 points on Bokmål and 2.8800 points on
+Nynorsk; the next largest gaps are `Number` and `Definite`. Nynorsk additionally
+exposes incompatible treebank conventions: `Gender=Com` has substantial gold
+support while singular `Number` and definite `Definite` are almost or entirely
+absent, although the joint Norwegian model learns those values from Bokmål.
+
+The accepted order is:
+
+1. evaluate a reversible class-weight logit correction, using only the
+   training-derived weights already stored in the checkpoint;
+2. separate Prism's canonical Norwegian morphology from optional Bokmål-UD and
+   Nynorsk-UD annotation/output policies without splitting the shared model;
+3. evaluate a compact complete-bundle reranker after the first two effects are
+   measured.
+
+Step 1 is implemented and selected. The evaluation-only
+`--morphology-logit-correction-strength` option subtracts the selected fraction
+of `log(class_weight)` before decoding. Loss and model parameters remain
+untouched, and the JSON analysis records the resolved strength and checkpoint
+weight source. The complete predeclared Development grid
+`0.0/0.25/0.5/0.75/1.0` selects the full correction at `1.0` as the shared
+Norwegian output policy: UFeats rises from 93.9151% to 95.7601% on Bokmål and
+from 91.5232% to 93.3920% on Nynorsk. It closes 44.4% and 45.2% of the
+respective Development gap to UDPipe while preserving the strongest joint
+tradeoff across exact UFeats, per-label, and Rare/OOV quality. Both test splits
+remain untouched.
+
+The CLI default remains zero for legacy and unweighted checkpoint
+compatibility. A released artifact must not depend on that CLI default: it
+stores the selected `1.0` policy together with the per-feature correction
+offsets derived from the checkpointed training weights. Native runtimes apply
+those fixed offsets before morphology decoding, and parity tests cover raw
+logits, corrected logits, and decoded labels.
+
+The export contract now implements this requirement. Both tensor-only token
+tagger export adapters accept a typed correction, convert its resolved
+`strength * log(weight)` vectors into registered model buffers, and subtract
+them inside the strictly exported graph. The selected character-aware path has
+eager-versus-`torch.export` parity coverage. A Swift or C++ runtime consuming
+that artifact therefore receives corrected morphology logits and cannot omit
+the correction accidentally. The future production artifact builder must
+resolve the selected checkpoint policy and construct this corrected adapter;
+manifest serialization and complete backend lowering remain open.
 
 ## Historical format-2 benchmarks
 

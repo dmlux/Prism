@@ -147,6 +147,7 @@ abgebildet:
 | Strukturierter zweiter Morphologie-Pass | [`StructuredMorphologyDecoder`](../python/src/prism/modeling/structured_morphology.py) |
 | Überwachte Losses | [`compute_token_task_loss`](../python/src/prism/training/losses.py) |
 | Distillation | [`compute_token_task_distillation_loss`](../python/src/prism/training/distillation.py) |
+| Morphologie-Ausgabekorrektur | [`apply_morphology_logit_correction`](../python/src/prism/modeling/decoding.py) |
 | Deterministisches Ausgabe-Decoding | [`decode_token_task_logits`](../python/src/prism/modeling/decoding.py) |
 | Architektur-Metadaten und Fallbacks | [`checkpoints.py`](../python/src/prism/training/checkpoints.py) |
 | Norwegische Backbone-/Datenwahl | [`profile.py`](../python/src/prism/languages/norwegian/profile.py) |
@@ -1243,6 +1244,39 @@ Logits
 Ein Schwellenwert kann später bewirken, dass Prism eine Vorhersage als
 unsicher markiert, statt sie in Lernsoftware als zuverlässig darzustellen.
 
+### Abschaltbare Klassengewichts-Logit-Korrektur
+
+Die Morphologie-Klassengewichte verbessern seltene Klassen, verschieben bei
+gewichteter Cross-Entropy beziehungsweise Binary Cross-Entropy aber zugleich
+die optimalen Rohlogits. Die erste UFeats-Ablation entfernt vor dem
+deterministischen Morphologie-Decoding einen kontrollierten Anteil dieser
+Verschiebung:
+
+```text
+korrigierter Logit = Rohlogit - Stärke * log(Trainingsklassengewicht)
+```
+
+Die Gewichte stammen ausschließlich aus dem Trainingssplit und sind bereits
+im Checkpoint gespeichert. `Stärke = 0` deaktiviert den Pfad vollständig und
+ist der Standard. UPOS- und Lemma-Logits, Development-Loss, Modellparameter
+und Forward-Pass bleiben unverändert. Für die diskreten Metriken und die
+Average-Precision-Auswertung wird dagegen derselbe korrigierte
+Morphologie-Logit-Tensor verwendet, damit eine Analyse genau eine konsistente
+Ausgabepolitik misst.
+
+Diese Korrektur ist noch keine allgemeine Konfidenzkalibrierung. Sie prüft
+gezielt, ob die UFeats-Lücke teilweise eine bekannte Folge des gewichteten
+Trainings statt fehlender Encoder-Kapazität ist. Erst ein auf beiden
+Schriftstandards gemessener Gewinner darf als versionierte Ausgabeentscheidung
+in ein Modellartefakt übernommen werden.
+
+Der aktuelle strukturierte zweite Pass bleibt davon getrennt: Er verfeinert
+die Feature-Logits trainierbar mit weichem UPOS- und Feature-Kontext, während
+das abschließende Decoding jedes Feature weiterhin separat auswählt. Falls
+Logit-Korrektur und dokumentierte Treebank-Ausgabepolitiken die Lücke nicht
+schließen, folgt als eigene Ablation ein kompakter Reranker für vollständige,
+UPOS-kompatible Morphologie-Bündel.
+
 ## Multi-Task-Training
 
 UPOS, der erste Morphologie-Pass und Lemma lesen denselben vom Wide-MLP
@@ -1504,6 +1538,25 @@ mehrere lokal mitgelieferte Dateien enthalten. Das Manifest dokumentiert:
 - Modell- und Datenlizenzen;
 - Benchmark-Identität.
 
+Zur ausgewählten norwegischen Ausgabepolitik gehört außerdem eine feste
+Morphologie-Logit-Korrektur. Das Modell selbst liefert weiterhin rohe Logits.
+Vor dem Decoding zieht die Laufzeit je Feature den aus den Trainingsgewichten
+abgeleiteten Vektor `log(class_weight)` vollständig ab; die ausgewählte Stärke
+ist also `1,0`. Diese Konstanten sind keine neu gelernten Modellparameter, aber
+sie sind ein verpflichtender Bestandteil des versionierten Artefakts. Das
+Manifest verknüpft Stärke, Offset-Vektoren, Schema und Provenienz, damit Python,
+Swift und C++ dieselben korrigierten Logits und Labels erzeugen. Der rohe
+Trainingscheckpoint allein ist daher noch kein vollständiges
+Produktionsartefakt.
+
+Technisch registrieren `TokenTaggerExportAdapter` und
+`CharacterAwareTokenTaggerExportAdapter` die fertig aufgelösten Vektoren
+`strength * log(class_weight)` als feste Buffer und subtrahieren sie innerhalb
+des exportierten Graphen. Die native Laufzeit erhält deshalb bereits
+korrigierte Morphologie-Logits; sie implementiert weder den Faktor noch die
+Gewichtsformel erneut. Ein strikter Export-Paritätstest deckt diesen Pfad für
+die ausgewählte zeichenbewusste Architektur ab.
+
 Der öffentliche Swift-, Java/Kotlin- oder C++-Vertrag darf keine
 ExecuTorch-Typen offenlegen. Native Bibliotheken übersetzen stabile
 Prism-Typen in die jeweilige Runtime.
@@ -1517,6 +1570,9 @@ Der Exportstatus muss genau getrennt werden:
 - Seine maximale gemessene absolute Abweichung zu PyTorch betrug `1,91e-5`.
 - Die ausgewählte strukturierte Morphologie-Variante besteht ebenfalls den
   strikten `torch.export`-Paritätstest.
+- Die ausgewählte feste Morphologie-Logit-Korrektur wird als Buffer und
+  Subtraktion in den Exportgraphen eingebettet und besitzt ebenfalls strikte
+  Eager-/Export-Parität auf dem Character-CNN-Pfad.
 - Für sie stehen vollständiges Backend-Lowering, portable Runtime-Ausführung,
   dynamische Formen, Quantisierung und der 6.000-Token-Benchmark noch aus.
 
@@ -1546,6 +1602,8 @@ von offenen Arbeiten:
 | Distillation gegen gleich großen Gold-only-Student | kontrolliert gemessen und ausgewählt |
 | Task-spezifische Distillationstemperaturen und -gewichte | implementiert; erster kontrollierter Kandidat verworfen |
 | Kategoriale DKD mit TCKD/NCKD | kontrolliert gemessen und als neuer Student-Standard ausgewählt |
+| Gold-tokenisierter UDPipe-2.17-Vergleich | UPOS/UFeats/Lemmas implementiert und auf Development ausgeführt |
+| Abschaltbare Klassengewichts-Logit-Korrektur | implementiert; Development-Ablation offen |
 | Konfidenzkalibrierung und feste Ausgabeentscheidung | offen |
 | Dynamischer Export, Quantisierung und Runtime-Parität | offen |
 | 6.000-Token-Dokumentbenchmark | offen |
@@ -1594,6 +1652,9 @@ Der implementierte Daten- und Modellvertrag enthält aktuell:
   Task-Adapter-Ablationspfade;
 - Gold-only-Training, Distillation und getrennte Development-Evaluation für
   Bokmål und Nynorsk;
+- offizielle UD-kompatible Gold-Token-Metriken für UPOS, das vollständige
+  UFeats-Bündel und Lemmas einschließlich Counts, Precision, Recall, F1 und
+  aligned Accuracy;
 - den hybriden Morphologievertrag aus kategorialen exklusiven Features und
   binären mehrwertigen Features;
 - Checkpoint-Format 3 als explizite Grenze für die geänderten
@@ -1602,6 +1663,34 @@ Der implementierte Daten- und Modellvertrag enthält aktuell:
 - strikte `torch.export`-Parität für die ausgewählte strukturierte Architektur
   sowie einen ausführbaren XNNPACK-`.pte`-Spike für ihren unmittelbaren
   unabhängigen Kontrollpfad.
+
+### Externer UD-Vergleichsvertrag
+
+`prism.evaluation.universal_dependencies` ist die sprachunabhängige Grenze für
+offizielle Gold-Token-Metriken. Ein Referenzbatch hält Tokenform, rohe
+Treebank-Lemma, UPOS und die kanonisch sortierten universellen Features. Der
+Evaluator dekodiert dieselben Modellvorhersagen, die auch die internen Metriken
+sehen; es findet kein zweiter Forward-Pass statt. Er vergleicht pro
+ausgerichtetem Wort:
+
+- exakt ein UPOS-Label;
+- das vollständige UFeats-Bündel nach Filterung auf die offizielle universelle
+  Feature-Liste;
+- die vollständig angewendete Lemma-Editierregel.
+
+Die interne norwegische Lemma-Normalisierung entfernt beim Training den
+Treebank-Marker `$`. Ein enger norwegischer Decoder stellt diesen Marker für
+die im Trainingssplit belegten Tokenformen vor der offiziellen Lemma-Metrik
+wieder her. Ungültige globale Editierregeln auf zu kurzen Token werden als
+falsche Vorhersage gezählt und brechen die Evaluation nicht ab.
+
+`prism.languages.norwegian.benchmark_udpipe` sendet Gold-CoNLL-U nur an den
+versionierten UDPipe-Tagger, speichert dessen CoNLL-U unter `runs/` und wertet
+es mit derselben lokalen Metrik aus. Gespeicherte Vorhersagen lassen sich mit
+`--reuse-prediction` vollständig offline erneut auswerten. Die
+Treebank-Auswahl `current` oder `2.17` ist ein expliziter CLI- und
+Checkpoint-Vertrag; Datenrelease und konkrete Revisionen dürfen nicht still
+gemischt werden.
 
 ## Aktuelle Modellgrenze
 

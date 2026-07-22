@@ -2,6 +2,7 @@ import pytest
 
 from prism.languages.norwegian import (
     NORWEGIAN_BOKMAAL_PROFILE,
+    NORWEGIAN_BOKMAAL_UD_2_17_TREEBANK,
     NORWEGIAN_NYNORSK_PROFILE,
     NORWEGIAN_WRITTEN_STANDARD_PROFILES,
     norwegian_profile_for_language_tag,
@@ -13,6 +14,17 @@ from prism.languages.norwegian import (
 def test_norwegian_profile_registry_resolves_written_standards() -> None:
     assert norwegian_profile_for_language_tag("nb") is NORWEGIAN_BOKMAAL_PROFILE
     assert norwegian_profile_for_language_tag("nn") is NORWEGIAN_NYNORSK_PROFILE
+
+
+def test_norwegian_profile_registry_resolves_pinned_ud_2_17_treebank() -> None:
+    profile = norwegian_profile_for_language_tag(
+        "nb",
+        treebank_release="2.17",
+    )
+
+    assert profile.student_backbone is NORWEGIAN_BOKMAAL_PROFILE.student_backbone
+    assert profile.gold_treebank is NORWEGIAN_BOKMAAL_UD_2_17_TREEBANK
+    assert profile.gold_treebank.revision == "b8618a2b935762d6ccd2dc997180c3e46f74f6b7"
 
 
 def test_norwegian_profile_registry_rejects_unknown_language_tag() -> None:

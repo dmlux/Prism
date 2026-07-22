@@ -11,7 +11,9 @@ from prism.data.examples import (
     TokenTargets,
 )
 from prism.data.norwegian import (
+    NorwegianUdLemmaDecoder,
     build_norwegian_schema,
+    build_norwegian_ud_lemma_decoder,
     encode_norwegian_sentence,
     encode_norwegian_sentences,
     normalize_norwegian_ud_lemma,
@@ -19,6 +21,8 @@ from prism.data.norwegian import (
 
 __all__ = [
     "normalize_norwegian_ud_lemma",
+    "NorwegianUdLemmaDecoder",
+    "build_norwegian_ud_lemma_decoder",
     "encode_norwegian_sentence",
     "encode_norwegian_sentences",
     "PretokenizedSentence",

@@ -76,6 +76,7 @@ def test_load_distillation_teacher_restores_frozen_model(
         backbone_spec=NORBERT4_BASE_BACKBONE,
         schema=schema,
         requested_language_tag="nb",
+        requested_treebank_release="current",
     )
 
     assert loaded_teacher is fake_teacher

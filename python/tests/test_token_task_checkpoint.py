@@ -1,4 +1,5 @@
 import pytest
+import torch
 
 from prism.modeling import (
     BackboneLayerAggregationStrategy,
@@ -13,6 +14,7 @@ from prism.training import (
     validate_token_task_checkpoint_format,
     character_vocabulary_from_checkpoint,
     maximum_character_count_from_checkpoint,
+    morphology_logit_correction_from_checkpoint,
 )
 
 
@@ -147,3 +149,32 @@ def test_character_contract_is_loaded_only_for_character_architecture() -> None:
 
     with pytest.raises(ValueError, match="must contain a character vocabulary"):
         character_vocabulary_from_checkpoint({}, architecture=architecture)
+
+
+def test_morphology_logit_correction_uses_checkpointed_training_weights() -> None:
+    checkpoint = {
+        "morphology_weights": (
+            (1.0, 4.0),
+            (3.0,),
+        )
+    }
+
+    assert (
+        morphology_logit_correction_from_checkpoint(
+            checkpoint,
+            strength=0.0,
+        )
+        is None
+    )
+
+    correction = morphology_logit_correction_from_checkpoint(
+        checkpoint,
+        strength=0.5,
+    )
+    assert correction is not None
+    assert correction.strength == 0.5
+    torch.testing.assert_close(correction.weights[0], torch.tensor([1.0, 4.0]))
+    torch.testing.assert_close(correction.weights[1], torch.tensor([3.0]))
+
+    with pytest.raises(ValueError, match="requires weights stored"):
+        morphology_logit_correction_from_checkpoint({}, strength=0.5)
