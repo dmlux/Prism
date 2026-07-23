@@ -11,6 +11,9 @@ from prism.exporting import (
 from prism.modeling import (
     CharacterCnnTokenEncoder,
     MorphologyLogitCorrection,
+    MorphologyAgreementRefinerSpec,
+    MorphologyBundleCandidate,
+    MorphologyBundleRerankerSpec,
     TokenPoolingStrategy,
     TokenTagger,
     TokenTaskHeadArchitecture,
@@ -162,6 +165,26 @@ def test_character_aware_token_tagger_has_strict_export_parity() -> None:
             dropout_probability=0.0,
             architecture=(
                 TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY_CHARACTER_CNN
+            ),
+            morphology_bundle_reranker_spec=MorphologyBundleRerankerSpec(
+                maximum_candidates_per_upos=1,
+                candidates=(
+                    MorphologyBundleCandidate(
+                        upos_id=0,
+                        morphology=((False, True, False),),
+                        training_count=2,
+                    ),
+                    MorphologyBundleCandidate(
+                        upos_id=1,
+                        morphology=((True, False, False),),
+                        training_count=1,
+                    ),
+                ),
+            ),
+            morphology_agreement_refiner_spec=MorphologyAgreementRefinerSpec(
+                window_radius=3,
+                bottleneck_size=4,
+                target_feature_names=("Number",),
             ),
         ),
         pooling_strategy=TokenPoolingStrategy.MEAN,

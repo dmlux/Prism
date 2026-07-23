@@ -66,3 +66,35 @@ def test_training_runner_selects_lowest_development_loss() -> None:
     assert len(result.epoch_results) == 3
     assert result.best_epoch_index == 1
     assert result.epoch_results[1].development_metrics.losses.total_loss == 0.4
+
+
+def test_training_runner_waits_four_epochs_before_stopping() -> None:
+    development_losses = (0.8, 0.7, 0.6, 0.61, 0.62, 0.63, 0.59, 0.60)
+
+    result = run_supervised_training_epochs(
+        epoch_count=len(development_losses),
+        train_epoch=lambda _: _loss_metrics(1.0),
+        evaluate_epoch=lambda index: _evaluation_metrics(development_losses[index]),
+        on_new_best=lambda _: None,
+        early_stopping_patience=4,
+    )
+
+    assert not result.stopped_early
+    assert len(result.epoch_results) == len(development_losses)
+    assert result.best_epoch_index == 6
+
+
+def test_training_runner_stops_after_configured_patience() -> None:
+    development_losses = (0.8, 0.7, 0.71, 0.72, 0.73, 0.74, 0.6)
+
+    result = run_supervised_training_epochs(
+        epoch_count=len(development_losses),
+        train_epoch=lambda _: _loss_metrics(1.0),
+        evaluate_epoch=lambda index: _evaluation_metrics(development_losses[index]),
+        on_new_best=lambda _: None,
+        early_stopping_patience=4,
+    )
+
+    assert result.stopped_early
+    assert len(result.epoch_results) == 6
+    assert result.best_epoch_index == 1

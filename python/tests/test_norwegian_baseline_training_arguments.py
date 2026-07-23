@@ -32,6 +32,10 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
     )
     assert default_arguments.epoch_count == 12
     assert default_arguments.treebank_release == "current"
+    assert default_arguments.morphology_bundle_candidate_count == 0
+    assert default_arguments.morphology_bundle_loss_weight == 0.0
+    assert default_arguments.morphology_agreement_window_radius == 0
+    assert default_arguments.early_stopping_patience == 4
     assert (
         default_arguments.backbone_layer_aggregation
         is BackboneLayerAggregationStrategy.LEARNED_LAST_FOUR
@@ -125,6 +129,33 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
         character_arguments.token_task_head_architecture
         is TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY_CHARACTER_CNN
     )
+
+    reranker_arguments = parse_training_arguments(
+        ("--morphology-bundle-candidate-count", "32"),
+    )
+    assert reranker_arguments.morphology_bundle_candidate_count == 32
+    assert reranker_arguments.morphology_bundle_loss_weight == 0.0
+    assert not reranker_arguments.isolate_morphology_bundle_loss_gradient
+
+    bundle_loss_arguments = parse_training_arguments(
+        (
+            "--morphology-bundle-candidate-count",
+            "32",
+            "--morphology-bundle-loss-weight",
+            "0.1",
+            "--isolate-morphology-bundle-loss-gradient",
+            "--early-stopping-patience",
+            "0",
+        ),
+    )
+    assert bundle_loss_arguments.morphology_bundle_loss_weight == 0.1
+    assert bundle_loss_arguments.isolate_morphology_bundle_loss_gradient
+    assert bundle_loss_arguments.early_stopping_patience is None
+
+    agreement_arguments = parse_training_arguments(
+        ("--morphology-agreement-window-radius", "3"),
+    )
+    assert agreement_arguments.morphology_agreement_window_radius == 3
 
     layer_mix_arguments = parse_training_arguments(
         (

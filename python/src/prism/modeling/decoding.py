@@ -82,6 +82,8 @@ def apply_morphology_logit_correction(
         upos_logits=logits.upos_logits,
         morphology_logits=tuple(corrected_morphology_logits),
         lemma_rule_logits=logits.lemma_rule_logits,
+        morphology_bundle_scores=logits.morphology_bundle_scores,
+        morphology_bundle_loss_scores=logits.morphology_bundle_loss_scores,
     )
 
 

@@ -1,3 +1,22 @@
+from prism.evaluation.morphology_bundles import (
+    MorphologyBundleCandidateSet,
+    MorphologyBundleCoverage,
+    MorphologyBundleExample,
+    MorphologyBundleInventory,
+    MorphologyBundleOracleMetrics,
+    MorphologyBundleTopKCoverage,
+    evaluate_morphology_bundle_oracle,
+    morphology_bundle_from_features,
+)
+from prism.evaluation.morphology_error_audit import (
+    MorphologyContextCount,
+    MorphologyErrorAudit,
+    MorphologyErrorAuditAccumulator,
+    MorphologyErrorRecord,
+    MorphologyFeatureConfusionCount,
+    NamedCount,
+)
+from prism.evaluation.prediction_observer import TokenTaskPredictionObserver
 from prism.evaluation.token_frequency import (
     TokenFrequencyClass,
     TokenFrequencyProfile,
@@ -8,12 +27,27 @@ from prism.evaluation.universal_dependencies import (
     UniversalDependenciesEvaluationMetrics,
     UniversalDependenciesMetricScore,
     UniversalDependenciesReferenceBatch,
+    UniversalFeaturesPolicyAudit,
+    UniversalFeaturesPolicyStep,
     build_universal_dependencies_reference_batch,
     evaluate_gold_tokenized_conllu,
     serialize_universal_dependencies_evaluation_metrics,
 )
 
 __all__ = [
+    "MorphologyBundleCandidateSet",
+    "MorphologyBundleCoverage",
+    "MorphologyBundleExample",
+    "MorphologyBundleInventory",
+    "MorphologyBundleOracleMetrics",
+    "MorphologyBundleTopKCoverage",
+    "MorphologyContextCount",
+    "MorphologyErrorAudit",
+    "MorphologyErrorAuditAccumulator",
+    "MorphologyErrorRecord",
+    "MorphologyFeatureConfusionCount",
+    "NamedCount",
+    "TokenTaskPredictionObserver",
     "TokenFrequencyClass",
     "TokenFrequencyProfile",
     "normalize_token_form",
@@ -21,7 +55,11 @@ __all__ = [
     "UniversalDependenciesEvaluationMetrics",
     "UniversalDependenciesMetricScore",
     "UniversalDependenciesReferenceBatch",
+    "UniversalFeaturesPolicyAudit",
+    "UniversalFeaturesPolicyStep",
     "build_universal_dependencies_reference_batch",
     "evaluate_gold_tokenized_conllu",
+    "evaluate_morphology_bundle_oracle",
+    "morphology_bundle_from_features",
     "serialize_universal_dependencies_evaluation_metrics",
 ]

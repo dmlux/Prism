@@ -43,6 +43,17 @@ from prism.modeling.heads import (
     WideSharedResidualTokenProjection,
 )
 from prism.modeling.structured_morphology import StructuredMorphologyDecoder
+from prism.modeling.morphology_agreement import (
+    MorphologyAgreementRefiner,
+    MorphologyAgreementRefinerSpec,
+    validate_morphology_agreement_refiner_spec,
+)
+from prism.modeling.morphology_bundle_reranker import (
+    MorphologyBundleCandidate,
+    MorphologyBundleReranker,
+    MorphologyBundleRerankerSpec,
+    validate_morphology_bundle_reranker_spec,
+)
 from prism.modeling.decoding import (
     MorphologyLogitCorrection,
     apply_morphology_logit_correction,
@@ -80,6 +91,13 @@ __all__ = [
     "TaskResidualAdapter",
     "WideSharedResidualTokenProjection",
     "StructuredMorphologyDecoder",
+    "MorphologyAgreementRefiner",
+    "MorphologyAgreementRefinerSpec",
+    "validate_morphology_agreement_refiner_spec",
+    "MorphologyBundleCandidate",
+    "MorphologyBundleReranker",
+    "MorphologyBundleRerankerSpec",
+    "validate_morphology_bundle_reranker_spec",
     "MorphologyLogitCorrection",
     "apply_morphology_logit_correction",
     "TokenTagger",

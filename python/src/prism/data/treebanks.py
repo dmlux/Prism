@@ -11,3 +11,4 @@ class UniversalDependenciesTreebankSpec:
     license_id: str
     training_path: Path
     development_path: Path
+    test_path: Path | None = None

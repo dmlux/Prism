@@ -122,8 +122,8 @@ Decode --> Results
 | Morphologie | 18 schemaabhängige Heads mit hybridem kategorialem/Multi-Label-Vertrag |
 | Morphologie-Struktur | Paralleler zweiter Pass mit weichem UPOS- und Feature-Kontext |
 | Lemma | Kategorialer Head über 1.059 aus Trainingsdaten abgeleitete Editierregeln |
-| Trainingsdauer | 12 Epochen; bester Checkpoint nach kombiniertem Development-Loss |
-| Training | Batchgröße 16, Prism-Head-Dropout 0,1, Morphologie-Gewichtskappe 10,0 |
+| Trainingsdauer | Maximal konfigurierbar; Early Stopping nach standardmäßig vier vollständig erfolglosen Epochen |
+| Training | Batchgröße 16, Prism-Head-Dropout 0,1, Morphologie-Gewichtskappe 10,0; optionale direkte Bundle-Loss |
 | Checkpoint | Format 3, 69.862.812 Bytes, gemeinsames Modell für Bokmål und Nynorsk |
 | Auslieferung | Nur der kompakte Student; der Teacher bleibt Trainingswerkzeug |
 
@@ -145,9 +145,12 @@ abgebildet:
 | First-/Mean-Pooling | [`align_subwords_to_tokens`](../python/src/prism/modeling/alignment.py) |
 | LayerNorm, Wide-MLP und Task-Heads | [`TokenTaskHeads`](../python/src/prism/modeling/heads.py) |
 | Strukturierter zweiter Morphologie-Pass | [`StructuredMorphologyDecoder`](../python/src/prism/modeling/structured_morphology.py) |
+| Optionaler vollständiger Bundle-Reranker | [`MorphologyBundleReranker`](../python/src/prism/modeling/morphology_bundle_reranker.py) |
+| Optionaler lokaler Agreement-Refiner | [`MorphologyAgreementRefiner`](../python/src/prism/modeling/morphology_agreement.py) |
 | Überwachte Losses | [`compute_token_task_loss`](../python/src/prism/training/losses.py) |
 | Distillation | [`compute_token_task_distillation_loss`](../python/src/prism/training/distillation.py) |
 | Morphologie-Ausgabekorrektur | [`apply_morphology_logit_correction`](../python/src/prism/modeling/decoding.py) |
+| Externe UD-Annotationskonvention | [`NorwegianUdMorphologyDecoder`](../python/src/prism/data/norwegian.py) |
 | Deterministisches Ausgabe-Decoding | [`decode_token_task_logits`](../python/src/prism/modeling/decoding.py) |
 | Architektur-Metadaten und Fallbacks | [`checkpoints.py`](../python/src/prism/training/checkpoints.py) |
 | Norwegische Backbone-/Datenwahl | [`profile.py`](../python/src/prism/languages/norwegian/profile.py) |
@@ -155,6 +158,137 @@ abgebildet:
 Diese Zuordnung ist die Wartungsregel für das Dokument: Ändert sich einer
 dieser Verträge, müssen Gesamtfluss und Detailabschnitt gemeinsam aktualisiert
 werden.
+
+### Optionaler Top-32-Bundle-Reranker
+
+Der Bundle-Reranker ist als abschaltbare Komponente implementiert und Teil der
+ausgewählten norwegischen Student-Architektur. Sein Inventar
+entsteht ausschließlich aus den gemeinsamen Bokmål-/Nynorsk-Trainingssplits.
+Für jede UPOS-Klasse bleiben höchstens die 32 häufigsten vollständigen
+Morphologie-Bündel erhalten; Development- oder Testlabels gelangen nicht in
+den Kandidatenvertrag. Inventar, Häufigkeiten und Kandidatenlimit werden im
+Checkpoint gespeichert.
+Für das aktuelle gemeinsame norwegische Trainingsschema bleiben nach der
+Top-32-Begrenzung 185 UPOS-Bundle-Kandidaten übrig. Bei Hidden Size 192 fügt
+der Reranker 35.723 trainierbare Parameter hinzu; das entspricht nur rund
+143 KB rohen FP32-Parameterwerten vor Export oder Quantisierung.
+
+Der Forward-Pfad verwendet kein Gold-UPOS. Er berechnet für alle Kandidaten
+gemeinsam einen Score aus:
+
+- der weichen UPOS-Verteilung des Modells,
+- der gemeinsamen Log-Wahrscheinlichkeit aller unabhängigen Feature-Logits,
+- und einer kleinen trainierbaren Projektion des Morphologie-Tokenvektors auf
+  die Kandidaten.
+
+Die Kandidatenverteilung wird wieder zu Wahrscheinlichkeiten je
+Morphologie-Label marginalisiert. Gelernte Gates mischen diese
+Bundle-Evidenz residual in die vorhandenen Feature-Logits. Damit ist das
+Inventar keine harte Ausgabeliste: Der unabhängige Decoder bleibt im
+Rechenpfad und kann weiterhin neue Kombinationen ausdrücken. Das verhindert
+insbesondere einen harten Fehlerkaskadenvertrag von vorhergesagtem UPOS zu
+Morphologie. `--disable-morphology-bundle-reranker` schaltet den residualen
+Pass bei der Evaluation vollständig ab und ermöglicht eine Kontrolle desselben
+Checkpoints. Der gesamte Pfad besitzt strikte `torch.export`-Parität.
+
+Der Reranker kann nun zusätzlich direkt auf vollständige Gold-Bündel trainiert
+werden. `--morphology-bundle-loss-weight` ergänzt die bisherigen
+schemaabhängigen Feature-Losses um die negative logarithmische
+Wahrscheinlichkeit des gesamten Gold-Bündels. Kommt dasselbe Bündel in
+mehreren UPOS-Kandidatengruppen vor, wird seine Wahrscheinlichkeit über alle
+passenden Kandidaten marginalisiert; die Hilfs-Loss koppelt UFeats daher nicht
+unnötig an ein korrektes Gold-UPOS. Gold-Bündel außerhalb des
+Trainingsinventars werden für diesen Term maskiert. Training und Development
+weisen Loss und Kandidatenabdeckung getrennt aus. Gewicht `0` erhält den
+bisherigen Bundle-32-Kontrolllauf exakt als reproduzierbare Ablation.
+
+Der erste gemeinsame Lauf mit direktem Loss verbesserte UFeats und
+Rare/OOV-Morphologie auf beiden Schriftstandards deutlich, verschlechterte
+aber Lemma, besonders für Bokmål-OOV. Deshalb bietet
+`--isolate-morphology-bundle-loss-gradient` einen engeren Trainingsvertrag:
+Die Hilfs-Loss sieht exakt dieselben Kandidatenscores, darf ihren Gradienten
+aber nur in Gewicht und Bias der kleinen Token-zu-Kandidaten-Projektion
+schreiben. UPOS-Evidenz, unabhängige Feature-Logits, Morphologie-Tokenvektor,
+Backbone, gemeinsame MLP-Repräsentation, Lemma-Zweig und Refinement-Gates sind
+für diesen Hilfsterm abgetrennt. Ihre normalen überwachten und
+Destillations-Losses bleiben unverändert. Der Schalter beeinflusst weder
+Forward-Werte noch Inferenz, Parameterzahl oder Export; sein aufgelöster Wert
+wird als Trainingskonfiguration im Checkpoint gespeichert.
+
+Checkpoint-Auswahl bleibt vorerst beim niedrigsten kombinierten
+Development-Loss. Early Stopping beendet einen Lauf standardmäßig erst nach
+vier vollständigen Epochen ohne neue Best-Loss. Patience 2 ist bewusst nicht
+der Standard, weil frühere Student-Verläufe nach zwei Zwischenepochen erneut
+einen besseren Kandidaten lieferten. `--early-stopping-patience 0` deaktiviert
+den Abbruch.
+
+### Optionaler lokaler Agreement-Refiner
+
+Der begrenzte Agreement-Refiner ist als implementierte, aber nach der
+Development-Ablation abgelehnte Forschungsoption erhalten. Er läuft nach
+strukturiertem Decoder und
+Bundle-Reranker und darf deshalb deren aktuelle, weiche Evidenz nutzen. Für
+jedes Token erhält er den Morphologie-Tokenvektor, die weiche
+UPOS-Wahrscheinlichkeitsverteilung und die Wahrscheinlichkeiten aller
+Morphologie-Labels. Diese Eingaben werden in einen gemeinsamen Bottleneck mit
+64 Dimensionen projiziert.
+
+Eine lokale Attention betrachtet ausschließlich gültige Nachbartokens in
+einem Radius von drei Token. Das aktuelle Token selbst ist ausgeschlossen;
+Padding wird durch die Tokenmaske vollständig unterdrückt. Der Kontext kann
+damit beispielsweise Kongruenz zwischen Determinierer, Adjektiv und Nomen
+lernen, ohne Gold-UPOS, Gold-Morphologie, Wörterbuchwerte oder eine externe
+UDPipe-Vorhersage zur Inferenz zu benötigen.
+
+Nur `Definite`, `Gender` und `Number` besitzen Korrekturköpfe. Nullinitialisierte
+Korrekturen und anfangs kleine Sigmoid-Gates addieren die gelernte Evidenz
+residual zu den vorhandenen Logits; alle anderen Features bleiben bitgenau im
+bisherigen Pfad. Die norwegische Spezifikation fügt 29.707 trainierbare
+Parameter hinzu, also rund 119 KB rohe FP32-Parameterwerte. Radius,
+Bottleneck und Zielfeatures liegen typisiert im Checkpoint.
+`--disable-morphology-agreement-refiner` erlaubt die technische Kontrolle
+desselben Checkpoints. Der aktivierte Pfad ist durch strikten `torch.export`
+abgedeckt. Der separat trainierte Lauf verbesserte Nynorsk-UFeats,
+verschlechterte aber Bokmål-UFeats sowie dort alle drei Zielfeatures und beide
+Rare/OOV-Slices. Er ist deshalb kein Teil der ausgewählten Architektur;
+Bundle-32 bleibt der norwegische Student-Standard.
+
+Prisms kanonische Morphologie und eine externe Treebank-Annotation sind zwei
+verschiedene Verträge. Die kanonische Ausgabe bleibt für gemischtes
+Norwegisch standardunabhängig. Ein explizit ausgewählter UD-Decoder darf diese
+Ausgabe unmittelbar vor einer externen UFeats-Bewertung in die dokumentierte
+Bokmål- oder Nynorsk-Konvention übersetzen. Er verändert weder Modelllogits
+noch die kanonischen Per-Label- und Rare/OOV-Metriken. Damit kann Prism eine
+Annotationskonvention reproduzieren, ohne zwei Studentengewichte zu erzeugen
+oder eine Treebank-Eigenheit als allgemeine norwegische Sprachwahrheit
+auszugeben.
+
+Eine externe Policy besteht aus benannten, deterministischen Schritten. Die
+UD-Auswertung protokolliert für jeden Schritt sequenziell, wie viele
+vollständige Feature-Bündel verändert, von falsch zu richtig verbessert oder
+von richtig zu falsch verschlechtert werden. Damit bleibt sichtbar, ob ein
+großer UFeats-Gewinn aus einer legitimen Konventionsübersetzung oder aus einer
+zu breiten, schädlichen Regel stammt.
+
+Der ausgewählte Nynorsk-UD-Vertrag besteht aus drei solchen Schritten:
+Normalisierung gemeinsamen Genus, Entfernung des dort nicht ausgedrückten
+Singularwerts und Entfernung des dort nicht ausgedrückten bestimmten
+Definitheitswerts. Mit dem ausgewählten Bundle-32-Studenten verbessern sie auf
+Development sequenziell 618, 138 und 42
+vollständige Bündel, ohne ein zuvor richtiges Bündel zu verschlechtern. Diese
+Policy gehört zur expliziten externen Nynorsk-UD-Ausgabe, nicht zur kanonischen
+Prism-Ausgabe für gemischtes Norwegisch.
+
+Für gezielte Fehleranalyse kann die Evaluationsschleife typisierte
+Vorhersagebeobachter bedienen. Der erste Beobachter ist ein generisches
+Morphologie-Fehleraudit: Für ein ausgewähltes Feature hält es jeden falsch
+klassifizierten Token mit Gold-/Vorhersagewert, Gold-/Vorhersage-UPOS,
+Trainingshäufigkeit, Rare/OOV-Klasse sowie linkem und rechtem Gold-UPOS-Kontext
+fest. Eine optional ausgerichtete CoNLL-U-Vorhersage eines Vergleichssystems
+liefert getrennte Zähler dafür, ob dieses nur das untersuchte Feature oder das
+vollständige Morphologiebündel richtig löst. Dadurch bleibt die Diagnose Teil
+der bestehenden Inferenz und kann nicht durch eine duplizierte Modellpipeline
+abweichen.
 
 ## Sprachunabhängiger Kern und austauschbare Sprachprofile
 
@@ -1538,6 +1672,27 @@ mehrere lokal mitgelieferte Dateien enthalten. Das Manifest dokumentiert:
 - Modell- und Datenlizenzen;
 - Benchmark-Identität.
 
+Das norwegische Paket enthält nur **einen** gemeinsamen neuronalen Modellgraphen
+für Bokmål, Nynorsk und gemischtes Norwegisch. Die externe
+UD-Annotationskonvention darf deshalb nicht bedingungslos in diesen Graphen
+eingebrannt werden. Das Manifest muss stattdessen versionierte Ausgabeprofile
+mit einer expliziten Standardauswahl beschreiben:
+
+- `nb`: kanonische norwegische Morphologie, keine Treebank-Policy;
+- `nn`: Nynorsk-Treebank-Policy für eine ausdrücklich angeforderte externe
+  Nynorsk-UD-Ausgabe;
+- `no`: kanonische norwegische Morphologie für unbekannte oder gemischte
+  Schreibstandards.
+
+Die native Swift-/C++-Laufzeit wählt das Ausgabeprofil anhand des vom Aufrufer
+angeforderten Sprachprofils und wendet die deterministische Policy erst nach
+dem neuronalen Decoding an. Falls später getrennte `nb`- und `nn`-Pakethüllen
+angeboten werden, dürfen sie denselben Modellgraphen referenzieren und sich nur
+in Manifest und voreingestelltem Ausgabeprofil unterscheiden. Paritätstests
+müssen Python und native Laufzeiten für alle drei Profile vergleichen. Die
+Manifestserialisierung und diese profilabhängige native Auswahl sind noch zu
+implementieren.
+
 Zur ausgewählten norwegischen Ausgabepolitik gehört außerdem eine feste
 Morphologie-Logit-Korrektur. Das Modell selbst liefert weiterhin rohe Logits.
 Vor dem Decoding zieht die Laufzeit je Feature den aus den Trainingsgewichten
@@ -1771,6 +1926,45 @@ Der frische kompakte Student ist mit Temperatur 1,0 und Gewicht 0,1
 destilliert und getrennt auf Bokmål/Nynorsk einschließlich Rare/OOV verglichen.
 Er ist als neuer kompakter Referenzcheckpoint ausgewählt; die kleinen
 Bokmål-Rare-Tradeoffs bleiben dokumentiert.
+
+## Silberdaten: getrennte Daten- und Lernverträge
+
+Silberdaten sind keine zusätzlichen Gold-Annotationen. Sie bestehen zunächst
+aus unlabeled Text; ihre Aufgabenlabels stammen später als unsichere
+Pseudo-Annotationen vom eingefrorenen Teacher. Prism hält deshalb drei
+Artefakte auseinander:
+
+```text
+NBdigital-Archiv (CC0, Wörter und Satzgrenzen)
+    -> gefilterter, deduplizierter Pretokenized-Silver-Korpus + Manifest
+    -> eingefrorener Teacher
+    -> Pseudolabels + Konfidenzen + Teacher-/Schema-Provenienz
+    -> explizite Gold-/Silber-Mischung
+    -> Student
+```
+
+Der implementierte Quelladapter liest
+`oai:nb.no:sbr-43` direkt aus dem komprimierten Archiv. Er verwendet aus den
+historischen Oslo-Bergen-Annotationen nur die markierten Satzgrenzen und
+übernimmt **keine** POS-, Morphologie- oder Lemma-Labels. Dokumente unter der
+konfigurierten OCR-Grenze, Sätze über der Token-Grenze, Duplikate sowie
+Überschneidungen mit allen UD-Splits beider norwegischer Profile werden
+entfernt.
+
+`SilverCorpusManifest` ist die reproduzierbare Grenze dieses ersten Schritts.
+Es enthält insbesondere Corpus-ID, Quell-URL, SHA-256 des Archivs, Lizenz,
+Dokument-/Satz-/Tokenzahlen und die vollständige Extraktionspolicy. Die
+JSONL-Datensätze enthalten Dokument-ID, Satzindex, externe Tokens und
+Leerzeicheninformation. Beide Dateien liegen als generierte, nicht
+versionierte Daten unter `data/processed/`.
+
+Der noch folgende Teacher-Label-Vertrag muss pro Task Konfidenzen speichern.
+Ein unsicheres Morphologie- oder Lemma-Ziel darf nicht dadurch zu scheinbarem
+Gold werden, dass es nur als harte Klassen-ID serialisiert wird. Ebenso bleibt
+der Bokmål-only-Silberanteil ein explizites Mischungsgewicht; die
+Nynorsk-Goldbatches und die getrennte Nynorsk-Development-Grenze dürfen nicht
+verdrängt werden. Der Teacher wird offline einmal ausgeführt, nicht erneut in
+jeder Student-Epoche.
 
 ## Quellen
 

@@ -9,6 +9,7 @@ import torch
 
 from prism.conllu import read_sentences
 from prism.data import (
+    NorwegianUdMorphologyDecoder,
     build_norwegian_schema,
     build_norwegian_ud_lemma_decoder,
     encode_norwegian_sentences,
@@ -17,9 +18,11 @@ from prism.evaluation.classification import (
     calculate_classification_metrics,
 )
 from prism.evaluation import (
+    MorphologyErrorAuditAccumulator,
     TokenFrequencyClass,
     TokenFrequencyProfile,
     UniversalDependenciesEvaluationAccumulator,
+    UniversalFeaturesPolicyStep,
     build_universal_dependencies_reference_batch,
     serialize_universal_dependencies_evaluation_metrics,
 )
@@ -50,6 +53,8 @@ from prism.training import (
     character_vocabulary_from_checkpoint,
     maximum_character_count_from_checkpoint,
     morphology_logit_correction_from_checkpoint,
+    morphology_bundle_reranker_spec_from_checkpoint,
+    morphology_agreement_refiner_spec_from_checkpoint,
 )
 
 
@@ -61,6 +66,38 @@ class BaselineEvaluationArguments:
     device: str
     treebank_release: str
     morphology_logit_correction_strength: float
+    ud_morphology_policy: str
+    disable_morphology_bundle_reranker: bool
+    disable_morphology_agreement_refiner: bool
+    morphology_error_audit_feature: str | None
+    morphology_error_audit_comparison_path: Path | None
+
+
+def _norwegian_ud_morphology_policy_steps(
+    *,
+    language_tag: str,
+) -> tuple[UniversalFeaturesPolicyStep, ...]:
+    decoder = NorwegianUdMorphologyDecoder(language_tag=language_tag)
+    steps = [
+        UniversalFeaturesPolicyStep(
+            name="common-gender",
+            decoder=decoder.decode_common_gender,
+        )
+    ]
+    if language_tag == "nn":
+        steps.extend(
+            (
+                UniversalFeaturesPolicyStep(
+                    name="nynorsk-number",
+                    decoder=decoder.decode_nynorsk_number,
+                ),
+                UniversalFeaturesPolicyStep(
+                    name="nynorsk-definite",
+                    decoder=decoder.decode_nynorsk_definite,
+                ),
+            )
+        )
+    return tuple(steps)
 
 
 def parse_evaluation_arguments(
@@ -105,10 +142,53 @@ def parse_evaluation_arguments(
             "morphology decoding (0 disables the evaluation ablation)."
         ),
     )
+    parser.add_argument(
+        "--ud-morphology-policy",
+        choices=("canonical", "treebank"),
+        default="canonical",
+        help=(
+            "Map canonical morphology to the selected UD treebank's annotation "
+            "convention before UFeats scoring."
+        ),
+    )
+    parser.add_argument(
+        "--disable-morphology-bundle-reranker",
+        action="store_true",
+        help="Disable a checkpointed bundle reranker for a matched ablation.",
+    )
+    parser.add_argument(
+        "--disable-morphology-agreement-refiner",
+        action="store_true",
+        help="Disable a checkpointed local agreement refiner for a diagnostic.",
+    )
+    parser.add_argument(
+        "--morphology-error-audit-feature",
+        help=(
+            "Collect token-aligned errors for this morphology feature in the "
+            "analysis JSON."
+        ),
+    )
+    parser.add_argument(
+        "--morphology-error-audit-comparison",
+        type=Path,
+        dest="morphology_error_audit_comparison_path",
+        help=(
+            "Optional aligned CoNLL-U prediction used to count which audited "
+            "errors the comparison system solves."
+        ),
+    )
 
     parsed_arguments = parser.parse_args(arguments)
     if not 0.0 <= parsed_arguments.morphology_logit_correction_strength <= 1.0:
         parser.error("--morphology-logit-correction-strength must be between 0 and 1")
+    if (
+        parsed_arguments.morphology_error_audit_comparison_path is not None
+        and parsed_arguments.morphology_error_audit_feature is None
+    ):
+        parser.error(
+            "--morphology-error-audit-comparison requires "
+            "--morphology-error-audit-feature"
+        )
 
     return BaselineEvaluationArguments(
         language_tag=parsed_arguments.language_tag,
@@ -118,6 +198,19 @@ def parse_evaluation_arguments(
         treebank_release=parsed_arguments.treebank_release,
         morphology_logit_correction_strength=(
             parsed_arguments.morphology_logit_correction_strength
+        ),
+        ud_morphology_policy=parsed_arguments.ud_morphology_policy,
+        disable_morphology_bundle_reranker=(
+            parsed_arguments.disable_morphology_bundle_reranker
+        ),
+        disable_morphology_agreement_refiner=(
+            parsed_arguments.disable_morphology_agreement_refiner
+        ),
+        morphology_error_audit_feature=(
+            parsed_arguments.morphology_error_audit_feature
+        ),
+        morphology_error_audit_comparison_path=(
+            parsed_arguments.morphology_error_audit_comparison_path
         ),
     )
 
@@ -255,6 +348,26 @@ def main() -> None:
             TokenFrequencyClass.OOV,
         )
     }
+    morphology_error_audit_accumulator = None
+    if arguments.morphology_error_audit_feature is not None:
+        comparison_reference_batches = None
+        if arguments.morphology_error_audit_comparison_path is not None:
+            comparison_tokens = read_sentences(
+                arguments.morphology_error_audit_comparison_path
+            )
+            comparison_reference_batches = tuple(
+                build_universal_dependencies_reference_batch(
+                    comparison_tokens[start : start + batch_size]
+                )
+                for start in range(0, len(comparison_tokens), batch_size)
+            )
+        morphology_error_audit_accumulator = MorphologyErrorAuditAccumulator(
+            schema=schema,
+            feature_name=arguments.morphology_error_audit_feature,
+            reference_batches=development_reference_batches,
+            frequency_profile=frequency_profile,
+            comparison_reference_batches=comparison_reference_batches,
+        )
 
     tokenizer = load_backbone_tokenizer(backbone_spec)
     pooling_strategy = token_pooling_strategy_from_checkpoint(checkpoint)
@@ -280,11 +393,31 @@ def main() -> None:
         character_vocabulary_size=(
             None if character_vocabulary is None else character_vocabulary.size
         ),
+        morphology_bundle_reranker_spec=(
+            morphology_bundle_reranker_spec_from_checkpoint(checkpoint)
+        ),
+        morphology_agreement_refiner_spec=(
+            morphology_agreement_refiner_spec_from_checkpoint(checkpoint)
+        ),
     )
     model.load_state_dict(
         checkpoint["model_state_dict"],
         strict=True,
     )
+    bundle_reranker = model.heads.morphology_bundle_reranker
+    if arguments.disable_morphology_bundle_reranker:
+        if bundle_reranker is None:
+            raise ValueError(
+                "Checkpoint does not contain a morphology bundle reranker."
+            )
+        bundle_reranker.set_enabled(False)
+    agreement_refiner = model.heads.morphology_agreement_refiner
+    if arguments.disable_morphology_agreement_refiner:
+        if agreement_refiner is None:
+            raise ValueError(
+                "Checkpoint does not contain a morphology agreement refiner."
+            )
+        agreement_refiner.set_enabled(False)
 
     print(
         "Evaluating checkpoint epoch:",
@@ -297,6 +430,23 @@ def main() -> None:
     print(
         "Morphology logit correction:",
         f"{arguments.morphology_logit_correction_strength:.2f}",
+    )
+    print("UD morphology policy:", arguments.ud_morphology_policy)
+    print(
+        "Morphology bundle reranker:",
+        "disabled"
+        if bundle_reranker is not None and not bundle_reranker.enabled
+        else "enabled"
+        if bundle_reranker is not None
+        else "absent",
+    )
+    print(
+        "Morphology agreement refiner:",
+        "disabled"
+        if agreement_refiner is not None and not agreement_refiner.enabled
+        else "enabled"
+        if agreement_refiner is not None
+        else "absent",
     )
 
     metrics = evaluate_supervised_token_task_epoch(
@@ -317,13 +467,30 @@ def main() -> None:
                 schema=schema,
                 reference_batches=development_reference_batches,
                 lemma_decoder=build_norwegian_ud_lemma_decoder(schema_training_tokens),
+                universal_features_policy_steps=(
+                    ()
+                    if arguments.ud_morphology_policy == "canonical"
+                    else _norwegian_ud_morphology_policy_steps(
+                        language_tag=profile.language_tag
+                    )
+                ),
             )
+        ),
+        prediction_observers=(
+            ()
+            if morphology_error_audit_accumulator is None
+            else (morphology_error_audit_accumulator,)
         ),
         morphology_logit_correction=morphology_logit_correction,
     )
 
     if metrics.universal_dependencies is None:
         raise RuntimeError("UD-compatible metrics were not calculated.")
+    morphology_error_audit = (
+        None
+        if morphology_error_audit_accumulator is None
+        else morphology_error_audit_accumulator.finish()
+    )
 
     for row in format_scalar_metric_rows(
         metric_names=(
@@ -345,6 +512,17 @@ def main() -> None:
     ):
         print(row)
 
+    if metrics.universal_dependencies.ufeats_policy_audits:
+        print()
+        print("UD morphology policy audit")
+        for audit in metrics.universal_dependencies.ufeats_policy_audits:
+            print(
+                f"{audit.name:<20}  "
+                f"changed={audit.changed_bundle_count:>5}  "
+                f"improved={audit.improved_bundle_count:>5}  "
+                f"regressed={audit.regressed_bundle_count:>5}"
+            )
+
     print()
     print(
         "Token-frequency slices: normalized with NFC + casefold; "
@@ -358,6 +536,47 @@ def main() -> None:
             metrics=token_slice.metrics,
         ):
             print(row)
+
+    if morphology_error_audit is not None:
+        print()
+        print("Morphology error audit:", morphology_error_audit.feature_name)
+        print(
+            f"errors={morphology_error_audit.error_count} / "
+            f"{morphology_error_audit.token_count} "
+            f"({morphology_error_audit.error_count / morphology_error_audit.token_count:.4%})"
+        )
+        if morphology_error_audit.comparison_feature_correct_count is not None:
+            print(
+                "comparison feature-correct:",
+                morphology_error_audit.comparison_feature_correct_count,
+            )
+            print(
+                "comparison bundle-correct:",
+                morphology_error_audit.comparison_bundle_correct_count,
+            )
+
+        print("By training frequency")
+        for count in morphology_error_audit.frequency_class_counts:
+            print(f"  {count.name:<12} {count.count:>5}")
+
+        print("By gold UPOS")
+        for count in morphology_error_audit.gold_upos_counts:
+            print(f"  {count.name:<12} {count.count:>5}")
+
+        print("Most frequent confusions")
+        for confusion in morphology_error_audit.confusion_counts[:12]:
+            gold = ",".join(confusion.gold_values) or "<NONE>"
+            predicted = ",".join(confusion.predicted_values) or "<NONE>"
+            print(f"  {gold:>10} -> {predicted:<10} {confusion.count:>5}")
+
+        print("Most frequent gold-UPOS contexts")
+        for context in morphology_error_audit.context_counts[:12]:
+            label = f"{context.previous_upos}>{context.gold_upos}>{context.next_upos}"
+            print(f"  {label:<32} {context.count:>5}")
+
+        print("Most frequent normalized forms")
+        for count in morphology_error_audit.normalized_form_counts[:20]:
+            print(f"  {count.name:<24} {count.count:>5}")
 
     for (
         feature,
@@ -420,9 +639,37 @@ def main() -> None:
                     "morphology_logit_correction_weight_source": (
                         None if morphology_logit_correction is None else "checkpoint"
                     ),
+                    "ud_morphology_policy": arguments.ud_morphology_policy,
+                    "morphology_bundle_reranker": (
+                        "disabled"
+                        if bundle_reranker is not None and not bundle_reranker.enabled
+                        else "enabled"
+                        if bundle_reranker is not None
+                        else "absent"
+                    ),
+                    "morphology_agreement_refiner": (
+                        "disabled"
+                        if agreement_refiner is not None
+                        and not agreement_refiner.enabled
+                        else "enabled"
+                        if agreement_refiner is not None
+                        else "absent"
+                    ),
                 },
                 "schema": (serialize_token_task_schema(schema)),
                 "metrics": serialized_metrics,
+                "morphology_error_audit": (
+                    None
+                    if morphology_error_audit is None
+                    else {
+                        "comparison": (
+                            None
+                            if arguments.morphology_error_audit_comparison_path is None
+                            else str(arguments.morphology_error_audit_comparison_path)
+                        ),
+                        "metrics": asdict(morphology_error_audit),
+                    }
+                ),
             },
             ensure_ascii=False,
             indent=2,

@@ -12,6 +12,8 @@ def test_supervised_training_config_exposes_reproducible_policy() -> None:
         warmup_ratio=0.1,
         random_seed=42,
         morphology_weight_cap=10.0,
+        morphology_bundle_loss_weight=0.1,
+        isolate_morphology_bundle_loss_gradient=True,
     )
 
     assert config.epoch_count == 3
@@ -23,3 +25,5 @@ def test_supervised_training_config_exposes_reproducible_policy() -> None:
     assert config.warmup_ratio == 0.1
     assert config.random_seed == 42
     assert config.morphology_weight_cap == 10.0
+    assert config.morphology_bundle_loss_weight == 0.1
+    assert config.isolate_morphology_bundle_loss_gradient

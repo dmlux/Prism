@@ -813,6 +813,162 @@ comparison metric across both written standards. This establishes useful
 Teacher headroom; it does not yet prove that the compact distilled Student
 will retain the gain.
 
+The later official-compatible Bokmål evaluation exposes an important
+silver-labeling constraint. With canonical output and no morphology-logit
+correction, the Teacher reaches 99.2824% UPOS F1, 95.3532% complete-bundle
+UFeats F1, and 98.9057% Lemmas F1. Compared with reproduced UDPipe 2.17, this
+is +0.3327 percentage points on UPOS, -2.7166 points on UFeats, and -0.0687
+points on Lemmas. The Teacher therefore does not beat UDPipe on every task.
+Its raw UFeats is also below the later selected Bundle-32 Student's corrected
+96.0076%, because this Teacher predates the bundle reranker and the selected
+logit-correction policy. Raw Teacher morphology must not be promoted to silver
+gold without a controlled correction evaluation or a final architecture-
+matched Teacher.
+
+Applying the already selected full class-weight correction raises Teacher
+Bokmål UFeats from 95.3532% to 96.3953%, a gain of 1.0421 percentage points.
+It also raises Rare morphology micro F1 from 96.2034% to 96.5756% and OOV
+morphology micro F1 from 94.8188% to 95.6278%. UPOS and Lemmas remain
+unchanged by construction. The corrected Teacher is 0.3877 points above the
+selected Bundle-32 Student on Bokmål UFeats, but still trails UDPipe by 1.6745
+points; its Lemmas remain 0.0687 points behind UDPipe. Correction therefore
+makes the existing Teacher a substantially safer morphology labeler, not an
+across-the-board oracle. The equivalent Nynorsk gate is still required before
+choosing the silver-label source.
+
+The corrected canonical Nynorsk gate reaches 98.8160% UPOS, 94.4896% UFeats,
+and 98.5888% Lemmas. This is +0.1440, +0.8512, and +0.0544 percentage points
+over the selected canonical Bundle-32 Student. Rare and OOV morphology micro
+F1 reach 91.9859% and 90.3169%, beating that Student by 0.6123 and 1.8500
+points. Against UDPipe, Teacher UPOS leads by 0.2432 points while UFeats and
+Lemmas trail by 1.1712 and 0.2400 points. The existing corrected Teacher is
+therefore useful on both written standards, but it still predates the selected
+Bundle-32 component. Before spending substantially more compute on labeling
+50 million silver tokens, Prism will train one final architecture-matched
+Bundle-32 Teacher and require it to beat this fixed corrected control.
+
+The architecture-matched Base Teacher stopped manually during epoch 6 after
+epoch 3 remained the loss-selected checkpoint and epochs 4 and 5 both failed
+to improve. This is equivalent to the later planned patience-2 early-stopping
+decision. Its checkpoint is
+`runs/no-teacher-base-character-cnn-bundle32-e12-weighted/best.pt`
+(609,716,974 bytes).
+
+With full correction, Bundle-32 changes the historical Teacher as follows:
+
+| Canonical Development metric | Old Teacher Bokmål | Bundle-32 Bokmål | Change | Old Teacher Nynorsk | Bundle-32 Nynorsk | Change |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Development loss | **0.073450** | 0.076953 | +0.003503 | **0.127044** | 0.134581 | +0.007537 |
+| UPOS F1 | **99.2824%** | 99.2356% | -0.0468 pp | 98.8160% | **98.9312%** | +0.1152 pp |
+| UFeats F1 | 96.3953% | **96.6235%** | +0.2282 pp | 94.4896% | **94.7296%** | +0.2400 pp |
+| Lemmas F1 | **98.9057%** | 98.8589% | -0.0468 pp | **98.5888%** | 98.5504% | -0.0384 pp |
+| Rare morphology micro F1 | 96.5756% | **96.6680%** | +0.0924 pp | 91.9859% | **92.2271%** | +0.2412 pp |
+| OOV morphology micro F1 | **95.6278%** | 95.5126% | -0.1152 pp | 90.3169% | **90.4918%** | +0.1749 pp |
+
+The Bundle-32 Teacher is selected as the primary Base morphology control
+because exact UFeats and Rare morphology improve on both written standards,
+and Nynorsk OOV morphology also improves. It is not treated as universally
+superior: the old corrected Teacher remains the Base agreement control,
+especially for Bokmål UPOS, Lemmas, and OOV morphology. Silver labels will not
+silently splice task outputs from the two models; any agreement rule must be a
+typed, benchmarked confidence policy.
+
+The architecture-matched NorBERT4-large run is deferred. The Base result still
+trails UDPipe by 1.4463 percentage points on Bokmål UFeats and by 0.1155 points
+on Bokmål Lemmas; increasing backbone capacity has not been established as the
+limiting variable. More importantly, the current summed-loss checkpoint
+selection chose epoch 3 even though lemma-rule accuracy continued to improve
+through epoch 5, and the bundle reranker has no direct complete-bundle loss
+matching official UFeats. The next comparison is therefore a task-aligned
+lemma/ranking audit and then a controlled Base objective or decoder ablation,
+not another multi-hour capacity run.
+
+The next predeclared compact-model comparison adds direct complete-bundle
+supervision to the selected Bundle-32 Student. It uses auxiliary weight `0.1`,
+a maximum of 12 epochs, and early-stopping patience 4. The old loss is
+reproduced with weight `0`. Checkpoint selection remains lowest combined
+Development loss; no UDPipe score enters optimization or selection. Acceptance
+requires a material canonical UFeats improvement on both Bokmål and Nynorsk
+without material regression in UPOS, Lemmas, per-feature morphology, or
+Rare/OOV quality. Results are intentionally absent until the fixed run and both
+Development evaluations complete. A longer convergence run is justified only
+if the new best checkpoint again occurs at epoch 12.
+
+The training half is complete. The run took approximately 1 hour 50 minutes
+35 seconds and selected epoch 12, writing the 70,068,398-byte checkpoint
+`runs/no-student-character-cnn-dkd-bundle32-direct-loss-w010-e12-weighted/best.pt`.
+Bundle loss decreased from 0.222202 to 0.112506 while the covered-token ratio
+remained 98.2180%. Combined Development loss is 0.112011, but it includes the
+new auxiliary term and must not be compared numerically with the old loss.
+Canonical Bokmål evaluation is complete:
+
+| Canonical Bokmål metric | Bundle-32 control | Direct bundle loss | Change |
+| --- | ---: | ---: | ---: |
+| UPOS F1 | **99.0046%** | 98.9964% | -0.0082 pp |
+| UFeats F1 | 96.0076% | **96.7390%** | +0.7314 pp |
+| Lemmas F1 | **98.9607%** | 98.8974% | -0.0632 pp |
+| Rare morphology micro F1 | 95.5196% | **96.2849%** | +0.7653 pp |
+| OOV morphology micro F1 | 94.1716% | **94.8654%** | +0.6938 pp |
+| Rare lemma end-to-end | **97.2381%** | 97.1111% | -0.1270 pp |
+| OOV lemma end-to-end | **93.6231%** | 92.8393% | -0.7838 pp |
+
+Against UDPipe 2.17, the new Student leads Bokmål UPOS by 0.0467 points,
+trails UFeats by 1.3308 points instead of 2.0622, and trails Lemmas by 0.0770
+points. The auxiliary objective therefore closes 0.7314 points, or 35.5%, of
+the remaining canonical UFeats gap in one controlled change. Its OOV-lemma
+regression prevents immediate selection or schedule extension. Nynorsk remains
+the second half of the predeclared acceptance gate.
+
+Canonical Nynorsk evaluation is also complete:
+
+| Canonical Nynorsk metric | Bundle-32 control | Direct bundle loss | Change |
+| --- | ---: | ---: | ---: |
+| UPOS F1 | 98.6720% | **98.6752%** | +0.0032 pp |
+| UFeats F1 | 93.6384% | **94.4672%** | +0.8288 pp |
+| Lemmas F1 | **98.5344%** | 98.5056% | -0.0288 pp |
+| Rare morphology micro F1 | 91.3736% | **92.3979%** | +1.0243 pp |
+| OOV morphology micro F1 | 88.4669% | **89.2680%** | +0.8011 pp |
+| Rare lemma end-to-end | **96.9494%** | 96.9076% | -0.0418 pp |
+| OOV lemma end-to-end | **91.6404%** | 91.5615% | -0.0789 pp |
+
+Against UDPipe 2.17, the new Student leads Nynorsk UPOS by 0.1024 points,
+trails UFeats by 1.1936 points instead of 2.0224, and trails Lemmas by 0.3232
+points. The objective closes 0.8288 points, or 41.0%, of the prior Nynorsk
+UFeats gap.
+
+The consistent UFeats and Rare/OOV morphology gains on both standards validate
+the direct objective. The consistent lemma tradeoff, especially the
+0.7838-point Bokmål OOV-lemma regression, rejects this checkpoint as the
+all-task reference. The run will not be extended. The next matched ablation
+keeps the objective but restricts its gradient to the bundle residual scorer,
+protecting the shared representation and independent task heads. The official
+test splits remain untouched.
+
+The residual-scorer-only ablation is implemented and predeclared with exactly
+one additional switch:
+
+```shell
+.venv/bin/python -m prism.languages.norwegian.train_baseline \
+  --language-tag no \
+  --model-role student \
+  --checkpoint runs/no-student-character-cnn-dkd-bundle32-direct-loss-isolated-w010-e12-weighted/best.pt \
+  --teacher-checkpoint runs/no-teacher-base-character-cnn-e12-weighted/best.pt \
+  --categorical-distillation-objective dkd \
+  --distillation-temperature 1.0 \
+  --distillation-weight 0.1 \
+  --morphology-bundle-candidate-count 32 \
+  --morphology-bundle-loss-weight 0.1 \
+  --isolate-morphology-bundle-loss-gradient \
+  --early-stopping-patience 4 \
+  --epoch-count 12 \
+  --morphology-weight-cap 10.0
+```
+
+The auxiliary loss receives the same forward scores as the unisolated run,
+while only the candidate residual projection receives its gradients. Results
+remain intentionally absent until training and both canonical Development
+evaluations complete.
+
 ## Character-aware format-3 distilled Student
 
 The controlled distillation run uses the accepted format-3 Teacher, a fresh
@@ -1106,6 +1262,265 @@ parity covers the selected character-aware architecture, removing any need for
 Swift or C++ to reproduce the correction formula. Production manifest wiring
 and backend-specific artifact generation remain separate release work.
 
+### Treebank-annotation policy ablation
+
+The next reversible ablation separates canonical Prism morphology from the
+external UD treebank convention. It is enabled only with
+`--ud-morphology-policy treebank`; `canonical` remains the default. The policy
+maps combined feminine/masculine gender to `Com` for adjectives and
+determiners. For Nynorsk it additionally removes `Number=Sing` and
+`Definite=Def`, following its pinned training convention. Only official UFeats
+uses the mapped output. Per-label, Average Precision, and Rare/OOV reports
+remain canonical and therefore directly comparable with the preceding logit
+grid.
+
+The fixed Development commands are:
+
+```shell
+.venv/bin/python -m prism.languages.norwegian.evaluate_baseline \
+  --language-tag nb \
+  --checkpoint runs/no-student-character-cnn-dkd-t100-a100-b100-e12-weighted/best.pt \
+  --analysis runs/no-student-character-cnn-dkd-t100-a100-b100-e12-weighted/nb-development-analysis-ud-policy.json \
+  --morphology-logit-correction-strength 1.0 \
+  --ud-morphology-policy treebank
+
+.venv/bin/python -m prism.languages.norwegian.evaluate_baseline \
+  --language-tag nn \
+  --checkpoint runs/no-student-character-cnn-dkd-t100-a100-b100-e12-weighted/best.pt \
+  --analysis runs/no-student-character-cnn-dkd-t100-a100-b100-e12-weighted/nn-development-analysis-ud-policy.json \
+  --morphology-logit-correction-strength 1.0 \
+  --ud-morphology-policy treebank
+```
+
+No result or selection is recorded before both commands complete. Both test
+splits remain untouched.
+
+Both commands are now complete:
+
+| Development UFeats F1 | Canonical + correction | Treebank policy | UDPipe 2.17 |
+| --- | ---: | ---: | ---: |
+| Bokmål | 95.7601% | 95.7601% | **98.0698%** |
+| Nynorsk | 93.3920% | **95.9136%** | 95.6608% |
+
+The policy is neutral on Bokmål. On Nynorsk it adds 2.5216 percentage points
+over the selected corrected canonical output and leads UDPipe by 0.2528
+points. Relative to the original uncorrected 91.5232% Student output, the
+combined correction and annotation policy add 4.3904 points. Raw per-label,
+Average Precision, and Rare/OOV metrics remain identical, confirming that the
+gain is isolated to the external complete-bundle annotation contract rather
+than a changed model prediction. Both test splits remain untouched.
+
+The evaluation accumulator now emits a sequential marginal audit for those
+three named rules. For each step, `changed` counts altered complete bundles,
+`improved` counts bundles that become exactly correct, and `regressed` counts
+previously correct bundles that become wrong. These counts are included in the
+terminal report and JSON. Both commands above must be repeated once to freeze
+or reject each component rather than accepting the aggregate results blindly;
+an unchanged aggregate can still hide mutually cancelling improvements and
+regressions.
+
+The completed audit is:
+
+| Profile and step | Changed bundles | Improved bundles | Regressed bundles |
+| --- | ---: | ---: | ---: |
+| Bokmål `common-gender` | 5 | 0 | 0 |
+| Nynorsk `common-gender` | 730 | 611 | 0 |
+| Nynorsk `nynorsk-number` | 239 | 134 | 0 |
+| Nynorsk `nynorsk-definite` | 56 | 43 | 0 |
+
+The sequential Nynorsk improvements sum to 788 bundles. Over 31,250
+Development tokens this is exactly 2.5216 percentage points, matching the
+aggregate UFeats gain. No rule regresses a previously correct bundle. The
+external Nynorsk treebank policy is selected and frozen on Development. It
+does not replace Prism's canonical morphology for mixed Norwegian input, and
+the test splits remain untouched.
+
+### Training-derived morphology-bundle oracle
+
+Before adding a bundle reranker, Prism measures whether a compact candidate
+space can contain the correct complete bundle at all. The inventory is built
+only from the joint Bokmål/Nynorsk training splits, ranked by training
+frequency within each UPOS, and evaluated on the selected Development split.
+The reported gold-UPOS oracle deliberately removes UPOS prediction errors so
+it measures candidate coverage rather than reranker quality. Annotated-token
+coverage excludes the empty bundle.
+
+```shell
+.venv/bin/python -m prism.languages.norwegian.analyze_morphology_bundles \
+  --language-tag nb \
+  --analysis runs/morphology-bundles/nb-development-oracle.json
+
+.venv/bin/python -m prism.languages.norwegian.analyze_morphology_bundles \
+  --language-tag nn \
+  --analysis runs/morphology-bundles/nn-development-oracle.json
+```
+
+The shared training inventory contains 489,216 token examples, 256 distinct
+bundles, 298 distinct UPOS-bundle pairs, and a maximum of 74 candidates for a
+single UPOS.
+
+| Gold-UPOS oracle coverage | Bokmål all | Bokmål annotated | Nynorsk all | Nynorsk annotated |
+| --- | ---: | ---: | ---: | ---: |
+| Top 1 | 57.7360% | 28.9252% | 54.5216% | 23.5064% |
+| Top 2 | 65.2671% | 41.6647% | 67.6768% | 45.7051% |
+| Top 4 | 80.9288% | 68.2257% | 73.8112% | 56.1072% |
+| Top 8 | 88.2620% | 80.6622% | 84.9120% | 74.9308% |
+| Top 16 | 95.5951% | 93.0986% | 94.0160% | 90.3684% |
+| Top 32 | 99.2769% | 98.7736% | 96.9184% | 94.8125% |
+| Full inventory | 99.9973% | 99.9953% | 99.5200% | 99.1861% |
+
+Top 4 and top 8 exclude too many legitimate bundles to be safe. Top 32 is a
+practical first reranker ceiling: it covers almost every annotated Bokmål
+bundle and 94.8125% of annotated Nynorsk bundles while remaining tiny compared
+with the neural backbone. Production decoding must still fall back to the
+independent feature decoder when a bundle is unseen or the predicted UPOS
+candidate set is unsuitable. No test split was evaluated.
+
+The corresponding trainable ablation is implemented and selected. The resolved
+joint inventory produces 185 candidates and adds
+35,723 trainable parameters, approximately 143 KB of raw FP32 parameter
+values. It can be trained without changing the selected architecture enum:
+
+```shell
+.venv/bin/python -m prism.languages.norwegian.train_baseline \
+  --language-tag no \
+  --model-role student \
+  --checkpoint runs/no-student-character-cnn-dkd-bundle32-e12-weighted/best.pt \
+  --teacher-checkpoint runs/no-teacher-base-character-cnn-e12-weighted/best.pt \
+  --categorical-distillation-objective dkd \
+  --distillation-temperature 1.0 \
+  --distillation-weight 0.1 \
+  --morphology-bundle-candidate-count 32 \
+  --morphology-weight-cap 10.0
+```
+
+The 12-epoch run selected epoch 12. Its checkpoint is 70,068,078 bytes, versus
+69,863,388 bytes for the previous DKD reference. Canonical Development results
+against that separately trained reference are:
+
+| Canonical Development metric | DKD reference Bokmål | Bundle-32 Bokmål | Change | DKD reference Nynorsk | Bundle-32 Nynorsk | Change |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| UPOS accuracy | 98.9634% | **99.0046%** | +0.0412 pp | 98.6368% | **98.6720%** | +0.0352 pp |
+| Lemma-rule accuracy | 99.0231% | **99.0369%** | +0.0138 pp | **98.6357%** | 98.6165% | -0.0192 pp |
+| UFeats F1 | 95.7601% | **96.0076%** | +0.2475 pp | 93.3920% | **93.6384%** | +0.2464 pp |
+| Morphology micro F1 | 97.6088% | **97.6722%** | +0.0634 pp | 94.7210% | **94.9724%** | +0.2514 pp |
+| Rare morphology micro F1 | 95.4817% | **95.5196%** | +0.0379 pp | 90.7920% | **91.3736%** | +0.5816 pp |
+| OOV morphology micro F1 | 94.0674% | **94.1716%** | +0.1042 pp | 88.3686% | **88.4669%** | +0.0983 pp |
+
+The small Nynorsk lemma tradeoff is outweighed by consistent UPOS, complete
+bundle, micro-F1, and Rare/OOV morphology gains across both written standards.
+OOV lemma end-to-end accuracy also improves by 0.5344 points on Bokmål and
+0.0394 points on Nynorsk. Bundle-32 is therefore selected on real canonical
+model output, not on a benchmark-only annotation conversion.
+
+The `--disable-morphology-bundle-reranker` pass on the same trained checkpoint
+confirms that the residual component is active: canonical UFeats falls to
+86.9724% on Bokmål and 87.7824% on Nynorsk. It is not an independent quality
+control, because the jointly trained independent heads co-adapt to the
+reranker. The separately trained DKD checkpoint in the table above remains the
+valid selection control.
+
+The final external-policy comparison is:
+
+| Development UFeats F1 | Canonical Bundle-32 | Treebank policy | UDPipe 2.17 | Prism vs UDPipe |
+| --- | ---: | ---: | ---: | ---: |
+| Bokmål | **96.0076%** | 96.0048% | **98.0698%** | -2.0650 pp |
+| Nynorsk | 93.6384% | **96.1920%** | 95.6608% | +0.5312 pp |
+
+The Bokmål `common-gender` policy changes six bundles, improves none, and
+regresses one; it must not be presented as a model gain. On Nynorsk,
+`common-gender`, `nynorsk-number`, and `nynorsk-definite` improve 618, 138, and
+42 bundles respectively with zero regressions. Their 798 improvements exactly
+account for the 2.5536-point policy gain over 31,250 tokens. Both test splits
+remain untouched.
+
+### Bokmål Gender error audit
+
+The remaining Bokmål gap is concentrated in `Gender`, followed by `Number`
+and `Definite`. A token-aligned audit now attributes one selected feature's
+errors by confusion, gold/predicted UPOS, training-frequency class, normalized
+form, and immediate gold-UPOS context. It also checks an aligned external
+CoNLL-U prediction twice: once for the selected feature and once for the full
+bundle. This distinction prevents a correct UDPipe Gender value from being
+misreported as a completely correct morphology prediction.
+
+Run the first audit on the selected canonical Bundle-32 output:
+
+```shell
+.venv/bin/python -m prism.languages.norwegian.evaluate_baseline \
+  --language-tag nb \
+  --checkpoint runs/no-student-character-cnn-dkd-bundle32-e12-weighted/best.pt \
+  --analysis runs/no-student-character-cnn-dkd-bundle32-e12-weighted/nb-development-gender-audit.json \
+  --morphology-logit-correction-strength 1.0 \
+  --morphology-error-audit-feature Gender \
+  --morphology-error-audit-comparison runs/udpipe-2.17-251125/ud-2.17/nb-development.conllu
+```
+
+The complete token records are serialized under `morphology_error_audit`; the
+terminal prints the leading aggregates. The completed result is:
+
+| Gender audit slice | Prism errors | UDPipe feature-correct | UDPipe bundle-correct |
+| --- | ---: | ---: | ---: |
+| All | 1,033 | 772 | 756 |
+| Frequent | 503 | 401 | 394 |
+| Rare | 261 | 196 | 193 |
+| OOV | 269 | 175 | 169 |
+
+The errors are concentrated by gold UPOS in NOUN (561), ADJ (191), and PROPN
+(142). The four largest confusions are `Fem -> Masc` (212), `Masc -> <NONE>`
+(147), `Neut -> <NONE>` (78), and `<NONE> -> Masc` (74). Half the errors are
+Rare/OOV, while frequent ambiguous forms such as `den` and possessive forms
+also recur. A hard static lookup would therefore be incomplete and risks
+overriding context-dependent analyses.
+
+The checkpoint's candidate metadata provides a second diagnostic without
+another model run. The correct full bundle is already among the Top-32
+candidates under predicted UPOS for 876 of the 1,033 Gender errors. Of the 756
+errors where UDPipe predicts the complete bundle correctly, 672 already expose
+the correct candidate to Prism's reranker and only 84 miss it. A wider
+inventory cannot close most of the gap; candidate scoring and cross-token
+context are now the more plausible bottlenecks.
+
+The next controlled ablation is implemented as a compact gated sentence-level
+morphology agreement refiner. It consumes token representations, soft UPOS,
+and current morphology evidence, but no gold UPOS or morphology at inference.
+The first specification uses a radius of three, excludes the current token,
+and refines only `Definite`, `Gender`, and `Number` through a 64-dimensional
+bottleneck. It adds 29,707 parameters, approximately 119 KB raw FP32.
+
+Train the matched ablation with:
+
+```shell
+.venv/bin/python -m prism.languages.norwegian.train_baseline \
+  --language-tag no \
+  --model-role student \
+  --checkpoint runs/no-student-character-cnn-dkd-bundle32-agreement3-e12-weighted/best.pt \
+  --teacher-checkpoint runs/no-teacher-base-character-cnn-e12-weighted/best.pt \
+  --categorical-distillation-objective dkd \
+  --distillation-temperature 1.0 \
+  --distillation-weight 0.1 \
+  --morphology-bundle-candidate-count 32 \
+  --morphology-agreement-window-radius 3 \
+  --morphology-weight-cap 10.0
+```
+
+The 12-epoch run selected epoch 10. Its canonical Development comparison is:
+
+| Metric | Bundle-32 Bokmål | Agreement Bokmål | Change | Bundle-32 Nynorsk | Agreement Nynorsk | Change |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| UPOS | 99.0046% | **99.0074%** | +0.0028 pp | 98.6720% | **98.6944%** | +0.0224 pp |
+| UFeats | **96.0076%** | 95.7821% | -0.2255 pp | 93.6384% | **93.7824%** | +0.1440 pp |
+| Lemmas | **98.9607%** | 98.8837% | -0.0770 pp | 98.5344% | **98.5472%** | +0.0128 pp |
+| Rare morphology micro F1 | **95.5196%** | 95.4418% | -0.0778 pp | 91.3736% | **91.7564%** | +0.3828 pp |
+| OOV morphology micro F1 | **94.1716%** | 93.8937% | -0.2779 pp | **88.4669%** | 88.3450% | -0.1219 pp |
+
+On Bokmål, annotated `Definite`, `Gender`, and `Number` regress by 0.1021,
+0.3819, and 0.1319 points respectively. Nynorsk's mixed gains cannot offset a
+regression on the other written standard and on OOV morphology. The refiner
+therefore fails its target-feature and shared-standard acceptance criteria and
+is rejected. Bundle-32 remains selected. This decision uses canonical model
+output rather than UDPipe imitation; both test splits remain untouched.
+
 Example for the full correction endpoint:
 
 ```shell
@@ -1219,3 +1634,27 @@ one global temperature of 2.0 over-softens the binary morphology outputs and
 the 1,059-way lemma-rule distribution. Future work should therefore use
 task-specific distillation policies rather than further blind global-weight
 sweeps. Both official test splits remain untouched.
+
+## NBdigital silver-source preparation
+
+This is a data-provenance milestone, not a quality benchmark. The first
+silver source is Språkbanken resource `oai:nb.no:sbr-43`, downloaded from its
+official CC0 archive. Preparation uses an OCR-confidence floor of `0.95`, a
+128-token sentence ceiling, normalized token-sequence deduplication, and
+overlap exclusion against train, Development, and test for both Norwegian
+written-standard profiles.
+
+The official archive preparation completed in approximately 30 minutes:
+
+- source archive SHA-256:
+  `9d9c48843d4c9ac845ce775d98118bad667452abe259462770f4a975f23ed505`;
+- retained documents: 936;
+- retained sentences: 2,542,722;
+- retained tokens: 50,385,644;
+- generated JSONL size: approximately 880 MB.
+
+Existing Oslo-Bergen task labels are not used. No Student result may be
+attributed to silver data until offline Teacher pseudo-labeling, a fixed and
+deterministic subset plus Gold/Silver mixing policy, and a controlled
+comparison against the selected Student have all completed. The official test
+splits remain untouched.

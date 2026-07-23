@@ -25,6 +25,7 @@ class SupervisedTrainingRunResult:
         ...,
     ]
     best_epoch_index: int
+    stopped_early: bool = False
 
 
 def run_supervised_training_epochs(
@@ -42,13 +43,18 @@ def run_supervised_training_epochs(
         [SupervisedTrainingEpochResult],
         None,
     ],
+    early_stopping_patience: int | None = None,
 ) -> SupervisedTrainingRunResult:
     if epoch_count <= 0:
         raise ValueError("Epoch count must be positive.")
+    if early_stopping_patience is not None and early_stopping_patience <= 0:
+        raise ValueError("Early-stopping patience must be positive.")
 
     epoch_results: list[SupervisedTrainingEpochResult] = []
     best_epoch_index: int | None = None
     best_development_loss = math.inf
+    epochs_without_improvement = 0
+    stopped_early = False
 
     for epoch_index in range(epoch_count):
         training_metrics = train_epoch(epoch_index)
@@ -69,10 +75,22 @@ def run_supervised_training_epochs(
             best_development_loss = development_loss
             best_epoch_index = epoch_index
             on_new_best(epoch_result)
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
+
+        if (
+            early_stopping_patience is not None
+            and epochs_without_improvement >= early_stopping_patience
+        ):
+            stopped_early = epoch_index + 1 < epoch_count
+            break
 
     if best_epoch_index is None:
         raise ValueError("Training run did not produce a best epoch.")
 
     return SupervisedTrainingRunResult(
-        epoch_results=tuple(epoch_results), best_epoch_index=best_epoch_index
+        epoch_results=tuple(epoch_results),
+        best_epoch_index=best_epoch_index,
+        stopped_early=stopped_early,
     )

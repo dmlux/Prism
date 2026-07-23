@@ -1,11 +1,12 @@
 from dataclasses import dataclass
+import math
 
 import torch
 from torch import Tensor
 from torch.nn import functional
 
 from prism.data import TokenTaskTargetBatch
-from prism.modeling import TokenTaskLogits
+from prism.modeling import MorphologyBundleRerankerSpec, TokenTaskLogits
 from prism.schema import MorphologySchema
 
 
@@ -44,6 +45,78 @@ class TokenTaskLosses:
     morphology_loss: Tensor
     lemma_rule_loss: Tensor
     total_loss: Tensor
+    morphology_bundle_loss: Tensor | None = None
+    morphology_bundle_target_count: int = 0
+    morphology_bundle_token_count: int = 0
+    morphology_bundle_loss_weight: float = 0.0
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MorphologyBundleLossPolicy:
+    weight: float
+    candidate_morphology_targets: tuple[Tensor, ...]
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.weight) or self.weight < 0.0:
+            raise ValueError(
+                "Morphology bundle loss weight must be finite and non-negative."
+            )
+        if not self.candidate_morphology_targets:
+            raise ValueError(
+                "Morphology bundle loss requires candidate morphology targets."
+            )
+        candidate_count = self.candidate_morphology_targets[0].shape[0]
+        if candidate_count <= 0:
+            raise ValueError("Morphology bundle loss requires candidates.")
+        for targets in self.candidate_morphology_targets:
+            if targets.ndim != 2 or targets.shape[0] != candidate_count:
+                raise ValueError(
+                    "Bundle candidate targets must share one candidate dimension."
+                )
+            if targets.dtype != torch.bool:
+                raise ValueError("Bundle candidate targets must use torch.bool.")
+
+    @classmethod
+    def from_reranker_spec(
+        cls,
+        *,
+        spec: MorphologyBundleRerankerSpec,
+        weight: float,
+    ) -> "MorphologyBundleLossPolicy":
+        feature_count = len(spec.candidates[0].morphology)
+        return cls(
+            weight=weight,
+            candidate_morphology_targets=tuple(
+                torch.tensor(
+                    [
+                        candidate.morphology[feature_index]
+                        for candidate in spec.candidates
+                    ],
+                    dtype=torch.bool,
+                )
+                for feature_index in range(feature_count)
+            ),
+        )
+
+    def to(self, device: torch.device) -> "MorphologyBundleLossPolicy":
+        return MorphologyBundleLossPolicy(
+            weight=self.weight,
+            candidate_morphology_targets=tuple(
+                targets.to(device=device)
+                for targets in self.candidate_morphology_targets
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MorphologyBundleLossResult:
+    loss: Tensor
+    target_count: int
+    token_count: int
+
+    @property
+    def coverage(self) -> float:
+        return 0.0 if self.token_count == 0 else self.target_count / self.token_count
 
 
 def _masked_mean(
@@ -58,12 +131,74 @@ def _masked_mean(
     return selected_values.mean()
 
 
+def calculate_morphology_bundle_loss(
+    *,
+    candidate_scores: Tensor,
+    morphology_targets: tuple[Tensor, ...],
+    token_mask: Tensor,
+    policy: MorphologyBundleLossPolicy,
+) -> MorphologyBundleLossResult:
+    if candidate_scores.ndim != 3:
+        raise ValueError("Morphology bundle scores must have three dimensions.")
+    if candidate_scores.shape[:2] != token_mask.shape:
+        raise ValueError("Bundle scores and token mask must share token dimensions.")
+    if token_mask.dtype != torch.bool:
+        raise ValueError("Morphology bundle token mask must use torch.bool.")
+    if len(morphology_targets) != len(policy.candidate_morphology_targets):
+        raise ValueError(
+            "Morphology bundle targets must match the candidate feature count."
+        )
+    if candidate_scores.shape[-1] != (policy.candidate_morphology_targets[0].shape[0]):
+        raise ValueError("Morphology bundle scores must match candidate count.")
+
+    matching_candidates = torch.ones(
+        candidate_scores.shape,
+        dtype=torch.bool,
+        device=candidate_scores.device,
+    )
+    for targets, candidate_targets in zip(
+        morphology_targets,
+        policy.candidate_morphology_targets,
+        strict=True,
+    ):
+        if targets.shape[:2] != token_mask.shape:
+            raise ValueError("Morphology bundle targets must share token dimensions.")
+        if targets.shape[-1] != candidate_targets.shape[-1]:
+            raise ValueError(
+                "Morphology bundle targets must match candidate label dimensions."
+            )
+        matching_candidates &= (
+            targets.unsqueeze(-2) == candidate_targets.unsqueeze(0).unsqueeze(0)
+        ).all(dim=-1)
+
+    covered_tokens = token_mask & matching_candidates.any(dim=-1)
+    token_count = int(token_mask.sum().item())
+    target_count = int(covered_tokens.sum().item())
+    log_probabilities = functional.log_softmax(candidate_scores, dim=-1)
+    gold_log_probability = torch.logsumexp(
+        log_probabilities.masked_fill(~matching_candidates, -torch.inf),
+        dim=-1,
+    )
+    per_token_loss = torch.where(
+        covered_tokens,
+        -gold_log_probability,
+        torch.zeros_like(gold_log_probability),
+    )
+
+    return MorphologyBundleLossResult(
+        loss=_masked_mean(per_token_loss, covered_tokens),
+        target_count=target_count,
+        token_count=token_count,
+    )
+
+
 def compute_token_task_loss(
     *,
     logits: TokenTaskLogits,
     targets: TokenTaskTargetBatch,
     morphology_schema: MorphologySchema,
     loss_weights: TokenTaskLossWeights | None = None,
+    morphology_bundle_loss_policy: MorphologyBundleLossPolicy | None = None,
 ) -> TokenTaskLosses:
     if logits.upos_logits.shape[:2] != targets.upos_ids.shape:
         raise ValueError("Logits and targets must share batch and token dimensions.")
@@ -164,11 +299,49 @@ def compute_token_task_loss(
         targets.token_mask & targets.lemma_rule_mask,
     )
 
+    morphology_bundle_result: MorphologyBundleLossResult | None = None
+    if morphology_bundle_loss_policy is not None:
+        if logits.morphology_bundle_scores is None:
+            raise ValueError("Morphology bundle loss requires bundle candidate scores.")
+        bundle_loss_scores = (
+            logits.morphology_bundle_scores
+            if logits.morphology_bundle_loss_scores is None
+            else logits.morphology_bundle_loss_scores
+        )
+        morphology_bundle_result = calculate_morphology_bundle_loss(
+            candidate_scores=bundle_loss_scores,
+            morphology_targets=targets.morphology_targets,
+            token_mask=targets.token_mask,
+            policy=morphology_bundle_loss_policy,
+        )
+
+    morphology_bundle_loss = (
+        None if morphology_bundle_result is None else morphology_bundle_result.loss
+    )
+    morphology_bundle_loss_weight = (
+        0.0
+        if morphology_bundle_loss_policy is None
+        else morphology_bundle_loss_policy.weight
+    )
     total_loss = upos_loss + morphology_loss + lemma_rule_loss
+    if morphology_bundle_loss is not None:
+        total_loss = total_loss + morphology_bundle_loss_weight * morphology_bundle_loss
 
     return TokenTaskLosses(
         upos_loss=upos_loss,
         morphology_loss=morphology_loss,
         lemma_rule_loss=lemma_rule_loss,
         total_loss=total_loss,
+        morphology_bundle_loss=morphology_bundle_loss,
+        morphology_bundle_target_count=(
+            0
+            if morphology_bundle_result is None
+            else morphology_bundle_result.target_count
+        ),
+        morphology_bundle_token_count=(
+            0
+            if morphology_bundle_result is None
+            else morphology_bundle_result.token_count
+        ),
+        morphology_bundle_loss_weight=morphology_bundle_loss_weight,
     )

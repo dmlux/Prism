@@ -3,6 +3,7 @@ import torch
 
 from prism.modeling import (
     BackboneLayerAggregationStrategy,
+    MorphologyAgreementRefinerSpec,
     TokenPoolingStrategy,
     TokenTaskHeadArchitecture,
 )
@@ -15,7 +16,12 @@ from prism.training import (
     character_vocabulary_from_checkpoint,
     maximum_character_count_from_checkpoint,
     morphology_logit_correction_from_checkpoint,
+    morphology_bundle_reranker_spec_from_checkpoint,
+    morphology_agreement_refiner_spec_from_checkpoint,
+    serialize_morphology_agreement_refiner_spec,
+    serialize_morphology_bundle_reranker_spec,
 )
+from prism.modeling import MorphologyBundleCandidate, MorphologyBundleRerankerSpec
 
 
 def test_token_task_checkpoint_requires_hybrid_morphology_format() -> None:
@@ -178,3 +184,48 @@ def test_morphology_logit_correction_uses_checkpointed_training_weights() -> Non
 
     with pytest.raises(ValueError, match="requires weights stored"):
         morphology_logit_correction_from_checkpoint({}, strength=0.5)
+
+
+def test_bundle_reranker_spec_is_loaded_from_checkpoint() -> None:
+    spec = MorphologyBundleRerankerSpec(
+        maximum_candidates_per_upos=1,
+        candidates=(
+            MorphologyBundleCandidate(
+                upos_id=0,
+                morphology=((True, False),),
+                training_count=4,
+            ),
+        ),
+    )
+
+    assert morphology_bundle_reranker_spec_from_checkpoint({}) is None
+    assert (
+        morphology_bundle_reranker_spec_from_checkpoint(
+            {
+                "morphology_bundle_reranker": (
+                    serialize_morphology_bundle_reranker_spec(spec)
+                )
+            }
+        )
+        == spec
+    )
+
+
+def test_morphology_agreement_spec_is_loaded_from_checkpoint() -> None:
+    spec = MorphologyAgreementRefinerSpec(
+        window_radius=3,
+        bottleneck_size=64,
+        target_feature_names=("Definite", "Gender", "Number"),
+    )
+
+    assert morphology_agreement_refiner_spec_from_checkpoint({}) is None
+    assert (
+        morphology_agreement_refiner_spec_from_checkpoint(
+            {
+                "morphology_agreement_refiner": (
+                    serialize_morphology_agreement_refiner_spec(spec)
+                )
+            }
+        )
+        == spec
+    )

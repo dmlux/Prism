@@ -1,7 +1,7 @@
 """Gold-tokenized metrics compatible with the official UD evaluator."""
 
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 
 from prism.conllu import Token
 from prism.modeling.outputs import TokenTaskPredictionBatch
@@ -35,6 +35,30 @@ UNIVERSAL_FEATURE_NAMES = frozenset(
 )
 
 LemmaDecoder = Callable[[str, str, str], str]
+UniversalFeaturesDecoder = Callable[
+    [str, Mapping[str, str]],
+    Mapping[str, str],
+]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class UniversalFeaturesPolicyStep:
+    name: str
+    decoder: UniversalFeaturesDecoder
+
+    def __post_init__(self) -> None:
+        if not self.name or self.name.strip() != self.name:
+            raise ValueError(
+                "UD feature-policy step name must be non-empty and trimmed."
+            )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class UniversalFeaturesPolicyAudit:
+    name: str
+    changed_bundle_count: int
+    improved_bundle_count: int
+    regressed_bundle_count: int
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -88,11 +112,12 @@ class UniversalDependenciesEvaluationMetrics:
     upos: UniversalDependenciesMetricScore
     ufeats: UniversalDependenciesMetricScore
     lemmas: UniversalDependenciesMetricScore
+    ufeats_policy_audits: tuple[UniversalFeaturesPolicyAudit, ...] = ()
 
 
 def serialize_universal_dependencies_evaluation_metrics(
     metrics: UniversalDependenciesEvaluationMetrics,
-) -> dict[str, dict[str, int | float | None]]:
+) -> dict[str, object]:
     def serialize_score(
         score: UniversalDependenciesMetricScore,
     ) -> dict[str, int | float | None]:
@@ -107,11 +132,22 @@ def serialize_universal_dependencies_evaluation_metrics(
             "aligned_accuracy": score.aligned_accuracy,
         }
 
-    return {
+    serialized: dict[str, object] = {
         "UPOS": serialize_score(metrics.upos),
         "UFeats": serialize_score(metrics.ufeats),
         "Lemmas": serialize_score(metrics.lemmas),
     }
+    if metrics.ufeats_policy_audits:
+        serialized["UFeatsPolicyAudits"] = [
+            {
+                "name": audit.name,
+                "changed_bundle_count": audit.changed_bundle_count,
+                "improved_bundle_count": audit.improved_bundle_count,
+                "regressed_bundle_count": audit.regressed_bundle_count,
+            }
+            for audit in metrics.ufeats_policy_audits
+        ]
+    return serialized
 
 
 def build_universal_dependencies_reference_batch(
@@ -211,11 +247,23 @@ class UniversalDependenciesEvaluationAccumulator:
     schema: TokenTaskSchema
     reference_batches: tuple[UniversalDependenciesReferenceBatch, ...]
     lemma_decoder: LemmaDecoder | None = None
+    universal_features_policy_steps: tuple[UniversalFeaturesPolicyStep, ...] = ()
     _batch_index: int = 0
     _token_count: int = 0
     _upos_correct_count: int = 0
     _ufeats_correct_count: int = 0
     _lemma_correct_count: int = 0
+    _policy_changed_counts: list[int] = field(init=False)
+    _policy_improved_counts: list[int] = field(init=False)
+    _policy_regressed_counts: list[int] = field(init=False)
+
+    def __post_init__(self) -> None:
+        step_names = tuple(step.name for step in self.universal_features_policy_steps)
+        if len(set(step_names)) != len(step_names):
+            raise ValueError("UD feature-policy step names must be unique.")
+        self._policy_changed_counts = [0] * len(step_names)
+        self._policy_improved_counts = [0] * len(step_names)
+        self._policy_regressed_counts = [0] * len(step_names)
 
     def add(self, *, predictions: TokenTaskPredictionBatch) -> None:
         if self._batch_index >= len(self.reference_batches):
@@ -250,6 +298,41 @@ class UniversalDependenciesEvaluationAccumulator:
                         for feature_predictions in predictions.morphology_predictions
                     ),
                 )
+                for step_index, policy_step in enumerate(
+                    self.universal_features_policy_steps
+                ):
+                    before_features = tuple(
+                        sorted(
+                            f"{name}={value}"
+                            for name, value in predicted_features.items()
+                            if name in UNIVERSAL_FEATURE_NAMES
+                        )
+                    )
+                    predicted_features = dict(
+                        policy_step.decoder(
+                            predicted_upos,
+                            predicted_features,
+                        )
+                    )
+                    after_features = tuple(
+                        sorted(
+                            f"{name}={value}"
+                            for name, value in predicted_features.items()
+                            if name in UNIVERSAL_FEATURE_NAMES
+                        )
+                    )
+                    if before_features != after_features:
+                        self._policy_changed_counts[step_index] += 1
+                    if (
+                        before_features != reference.universal_features
+                        and after_features == reference.universal_features
+                    ):
+                        self._policy_improved_counts[step_index] += 1
+                    if (
+                        before_features == reference.universal_features
+                        and after_features != reference.universal_features
+                    ):
+                        self._policy_regressed_counts[step_index] += 1
                 predicted_universal_features = tuple(
                     sorted(
                         f"{name}={value}"
@@ -304,4 +387,19 @@ class UniversalDependenciesEvaluationAccumulator:
             upos=score(self._upos_correct_count),
             ufeats=score(self._ufeats_correct_count),
             lemmas=score(self._lemma_correct_count),
+            ufeats_policy_audits=tuple(
+                UniversalFeaturesPolicyAudit(
+                    name=step.name,
+                    changed_bundle_count=changed,
+                    improved_bundle_count=improved,
+                    regressed_bundle_count=regressed,
+                )
+                for step, changed, improved, regressed in zip(
+                    self.universal_features_policy_steps,
+                    self._policy_changed_counts,
+                    self._policy_improved_counts,
+                    self._policy_regressed_counts,
+                    strict=True,
+                )
+            ),
         )

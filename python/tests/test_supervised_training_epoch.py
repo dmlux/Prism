@@ -9,6 +9,7 @@ from prism.modeling import (
     TokenizedBatch,
     TokenTaskLogits,
 )
+from prism.modeling.outputs import TokenTaskPredictionBatch
 from prism.training import (
     SupervisedTokenTaskBatch,
     TokenTaskDistillationPolicy,
@@ -215,6 +216,29 @@ def test_evaluation_epoch_reports_named_token_slice() -> None:
     assert token_slice.metrics.upos_accuracy == 1.0
     assert token_slice.metrics.lemma_rule_accuracy == 1.0
     assert token_slice.metrics.morphology_accuracies == (1.0,)
+
+
+def test_evaluation_epoch_forwards_decoded_predictions_to_observer() -> None:
+    class RecordingObserver:
+        def __init__(self) -> None:
+            self.predictions: list[TokenTaskPredictionBatch] = []
+
+        def add(self, *, predictions: TokenTaskPredictionBatch) -> None:
+            self.predictions.append(predictions)
+
+    observer = RecordingObserver()
+
+    evaluate_supervised_token_task_epoch(
+        model=TinyEpochModel(),
+        batches=(_training_batch(0), _training_batch(1)),
+        device=torch.device("cpu"),
+        morphology_schema=MORPHOLOGY_SCHEMA,
+        prediction_observers=(observer,),
+    )
+
+    assert len(observer.predictions) == 2
+    assert observer.predictions[0].upos_ids.tolist() == [[0]]
+    assert observer.predictions[1].token_mask.tolist() == [[True]]
 
 
 def test_evaluation_epoch_applies_optional_morphology_logit_correction() -> None:

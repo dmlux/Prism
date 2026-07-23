@@ -12,6 +12,7 @@ from prism.training.distillation import (
     compute_token_task_distillation_loss,
 )
 from prism.training.losses import (
+    MorphologyBundleLossPolicy,
     TokenTaskLosses,
     TokenTaskLossWeights,
     compute_token_task_loss,
@@ -26,6 +27,7 @@ def train_supervised_token_task_step(
     max_gradient_norm: float,
     morphology_schema: MorphologySchema,
     loss_weights: TokenTaskLossWeights | None = None,
+    morphology_bundle_loss_policy: MorphologyBundleLossPolicy | None = None,
 ) -> TokenTaskLosses:
     if max_gradient_norm <= 0.0:
         raise ValueError("Maximum gradient norm must be positive.")
@@ -43,6 +45,7 @@ def train_supervised_token_task_step(
         targets=batch.targets,
         morphology_schema=morphology_schema,
         loss_weights=loss_weights,
+        morphology_bundle_loss_policy=morphology_bundle_loss_policy,
     )
 
     losses.total_loss.backward()
@@ -57,6 +60,14 @@ def train_supervised_token_task_step(
         morphology_loss=losses.morphology_loss.detach(),
         lemma_rule_loss=losses.lemma_rule_loss.detach(),
         total_loss=losses.total_loss.detach(),
+        morphology_bundle_loss=(
+            None
+            if losses.morphology_bundle_loss is None
+            else losses.morphology_bundle_loss.detach()
+        ),
+        morphology_bundle_target_count=losses.morphology_bundle_target_count,
+        morphology_bundle_token_count=losses.morphology_bundle_token_count,
+        morphology_bundle_loss_weight=losses.morphology_bundle_loss_weight,
     )
 
 
@@ -65,6 +76,7 @@ def evaluate_supervised_token_task_step(
     model: nn.Module,
     batch: SupervisedTokenTaskBatch,
     morphology_schema: MorphologySchema,
+    morphology_bundle_loss_policy: MorphologyBundleLossPolicy | None = None,
 ) -> tuple[TokenTaskLogits, TokenTaskLosses]:
     model.eval()
 
@@ -78,6 +90,7 @@ def evaluate_supervised_token_task_step(
             logits=logits,
             targets=batch.targets,
             morphology_schema=morphology_schema,
+            morphology_bundle_loss_policy=morphology_bundle_loss_policy,
         )
 
         return logits, losses
@@ -94,6 +107,7 @@ def train_distilled_token_task_step(
     morphology_schema: MorphologySchema,
     loss_weights: TokenTaskLossWeights | None = None,
     teacher_model_inputs: TokenizedBatch | None = None,
+    morphology_bundle_loss_policy: MorphologyBundleLossPolicy | None = None,
 ) -> CombinedTokenTaskLosses:
     if max_gradient_norm <= 0.0:
         raise ValueError("Maximum gradient norm must be positive.")
@@ -127,6 +141,7 @@ def train_distilled_token_task_step(
         targets=batch.targets,
         morphology_schema=morphology_schema,
         loss_weights=loss_weights,
+        morphology_bundle_loss_policy=morphology_bundle_loss_policy,
     )
     distillation_losses = compute_token_task_distillation_loss(
         student_logits=student_logits,
@@ -161,6 +176,14 @@ def train_distilled_token_task_step(
             morphology_loss=(task_losses.morphology_loss.detach()),
             lemma_rule_loss=(task_losses.lemma_rule_loss.detach()),
             total_loss=task_losses.total_loss.detach(),
+            morphology_bundle_loss=(
+                None
+                if task_losses.morphology_bundle_loss is None
+                else task_losses.morphology_bundle_loss.detach()
+            ),
+            morphology_bundle_target_count=(task_losses.morphology_bundle_target_count),
+            morphology_bundle_token_count=(task_losses.morphology_bundle_token_count),
+            morphology_bundle_loss_weight=(task_losses.morphology_bundle_loss_weight),
         )
 
     return CombinedTokenTaskLosses(

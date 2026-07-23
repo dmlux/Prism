@@ -14,6 +14,7 @@ NORWEGIAN_BOKMAAL_TREEBANK = UniversalDependenciesTreebankSpec(
     license_id="CC-BY-SA-4.0",
     training_path=Path("data/raw/UD_Norwegian-Bokmaal/no_bokmaal-ud-train.conllu"),
     development_path=Path("data/raw/UD_Norwegian-Bokmaal/no_bokmaal-ud-dev.conllu"),
+    test_path=Path("data/raw/UD_Norwegian-Bokmaal/no_bokmaal-ud-test.conllu"),
 )
 
 NORWEGIAN_NYNORSK_TREEBANK = UniversalDependenciesTreebankSpec(
@@ -22,6 +23,7 @@ NORWEGIAN_NYNORSK_TREEBANK = UniversalDependenciesTreebankSpec(
     license_id="CC-BY-SA-4.0",
     training_path=Path("data/raw/UD_Norwegian-Nynorsk/no_nynorsk-ud-train.conllu"),
     development_path=Path("data/raw/UD_Norwegian-Nynorsk/no_nynorsk-ud-dev.conllu"),
+    test_path=Path("data/raw/UD_Norwegian-Nynorsk/no_nynorsk-ud-test.conllu"),
 )
 
 NORWEGIAN_BOKMAAL_UD_2_17_TREEBANK = UniversalDependenciesTreebankSpec(
@@ -34,6 +36,7 @@ NORWEGIAN_BOKMAAL_UD_2_17_TREEBANK = UniversalDependenciesTreebankSpec(
     development_path=Path(
         "data/raw/ud-2.17/UD_Norwegian-Bokmaal/no_bokmaal-ud-dev.conllu"
     ),
+    test_path=Path("data/raw/ud-2.17/UD_Norwegian-Bokmaal/no_bokmaal-ud-test.conllu"),
 )
 
 NORWEGIAN_NYNORSK_UD_2_17_TREEBANK = UniversalDependenciesTreebankSpec(
@@ -46,6 +49,7 @@ NORWEGIAN_NYNORSK_UD_2_17_TREEBANK = UniversalDependenciesTreebankSpec(
     development_path=Path(
         "data/raw/ud-2.17/UD_Norwegian-Nynorsk/no_nynorsk-ud-dev.conllu"
     ),
+    test_path=Path("data/raw/ud-2.17/UD_Norwegian-Nynorsk/no_nynorsk-ud-test.conllu"),
 )
 
 NORWEGIAN_BOKMAAL_PROFILE = LanguageProfileSpec(

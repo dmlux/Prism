@@ -73,6 +73,8 @@ class TokenTaskLogits:
     upos_logits: Tensor
     morphology_logits: tuple[Tensor, ...]
     lemma_rule_logits: Tensor
+    morphology_bundle_scores: Tensor | None = None
+    morphology_bundle_loss_scores: Tensor | None = None
 
     def __post_init__(self) -> None:
         if not self.morphology_logits:
@@ -96,6 +98,35 @@ class TokenTaskLogits:
 
         if any(logits.shape[:2] != token_dimensions for logits in all_logits):
             raise ValueError("Token task logits must share batch and token dimensions.")
+
+        if self.morphology_bundle_scores is not None:
+            if self.morphology_bundle_scores.ndim != 3:
+                raise ValueError("Morphology bundle scores must have three dimensions.")
+            if not self.morphology_bundle_scores.is_floating_point():
+                raise ValueError(
+                    "Morphology bundle scores must use a floating-point dtype."
+                )
+            if self.morphology_bundle_scores.shape[:2] != token_dimensions:
+                raise ValueError(
+                    "Morphology bundle scores must share batch and token dimensions."
+                )
+            if self.morphology_bundle_scores.shape[-1] <= 0:
+                raise ValueError("Morphology bundle scores must contain candidates.")
+
+        if self.morphology_bundle_loss_scores is not None:
+            if self.morphology_bundle_scores is None:
+                raise ValueError(
+                    "Isolated bundle-loss scores require bundle candidate scores."
+                )
+            if (
+                self.morphology_bundle_loss_scores.shape
+                != self.morphology_bundle_scores.shape
+            ):
+                raise ValueError(
+                    "Bundle-loss scores must match bundle candidate scores."
+                )
+            if not self.morphology_bundle_loss_scores.is_floating_point():
+                raise ValueError("Bundle-loss scores must use a floating-point dtype.")
 
     @property
     def batch_size(self) -> int:

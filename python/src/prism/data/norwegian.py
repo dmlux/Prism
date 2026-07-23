@@ -1,6 +1,6 @@
 """Shared transformations for Norwegian UD treebanks."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from prism.conllu import Token
@@ -55,6 +55,107 @@ def build_norwegian_ud_lemma_decoder(
             if token.lemma.startswith("$")
         )
     )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NorwegianUdMorphologyDecoder:
+    """Map canonical Norwegian morphology to one UD treebank convention."""
+
+    language_tag: str
+
+    def __post_init__(self) -> None:
+        if self.language_tag not in ("nb", "nn"):
+            raise ValueError(
+                f"Unsupported Norwegian UD morphology profile: {self.language_tag}"
+            )
+
+    def __call__(
+        self,
+        predicted_upos: str,
+        canonical_features: Mapping[str, str],
+    ) -> dict[str, str]:
+        decoded_features = self.decode_common_gender(
+            predicted_upos,
+            canonical_features,
+        )
+
+        if self.language_tag == "nn":
+            decoded_features = self.decode_nynorsk_number(
+                predicted_upos,
+                decoded_features,
+            )
+            decoded_features = self.decode_nynorsk_definite(
+                predicted_upos,
+                decoded_features,
+            )
+
+        return decoded_features
+
+    def decode_common_gender(
+        self,
+        predicted_upos: str,
+        canonical_features: Mapping[str, str],
+    ) -> dict[str, str]:
+        decoded_features = dict(canonical_features)
+
+        if (
+            predicted_upos in ("ADJ", "DET")
+            and decoded_features.get("Gender") == "Fem,Masc"
+        ):
+            decoded_features["Gender"] = "Com"
+
+        return decoded_features
+
+    def decode_nynorsk_number(
+        self,
+        predicted_upos: str,
+        canonical_features: Mapping[str, str],
+    ) -> dict[str, str]:
+        del predicted_upos
+        decoded_features = dict(canonical_features)
+        if self.language_tag == "nn":
+            _remove_morphology_value(
+                decoded_features,
+                feature_name="Number",
+                value="Sing",
+            )
+        return decoded_features
+
+    def decode_nynorsk_definite(
+        self,
+        predicted_upos: str,
+        canonical_features: Mapping[str, str],
+    ) -> dict[str, str]:
+        del predicted_upos
+        decoded_features = dict(canonical_features)
+        if self.language_tag == "nn":
+            _remove_morphology_value(
+                decoded_features,
+                feature_name="Definite",
+                value="Def",
+            )
+        return decoded_features
+
+
+def _remove_morphology_value(
+    features: dict[str, str],
+    *,
+    feature_name: str,
+    value: str,
+) -> None:
+    raw_values = features.get(feature_name)
+    if raw_values is None:
+        return
+
+    remaining_values = tuple(
+        feature_value
+        for feature_value in raw_values.split(",")
+        if feature_value != value
+    )
+    if remaining_values:
+        features[feature_name] = ",".join(remaining_values)
+    else:
+        del features[feature_name]
 
 
 def encode_norwegian_sentence(

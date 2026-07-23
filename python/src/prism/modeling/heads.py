@@ -4,6 +4,14 @@ from torch import Tensor, nn
 
 from prism.modeling.character_encoders import CharacterResidualFusion
 from prism.modeling.outputs import TokenTaskLogits
+from prism.modeling.morphology_bundle_reranker import (
+    MorphologyBundleReranker,
+    MorphologyBundleRerankerSpec,
+)
+from prism.modeling.morphology_agreement import (
+    MorphologyAgreementRefiner,
+    MorphologyAgreementRefinerSpec,
+)
 from prism.modeling.structured_morphology import StructuredMorphologyDecoder
 from prism.schema import TokenTaskSchema
 
@@ -174,6 +182,10 @@ class TokenTaskHeads(nn.Module):
         schema: TokenTaskSchema,
         dropout_probability: float,
         architecture: TokenTaskHeadArchitecture = TokenTaskHeadArchitecture.LINEAR,
+        morphology_bundle_reranker_spec: MorphologyBundleRerankerSpec | None = None,
+        morphology_agreement_refiner_spec: (
+            MorphologyAgreementRefinerSpec | None
+        ) = None,
     ) -> None:
         super().__init__()
 
@@ -269,10 +281,47 @@ class TokenTaskHeads(nn.Module):
         else:
             self.structured_morphology_decoder = None
 
+        self.morphology_bundle_reranker: MorphologyBundleReranker | None
+        if morphology_bundle_reranker_spec is None:
+            self.morphology_bundle_reranker = None
+        else:
+            self.morphology_bundle_reranker = MorphologyBundleReranker(
+                hidden_size=hidden_size,
+                upos_label_count=len(schema.upos.labels),
+                morphology_schema=schema.morphology,
+                spec=morphology_bundle_reranker_spec,
+                dropout_probability=dropout_probability,
+            )
+
+        self.morphology_agreement_refiner: MorphologyAgreementRefiner | None
+        if morphology_agreement_refiner_spec is None:
+            self.morphology_agreement_refiner = None
+        else:
+            self.morphology_agreement_refiner = MorphologyAgreementRefiner(
+                hidden_size=hidden_size,
+                upos_label_count=len(schema.upos.labels),
+                morphology_schema=schema.morphology,
+                spec=morphology_agreement_refiner_spec,
+                dropout_probability=dropout_probability,
+            )
+
+    def set_morphology_bundle_loss_gradient_isolation(
+        self,
+        enabled: bool,
+    ) -> None:
+        if self.morphology_bundle_reranker is None:
+            if enabled:
+                raise ValueError(
+                    "Bundle-loss gradient isolation requires a bundle reranker."
+                )
+            return
+        self.morphology_bundle_reranker.set_direct_loss_gradient_isolation(enabled)
+
     def forward(
         self,
         hidden_states: Tensor,
         character_hidden_states: Tensor | None = None,
+        token_mask: Tensor | None = None,
     ) -> TokenTaskLogits:
         normalized_hidden_states = self.input_normalization(hidden_states)
         projected_hidden_states = self.input_projection(normalized_hidden_states)
@@ -298,8 +347,29 @@ class TokenTaskHeads(nn.Module):
         morphology_logits = tuple(
             head(morphology_hidden_states) for head in self.morphology_heads
         )
+        morphology_bundle_scores = None
+        morphology_bundle_loss_scores = None
         if self.structured_morphology_decoder is not None:
             morphology_logits = self.structured_morphology_decoder(
+                upos_logits=upos_logits,
+                morphology_logits=morphology_logits,
+            )
+        if self.morphology_bundle_reranker is not None:
+            (
+                morphology_logits,
+                morphology_bundle_scores,
+                morphology_bundle_loss_scores,
+            ) = self.morphology_bundle_reranker.refine_with_training_scores(
+                hidden_states=morphology_hidden_states,
+                upos_logits=upos_logits,
+                morphology_logits=morphology_logits,
+            )
+        if self.morphology_agreement_refiner is not None:
+            if token_mask is None:
+                raise ValueError("Agreement-aware task heads require a token mask.")
+            morphology_logits = self.morphology_agreement_refiner(
+                hidden_states=morphology_hidden_states,
+                token_mask=token_mask,
                 upos_logits=upos_logits,
                 morphology_logits=morphology_logits,
             )
@@ -308,4 +378,6 @@ class TokenTaskHeads(nn.Module):
             upos_logits=upos_logits,
             morphology_logits=morphology_logits,
             lemma_rule_logits=self.lemma_rule_head(lemma_hidden_states),
+            morphology_bundle_scores=morphology_bundle_scores,
+            morphology_bundle_loss_scores=morphology_bundle_loss_scores,
         )

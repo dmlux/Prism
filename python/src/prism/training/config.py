@@ -13,6 +13,9 @@ class SupervisedTrainingConfig:
     warmup_ratio: float
     random_seed: int
     morphology_weight_cap: float | None = None
+    morphology_bundle_loss_weight: float = 0.0
+    isolate_morphology_bundle_loss_gradient: bool = False
+    early_stopping_patience: int | None = None
 
     def __post_init__(self) -> None:
         if self.epoch_count <= 0:
@@ -47,3 +50,22 @@ class SupervisedTrainingConfig:
             or self.morphology_weight_cap < 1.0
         ):
             raise ValueError("Morphology weight cap must be finite and at least one.")
+        if (
+            not math.isfinite(self.morphology_bundle_loss_weight)
+            or self.morphology_bundle_loss_weight < 0.0
+        ):
+            raise ValueError(
+                "Morphology bundle loss weight must be finite and non-negative."
+            )
+        if (
+            self.isolate_morphology_bundle_loss_gradient
+            and self.morphology_bundle_loss_weight == 0.0
+        ):
+            raise ValueError(
+                "Bundle-loss gradient isolation requires a positive bundle loss weight."
+            )
+        if (
+            self.early_stopping_patience is not None
+            and self.early_stopping_patience <= 0
+        ):
+            raise ValueError("Early-stopping patience must be positive.")

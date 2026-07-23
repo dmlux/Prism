@@ -24,6 +24,7 @@ from prism.languages.norwegian import (
 )
 from prism.modeling import (
     BackboneLayerAggregationStrategy,
+    MorphologyAgreementRefinerSpec,
     PretrainedBackboneSpec,
     TokenPoolingStrategy,
     TokenTagger,
@@ -48,6 +49,7 @@ from prism.training import (
     SupervisedTokenTaskBatch,
     SupervisedTrainingConfig,
     SupervisedTrainingEpochResult,
+    MorphologyBundleLossPolicy,
     TokenTaskDistillationPolicy,
     build_linear_warmup_decay_scheduler,
     build_supervised_adamw_optimizer,
@@ -63,10 +65,21 @@ from prism.training import (
     token_task_head_architecture_from_checkpoint,
     validate_token_task_checkpoint_format,
     character_vocabulary_from_checkpoint,
+    morphology_bundle_reranker_spec_from_checkpoint,
+    morphology_agreement_refiner_spec_from_checkpoint,
+    build_morphology_bundle_reranker_spec,
+    serialize_morphology_bundle_reranker_spec,
+    serialize_morphology_agreement_refiner_spec,
 )
 
 
 CHARACTER_MAXIMUM_COUNT = 32
+MORPHOLOGY_AGREEMENT_BOTTLENECK_SIZE = 64
+MORPHOLOGY_AGREEMENT_TARGET_FEATURE_NAMES = (
+    "Definite",
+    "Gender",
+    "Number",
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -82,6 +95,11 @@ class BaselineTrainingArguments:
     backbone_layer_aggregation: BackboneLayerAggregationStrategy
     epoch_count: int
     treebank_release: str
+    morphology_bundle_candidate_count: int
+    morphology_bundle_loss_weight: float
+    isolate_morphology_bundle_loss_gradient: bool
+    morphology_agreement_window_radius: int
+    early_stopping_patience: int | None
 
 
 def parse_training_arguments(
@@ -201,6 +219,46 @@ def parse_training_arguments(
         default=None,
         dest="morphology_weight_cap",
     )
+    parser.add_argument(
+        "--morphology-bundle-candidate-count",
+        type=int,
+        choices=(0, 32),
+        default=0,
+        help="Enable the training-derived morphology bundle reranker with 32 candidates per UPOS.",
+    )
+    parser.add_argument(
+        "--morphology-bundle-loss-weight",
+        type=float,
+        default=0.0,
+        help=("Weight for direct complete-bundle supervision (0 disables it)."),
+    )
+    parser.add_argument(
+        "--isolate-morphology-bundle-loss-gradient",
+        action="store_true",
+        help=(
+            "Restrict the direct bundle-loss gradient to the reranker's residual "
+            "candidate scorer."
+        ),
+    )
+    parser.add_argument(
+        "--morphology-agreement-window-radius",
+        type=int,
+        choices=(0, 3),
+        default=0,
+        help=(
+            "Enable the local morphology agreement refiner with a three-token "
+            "window on each side (0 disables it)."
+        ),
+    )
+    parser.add_argument(
+        "--early-stopping-patience",
+        type=int,
+        default=4,
+        help=(
+            "Stop after this many complete epochs without Development-loss "
+            "improvement; 0 disables early stopping."
+        ),
+    )
 
     parsed_arguments = parser.parse_args(arguments)
 
@@ -258,6 +316,30 @@ def parse_training_arguments(
         parser.error("DKD component weights must be finite and non-negative")
     if parsed_arguments.epoch_count <= 0:
         parser.error("--epoch-count must be greater than zero")
+    if parsed_arguments.early_stopping_patience < 0:
+        parser.error("--early-stopping-patience must be non-negative")
+    resolved_bundle_loss_weight = parsed_arguments.morphology_bundle_loss_weight
+    if (
+        not math.isfinite(resolved_bundle_loss_weight)
+        or resolved_bundle_loss_weight < 0.0
+    ):
+        parser.error("--morphology-bundle-loss-weight must be finite and non-negative")
+    if (
+        resolved_bundle_loss_weight > 0.0
+        and parsed_arguments.morphology_bundle_candidate_count == 0
+    ):
+        parser.error(
+            "--morphology-bundle-loss-weight requires "
+            "--morphology-bundle-candidate-count 32"
+        )
+    if (
+        parsed_arguments.isolate_morphology_bundle_loss_gradient
+        and resolved_bundle_loss_weight == 0.0
+    ):
+        parser.error(
+            "--isolate-morphology-bundle-loss-gradient requires a positive "
+            "--morphology-bundle-loss-weight"
+        )
     if (
         parsed_arguments.teacher_checkpoint_path is not None
         and parsed_arguments.model_role != "student"
@@ -293,6 +375,21 @@ def parse_training_arguments(
         ),
         epoch_count=parsed_arguments.epoch_count,
         treebank_release=parsed_arguments.treebank_release,
+        morphology_bundle_candidate_count=(
+            parsed_arguments.morphology_bundle_candidate_count
+        ),
+        morphology_bundle_loss_weight=resolved_bundle_loss_weight,
+        isolate_morphology_bundle_loss_gradient=(
+            parsed_arguments.isolate_morphology_bundle_loss_gradient
+        ),
+        morphology_agreement_window_radius=(
+            parsed_arguments.morphology_agreement_window_radius
+        ),
+        early_stopping_patience=(
+            None
+            if parsed_arguments.early_stopping_patience == 0
+            else parsed_arguments.early_stopping_patience
+        ),
     )
 
 
@@ -389,6 +486,12 @@ def _load_distillation_teacher(
             if teacher_character_vocabulary is None
             else teacher_character_vocabulary.size
         ),
+        morphology_bundle_reranker_spec=(
+            morphology_bundle_reranker_spec_from_checkpoint(checkpoint)
+        ),
+        morphology_agreement_refiner_spec=(
+            morphology_agreement_refiner_spec_from_checkpoint(checkpoint)
+        ),
     )
     teacher.load_state_dict(
         checkpoint["model_state_dict"],
@@ -434,6 +537,34 @@ def main() -> None:
     print("Token pooling:", arguments.token_pooling_strategy.value)
     print("Task-head architecture:", arguments.token_task_head_architecture.value)
     print("Backbone layer aggregation:", arguments.backbone_layer_aggregation.value)
+    print(
+        "Morphology bundle candidates per UPOS:",
+        arguments.morphology_bundle_candidate_count,
+    )
+    print(
+        "Morphology bundle loss weight:",
+        arguments.morphology_bundle_loss_weight,
+    )
+    print(
+        "Morphology bundle loss gradient:",
+        (
+            "residual-scorer-only"
+            if arguments.isolate_morphology_bundle_loss_gradient
+            else "all-upstream-inputs"
+        ),
+    )
+    print(
+        "Morphology agreement window radius:",
+        arguments.morphology_agreement_window_radius,
+    )
+    print(
+        "Early-stopping patience:",
+        (
+            "disabled"
+            if arguments.early_stopping_patience is None
+            else arguments.early_stopping_patience
+        ),
+    )
     print("Training sentences:", len(training_tokens))
     print(
         "Development sentences:",
@@ -456,6 +587,32 @@ def main() -> None:
         development_tokens,
         schema=schema,
     )
+    bundle_training_corpus = (
+        training_corpus
+        if arguments.language_tag == "no"
+        else encode_norwegian_sentences(schema_training_tokens, schema=schema)
+    )
+    morphology_bundle_reranker_spec = (
+        None
+        if arguments.morphology_bundle_candidate_count == 0
+        else build_morphology_bundle_reranker_spec(
+            targets=(
+                target
+                for sentence in bundle_training_corpus.sentences
+                for target in sentence.targets
+            ),
+            maximum_candidates_per_upos=(arguments.morphology_bundle_candidate_count),
+        )
+    )
+    morphology_agreement_refiner_spec = (
+        None
+        if arguments.morphology_agreement_window_radius == 0
+        else MorphologyAgreementRefinerSpec(
+            window_radius=arguments.morphology_agreement_window_radius,
+            bottleneck_size=MORPHOLOGY_AGREEMENT_BOTTLENECK_SIZE,
+            target_feature_names=MORPHOLOGY_AGREEMENT_TARGET_FEATURE_NAMES,
+        )
+    )
 
     config = SupervisedTrainingConfig(
         epoch_count=arguments.epoch_count,
@@ -467,10 +624,24 @@ def main() -> None:
         warmup_ratio=0.1,
         random_seed=42,
         morphology_weight_cap=arguments.morphology_weight_cap,
+        morphology_bundle_loss_weight=arguments.morphology_bundle_loss_weight,
+        isolate_morphology_bundle_loss_gradient=(
+            arguments.isolate_morphology_bundle_loss_gradient
+        ),
+        early_stopping_patience=arguments.early_stopping_patience,
     )
 
     torch.manual_seed(config.random_seed)
     device = torch.device("mps")
+    morphology_bundle_loss_policy = (
+        None
+        if morphology_bundle_reranker_spec is None
+        or arguments.morphology_bundle_loss_weight == 0.0
+        else MorphologyBundleLossPolicy.from_reranker_spec(
+            spec=morphology_bundle_reranker_spec,
+            weight=arguments.morphology_bundle_loss_weight,
+        ).to(device=device)
+    )
 
     loss_weights = build_token_task_loss_weights(
         targets=tuple(
@@ -497,6 +668,11 @@ def main() -> None:
         character_vocabulary_size=(
             None if character_vocabulary is None else character_vocabulary.size
         ),
+        morphology_bundle_reranker_spec=morphology_bundle_reranker_spec,
+        morphology_agreement_refiner_spec=morphology_agreement_refiner_spec,
+    )
+    model.heads.set_morphology_bundle_loss_gradient_isolation(
+        arguments.isolate_morphology_bundle_loss_gradient
     )
 
     teacher = _load_distillation_teacher(
@@ -599,6 +775,7 @@ def main() -> None:
                 max_gradient_norm=config.max_gradient_norm,
                 morphology_schema=schema.morphology,
                 loss_weights=loss_weights,
+                morphology_bundle_loss_policy=morphology_bundle_loss_policy,
             )
 
         return train_distilled_token_task_epoch(
@@ -612,6 +789,7 @@ def main() -> None:
             distillation_policy=arguments.distillation_policy,
             morphology_schema=schema.morphology,
             loss_weights=loss_weights,
+            morphology_bundle_loss_policy=morphology_bundle_loss_policy,
         )
 
     def evaluate_epoch(
@@ -636,19 +814,36 @@ def main() -> None:
             ),
             device=device,
             morphology_schema=schema.morphology,
+            morphology_bundle_loss_policy=morphology_bundle_loss_policy,
         )
 
+        scalar_metric_names = [
+            "Development total loss",
+            "Development UPOS accuracy",
+            "Development lemma-rule accuracy",
+        ]
+        scalar_metric_values = [
+            metrics.losses.total_loss,
+            metrics.upos_accuracy,
+            metrics.lemma_rule_accuracy,
+        ]
+        if metrics.losses.morphology_bundle_coverage is not None:
+            scalar_metric_names.extend(
+                (
+                    "Development bundle loss",
+                    "Development bundle candidate coverage",
+                )
+            )
+            scalar_metric_values.extend(
+                (
+                    metrics.losses.morphology_bundle_loss,
+                    metrics.losses.morphology_bundle_coverage,
+                )
+            )
+
         for row in format_scalar_metric_rows(
-            metric_names=(
-                "Development total loss",
-                "Development UPOS accuracy",
-                "Development lemma-rule accuracy",
-            ),
-            values=(
-                metrics.losses.total_loss,
-                metrics.upos_accuracy,
-                metrics.lemma_rule_accuracy,
-            ),
+            metric_names=tuple(scalar_metric_names),
+            values=tuple(scalar_metric_values),
         ):
             print(row)
 
@@ -698,6 +893,20 @@ def main() -> None:
                 ),
                 "maximum_character_count": (
                     None if character_vocabulary is None else CHARACTER_MAXIMUM_COUNT
+                ),
+                "morphology_bundle_reranker": (
+                    None
+                    if morphology_bundle_reranker_spec is None
+                    else serialize_morphology_bundle_reranker_spec(
+                        morphology_bundle_reranker_spec
+                    )
+                ),
+                "morphology_agreement_refiner": (
+                    None
+                    if morphology_agreement_refiner_spec is None
+                    else serialize_morphology_agreement_refiner_spec(
+                        morphology_agreement_refiner_spec
+                    )
                 ),
                 "teacher_checkpoint_path": (
                     None
@@ -751,6 +960,7 @@ def main() -> None:
         train_epoch=train_epoch,
         evaluate_epoch=evaluate_epoch,
         on_new_best=save_new_best,
+        early_stopping_patience=config.early_stopping_patience,
     )
 
     print()
@@ -759,6 +969,11 @@ def main() -> None:
         run_result.best_epoch_index + 1,
     )
     print("Checkpoint:", checkpoint_path)
+    if run_result.stopped_early:
+        print(
+            "Early stopping:",
+            f"after {len(run_result.epoch_results)} epochs",
+        )
 
 
 if __name__ == "__main__":

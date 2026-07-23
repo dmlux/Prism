@@ -10,6 +10,7 @@ from prism.evaluation.metrics import (
     TokenTaskEvaluationAccumulator,
     TokenTaskEvaluationMetrics,
 )
+from prism.evaluation.prediction_observer import TokenTaskPredictionObserver
 from prism.evaluation.universal_dependencies import (
     UniversalDependenciesEvaluationAccumulator,
     UniversalDependenciesEvaluationMetrics,
@@ -22,6 +23,7 @@ from prism.modeling.decoding import (
 from prism.schema import MorphologySchema
 from prism.training.batches import SupervisedTokenTaskBatch
 from prism.training.losses import (
+    MorphologyBundleLossPolicy,
     TokenTaskLosses,
     TokenTaskLossWeights,
 )
@@ -41,10 +43,25 @@ class SupervisedEpochMetrics:
     upos_loss: float
     morphology_loss: float
     lemma_rule_loss: float
+    morphology_bundle_loss: float = 0.0
+    morphology_bundle_loss_weight: float = 0.0
+    morphology_bundle_target_count: int = 0
+    morphology_bundle_token_count: int = 0
 
     @property
     def total_loss(self) -> float:
-        return self.upos_loss + self.morphology_loss + self.lemma_rule_loss
+        return (
+            self.upos_loss
+            + self.morphology_loss
+            + self.lemma_rule_loss
+            + self.morphology_bundle_loss_weight * self.morphology_bundle_loss
+        )
+
+    @property
+    def morphology_bundle_coverage(self) -> float | None:
+        if self.morphology_bundle_token_count == 0:
+            return None
+        return self.morphology_bundle_target_count / self.morphology_bundle_token_count
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -103,6 +120,11 @@ class _EpochLossAccumulator:
     upos_loss_sum: torch.Tensor = field(init=False)
     morphology_loss_sum: torch.Tensor = field(init=False)
     lemma_rule_loss_sum: torch.Tensor = field(init=False)
+    morphology_bundle_loss_sum: torch.Tensor = field(init=False)
+    morphology_bundle_target_count: torch.Tensor = field(init=False)
+    morphology_bundle_token_count: torch.Tensor = field(init=False)
+    morphology_bundle_loss_weight: float = 0.0
+    morphology_bundle_loss_active: bool = False
 
     def __post_init__(self) -> None:
         self.token_count = torch.zeros(
@@ -124,6 +146,17 @@ class _EpochLossAccumulator:
             (),
             device=self.device,
         )
+        self.morphology_bundle_loss_sum = torch.zeros((), device=self.device)
+        self.morphology_bundle_target_count = torch.zeros(
+            (),
+            dtype=torch.long,
+            device=self.device,
+        )
+        self.morphology_bundle_token_count = torch.zeros(
+            (),
+            dtype=torch.long,
+            device=self.device,
+        )
 
     def add(
         self,
@@ -142,6 +175,22 @@ class _EpochLossAccumulator:
         self.upos_loss_sum += losses.upos_loss * current_token_count
         self.morphology_loss_sum += losses.morphology_loss * current_token_count
         self.lemma_rule_loss_sum += losses.lemma_rule_loss * current_lemma_target_count
+        if losses.morphology_bundle_loss is not None:
+            if (
+                self.morphology_bundle_loss_active
+                and losses.morphology_bundle_loss_weight
+                != self.morphology_bundle_loss_weight
+            ):
+                raise ValueError(
+                    "Morphology bundle loss weight must be constant within an epoch."
+                )
+            self.morphology_bundle_loss_weight = losses.morphology_bundle_loss_weight
+            self.morphology_bundle_loss_active = True
+            self.morphology_bundle_loss_sum += (
+                losses.morphology_bundle_loss * losses.morphology_bundle_target_count
+            )
+            self.morphology_bundle_target_count += losses.morphology_bundle_target_count
+            self.morphology_bundle_token_count += losses.morphology_bundle_token_count
 
     def finish(
         self,
@@ -159,6 +208,15 @@ class _EpochLossAccumulator:
             if lemma_target_count == 0
             else (self.lemma_rule_loss_sum / self.lemma_target_count).item()
         )
+        morphology_bundle_target_count = int(self.morphology_bundle_target_count.item())
+        morphology_bundle_token_count = int(self.morphology_bundle_token_count.item())
+        morphology_bundle_loss = (
+            0.0
+            if morphology_bundle_target_count == 0
+            else (
+                self.morphology_bundle_loss_sum / self.morphology_bundle_target_count
+            ).item()
+        )
 
         return SupervisedEpochMetrics(
             batch_count=self.batch_count,
@@ -167,6 +225,10 @@ class _EpochLossAccumulator:
             upos_loss=(self.upos_loss_sum / self.token_count).item(),
             morphology_loss=(self.morphology_loss_sum / self.token_count).item(),
             lemma_rule_loss=lemma_rule_loss,
+            morphology_bundle_loss=morphology_bundle_loss,
+            morphology_bundle_loss_weight=self.morphology_bundle_loss_weight,
+            morphology_bundle_target_count=morphology_bundle_target_count,
+            morphology_bundle_token_count=morphology_bundle_token_count,
         )
 
 
@@ -207,6 +269,7 @@ def train_supervised_token_task_epoch(
     max_gradient_norm: float,
     morphology_schema: MorphologySchema,
     loss_weights: TokenTaskLossWeights | None = None,
+    morphology_bundle_loss_policy: MorphologyBundleLossPolicy | None = None,
 ) -> SupervisedEpochMetrics:
     def process_batch(
         batch: SupervisedTokenTaskBatch,
@@ -218,6 +281,7 @@ def train_supervised_token_task_epoch(
             max_gradient_norm=max_gradient_norm,
             morphology_schema=morphology_schema,
             loss_weights=loss_weights,
+            morphology_bundle_loss_policy=morphology_bundle_loss_policy,
         )
         scheduler.step()
         return losses
@@ -243,6 +307,7 @@ def train_distilled_token_task_epoch(
     distillation_policy: TokenTaskDistillationPolicy,
     morphology_schema: MorphologySchema,
     loss_weights: TokenTaskLossWeights | None = None,
+    morphology_bundle_loss_policy: MorphologyBundleLossPolicy | None = None,
 ) -> DistilledEpochMetrics:
     student.to(device)
     teacher.to(device)
@@ -262,6 +327,7 @@ def train_distilled_token_task_epoch(
             distillation_policy=distillation_policy,
             morphology_schema=morphology_schema,
             loss_weights=loss_weights,
+            morphology_bundle_loss_policy=morphology_bundle_loss_policy,
         )
         scheduler.step()
 
@@ -305,7 +371,9 @@ def evaluate_supervised_token_task_epoch(
     universal_dependencies_accumulator: (
         UniversalDependenciesEvaluationAccumulator | None
     ) = None,
+    prediction_observers: Sequence[TokenTaskPredictionObserver] = (),
     morphology_logit_correction: MorphologyLogitCorrection | None = None,
+    morphology_bundle_loss_policy: MorphologyBundleLossPolicy | None = None,
 ) -> SupervisedEvaluationMetrics:
     resolved_slice_masks = {} if token_slice_masks is None else token_slice_masks
     if any(not name or name.strip() != name for name in resolved_slice_masks):
@@ -333,6 +401,7 @@ def evaluate_supervised_token_task_epoch(
             model=model,
             batch=batch,
             morphology_schema=morphology_schema,
+            morphology_bundle_loss_policy=morphology_bundle_loss_policy,
         )
         prediction_logits = (
             logits
@@ -356,6 +425,8 @@ def evaluate_supervised_token_task_epoch(
         )
         if universal_dependencies_accumulator is not None:
             universal_dependencies_accumulator.add(predictions=predictions)
+        for observer in prediction_observers:
+            observer.add(predictions=predictions)
 
         for name, masks in resolved_slice_masks.items():
             if batch_index >= len(masks):
