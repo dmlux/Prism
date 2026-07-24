@@ -90,7 +90,6 @@ def test_token_tagger_connects_backbone_alignment_and_task_heads() -> None:
     task_hidden_states = model.encode_task_hidden_states(batch)
     logits_from_exposed_boundary = model.heads.classify_hidden_states(
         task_hidden_states,
-        token_mask=batch.token_mask,
     )
 
     assert logits.upos_logits.shape == (1, 2, 2)

@@ -3,7 +3,6 @@ import torch
 
 from prism.modeling import (
     BackboneLayerAggregationStrategy,
-    MorphologyAgreementRefinerSpec,
     MorphologyPreHeadArchitecture,
     TokenPoolingStrategy,
     TokenTaskHeadArchitecture,
@@ -19,8 +18,6 @@ from prism.training import (
     morphology_logit_correction_from_checkpoint,
     morphology_pre_head_architecture_from_checkpoint,
     morphology_bundle_reranker_spec_from_checkpoint,
-    morphology_agreement_refiner_spec_from_checkpoint,
-    serialize_morphology_agreement_refiner_spec,
     serialize_morphology_bundle_reranker_spec,
 )
 from prism.modeling import MorphologyBundleCandidate, MorphologyBundleRerankerSpec
@@ -62,30 +59,6 @@ def test_task_head_architecture_is_loaded_from_checkpoint_metadata() -> None:
     assert (
         token_task_head_architecture_from_checkpoint({})
         is TokenTaskHeadArchitecture.LINEAR
-    )
-    assert (
-        token_task_head_architecture_from_checkpoint(
-            {"token_task_head_architecture": "shared-mlp"}
-        )
-        is TokenTaskHeadArchitecture.SHARED_MLP
-    )
-    assert (
-        token_task_head_architecture_from_checkpoint(
-            {"token_task_head_architecture": "wide-shared-mlp"}
-        )
-        is TokenTaskHeadArchitecture.WIDE_SHARED_MLP
-    )
-    assert (
-        token_task_head_architecture_from_checkpoint(
-            {"token_task_head_architecture": ("wide-shared-mlp-task-adapters")}
-        )
-        is TokenTaskHeadArchitecture.WIDE_SHARED_MLP_TASK_ADAPTERS
-    )
-    assert (
-        token_task_head_architecture_from_checkpoint(
-            {"token_task_head_architecture": ("wide-shared-mlp-structured-morphology")}
-        )
-        is TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY
     )
     assert (
         token_task_head_architecture_from_checkpoint(
@@ -227,26 +200,6 @@ def test_bundle_reranker_spec_is_loaded_from_checkpoint() -> None:
             {
                 "morphology_bundle_reranker": (
                     serialize_morphology_bundle_reranker_spec(spec)
-                )
-            }
-        )
-        == spec
-    )
-
-
-def test_morphology_agreement_spec_is_loaded_from_checkpoint() -> None:
-    spec = MorphologyAgreementRefinerSpec(
-        window_radius=3,
-        bottleneck_size=64,
-        target_feature_names=("Definite", "Gender", "Number"),
-    )
-
-    assert morphology_agreement_refiner_spec_from_checkpoint({}) is None
-    assert (
-        morphology_agreement_refiner_spec_from_checkpoint(
-            {
-                "morphology_agreement_refiner": (
-                    serialize_morphology_agreement_refiner_spec(spec)
                 )
             }
         )

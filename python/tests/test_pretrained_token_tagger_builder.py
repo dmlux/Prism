@@ -8,9 +8,7 @@ from prism.modeling import (
     CharacterCnnTokenEncoder,
     MorphologyPreHeadArchitecture,
     PretrainedBackboneSpec,
-    SharedResidualTokenProjection,
     StructuredMorphologyDecoder,
-    TaskResidualAdapter,
     TokenTaskHeadArchitecture,
     WideSharedResidualTokenProjection,
     build_pretrained_token_tagger,
@@ -91,78 +89,6 @@ def test_build_pretrained_token_tagger_uses_backbone_hidden_size() -> None:
         "prism.modeling.taggers.load_backbone_model",
         return_value=backbone,
     ):
-        nonlinear_model = build_pretrained_token_tagger(
-            backbone_spec=spec,
-            schema=schema,
-            dropout_probability=0.1,
-            head_architecture=TokenTaskHeadArchitecture.SHARED_MLP,
-        )
-
-    assert isinstance(
-        nonlinear_model.heads.input_projection,
-        SharedResidualTokenProjection,
-    )
-
-    with patch(
-        "prism.modeling.taggers.load_backbone_model",
-        return_value=backbone,
-    ):
-        wide_model = build_pretrained_token_tagger(
-            backbone_spec=spec,
-            schema=schema,
-            dropout_probability=0.1,
-            head_architecture=TokenTaskHeadArchitecture.WIDE_SHARED_MLP,
-        )
-
-    assert isinstance(
-        wide_model.heads.input_projection,
-        WideSharedResidualTokenProjection,
-    )
-
-    with patch(
-        "prism.modeling.taggers.load_backbone_model",
-        return_value=backbone,
-    ):
-        adapted_model = build_pretrained_token_tagger(
-            backbone_spec=spec,
-            schema=schema,
-            dropout_probability=0.1,
-            head_architecture=(TokenTaskHeadArchitecture.WIDE_SHARED_MLP_TASK_ADAPTERS),
-        )
-
-    assert isinstance(
-        adapted_model.heads.input_projection,
-        WideSharedResidualTokenProjection,
-    )
-    assert isinstance(adapted_model.heads.upos_adapter, TaskResidualAdapter)
-    assert isinstance(
-        adapted_model.heads.morphology_adapter,
-        TaskResidualAdapter,
-    )
-    assert isinstance(adapted_model.heads.lemma_adapter, TaskResidualAdapter)
-
-    with patch(
-        "prism.modeling.taggers.load_backbone_model",
-        return_value=backbone,
-    ):
-        structured_model = build_pretrained_token_tagger(
-            backbone_spec=spec,
-            schema=schema,
-            dropout_probability=0.1,
-            head_architecture=(
-                TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY
-            ),
-        )
-
-    assert isinstance(
-        structured_model.heads.structured_morphology_decoder,
-        StructuredMorphologyDecoder,
-    )
-
-    with patch(
-        "prism.modeling.taggers.load_backbone_model",
-        return_value=backbone,
-    ):
         character_model = build_pretrained_token_tagger(
             backbone_spec=spec,
             schema=schema,
@@ -175,6 +101,14 @@ def test_build_pretrained_token_tagger_uses_backbone_hidden_size() -> None:
 
     assert isinstance(character_model.character_encoder, CharacterCnnTokenEncoder)
     assert character_model.heads.character_fusion is not None
+    assert isinstance(
+        character_model.heads.input_projection,
+        WideSharedResidualTokenProjection,
+    )
+    assert isinstance(
+        character_model.heads.structured_morphology_decoder,
+        StructuredMorphologyDecoder,
+    )
 
     with patch(
         "prism.modeling.taggers.load_backbone_model",

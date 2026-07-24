@@ -16,7 +16,6 @@ from prism.modeling.layer_aggregation import (
 )
 from prism.modeling.outputs import TokenTaskHiddenStates, TokenTaskLogits
 from prism.modeling.morphology_bundle_reranker import MorphologyBundleRerankerSpec
-from prism.modeling.morphology_agreement import MorphologyAgreementRefinerSpec
 from prism.schema import TokenTaskSchema
 from prism.modeling.backbones import (
     PretrainedBackboneSpec,
@@ -84,10 +83,7 @@ class TokenTagger(nn.Module):
             batch,
             character_batch=character_batch,
         )
-        return self.heads.classify_hidden_states(
-            task_hidden_states,
-            token_mask=batch.token_mask,
-        )
+        return self.heads.classify_hidden_states(task_hidden_states)
 
 
 def build_pretrained_token_tagger(
@@ -105,7 +101,6 @@ def build_pretrained_token_tagger(
     ),
     character_vocabulary_size: int | None = None,
     morphology_bundle_reranker_spec: MorphologyBundleRerankerSpec | None = None,
-    morphology_agreement_refiner_spec: MorphologyAgreementRefinerSpec | None = None,
 ) -> TokenTagger:
     backbone = load_backbone_model(backbone_spec)
     hidden_size = getattr(
@@ -128,7 +123,6 @@ def build_pretrained_token_tagger(
         architecture=head_architecture,
         morphology_pre_head_architecture=morphology_pre_head_architecture,
         morphology_bundle_reranker_spec=morphology_bundle_reranker_spec,
-        morphology_agreement_refiner_spec=morphology_agreement_refiner_spec,
     )
     character_encoder = None
     if head_architecture.uses_character_encoder:

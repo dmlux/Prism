@@ -150,10 +150,8 @@ abgebildet:
 | Optionale post-fusion Morphologie-Vorprojektion | [`MorphologyPreHeadArchitecture`](../python/src/prism/modeling/heads.py) |
 | Strukturierter zweiter Morphologie-Pass | [`StructuredMorphologyDecoder`](../python/src/prism/modeling/structured_morphology.py) |
 | Optionaler vollständiger Bundle-Reranker | [`MorphologyBundleReranker`](../python/src/prism/modeling/morphology_bundle_reranker.py) |
-| Optionaler lokaler Agreement-Refiner | [`MorphologyAgreementRefiner`](../python/src/prism/modeling/morphology_agreement.py) |
 | Ausgerichteter Feature-Systemvergleich | [`MorphologyFeatureComparisonAccumulator`](../python/src/prism/evaluation/morphology_feature_comparison.py) |
 | Rare/OOV-Featurefehler-Attribution | [`TokenTaskEvaluationAccumulator`](../python/src/prism/evaluation/metrics.py) und [`format_morphology_error_attribution_rows`](../python/src/prism/evaluation/reporting.py) |
-| Gefrorener Morphologie-Head-Probe | [`morphology_probe.py`](../python/src/prism/training/morphology_probe.py) und [`probe_morphology_heads.py`](../python/src/prism/languages/norwegian/probe_morphology_heads.py) |
 | Überwachte Losses | [`compute_token_task_loss`](../python/src/prism/training/losses.py) |
 | Distillation | [`compute_token_task_distillation_loss`](../python/src/prism/training/distillation.py) |
 | Morphologie-Ausgabekorrektur | [`apply_morphology_logit_correction`](../python/src/prism/modeling/decoding.py) |
@@ -175,62 +173,6 @@ ist bewusst keine Zerlegung der vollständigen `UFeats`-Bundlefehler: Ein Token
 mit gleichzeitig falschem `Gender` und `Number` zählt hier zweimal, beim
 offiziellen `UFeats`-Maß aber als genau ein falsches Bundle.
 
-### Gefrorener Morphologie-Head-Probe
-
-Der gefrorene Head-Probe ist ein Diagnosewerkzeug und kein weiterer
-Produktionspfad. Er beantwortet vor einem mehrstündigen Volltraining eine
-engere Frage: Enthält die bereits trainierte Tokenrepräsentation genügend
-Information für bessere Morphologievorhersagen, die von den derzeitigen
-linearen Feature-Heads nicht abgerufen wird?
-
-Dafür besitzt `TokenTagger` eine explizite, typisierte
-Repräsentationsgrenze. Sie liegt nach Layer-Mischung, Subword-Pooling,
-gemeinsamem Wide-MLP, Zeichenfusion und optionalem Morphologie-Adapter, aber
-vor den unabhängigen Feature-Heads, dem strukturierten Decoder, dem
-Bundle-Reranker und dem Agreement-Refiner:
-
-```text
-eingefrorener Checkpoint
-    -> Morphologie-Tokenvektor
-    -> nur im Probe trainierbar:
-       linear | gemeinsamer residualer Wide-MLP | Feature-spezifischer MLP
-    -> schemaabhängige Morphologie-Logits
-```
-
-Der komplette Quellcheckpoint läuft dabei in `eval` und unter `no_grad`; alle
-seine Parameter haben `requires_grad=False`. Nur die kleinen Probe-Heads
-werden auf den unveränderten Trainingssplits optimiert. Bokmål- und
-Nynorsk-Development bleiben reine Auswertungssplits, die Testdaten bleiben
-unberührt. Alle drei Varianten verwenden dasselbe dynamische
-Morphologieschema, dieselben checkpointgespeicherten Klassengewichte und
-dieselbe explizite Logit-Korrektur. Dadurch ist der Unterschied zwischen
-`linear`, `shared-mlp` und `feature-mlp` tatsächlich zusätzliche Head-Kapazität
-und keine heimliche Daten- oder Auswertungspolicy.
-
-Die extrahierten FP32-Repräsentationen können in einem großen, ignorierten
-Tensorcache wiederverwendet werden. Der Cache ist an SHA-256 des Checkpoints,
-Schema, Treebank-Release, Auswertungsprofile und die
-`morphology-pre-head`-Grenze gebunden. Der Bericht enthält Gesamt-,
-Annotated-, Rare- und OOV-Genauigkeit jedes Features sowie Parameterzahl und
-Loss-Verlauf. Er verändert und speichert keinen Produktionscheckpoint.
-
-Interpretation:
-
-- Gewinnt `feature-mlp` besonders bei `Gender` auf beiden Schriftstandards,
-  ist feature-spezifische nichtlineare Kapazität ein begründeter Kandidat für
-  ein vollständiges Training.
-- Gewinnt `shared-mlp`, fehlt eher gemeinsame Morphologieverarbeitung hinter
-  der heutigen Repräsentationsgrenze.
-- Gewinnt keine Variante klar gegen `linear`, liegt der Engpass eher in
-  Repräsentation, Daten oder Zielvertrag; dann wäre ein weiterer komplexer
-  Head nicht gerechtfertigt.
-
-Zwei 16-Epochen-Seeds bestätigen den großen nichtlinearen Gewinn. Der
-Feature-MLP entfernt gegenüber dem Shared MLP über beide Schriftstandards 279
-Gesamt- und 46 Rare-Featurefehler, erzeugt aber 26 zusätzliche OOV-Fehler.
-Damit ist nicht der größere Feature-MLP, sondern der gemeinsame Residual-MLP
-für die nächste vollständige Ablation ausgewählt.
-
 ### Abschaltbarer post-fusion Morphologie-MLP
 
 Der Probe-Sieger ist als eigener, sprach- und schemaunabhängiger Vertrag
@@ -241,7 +183,7 @@ implementiert. Er erweitert nicht die bereits kombinatorische
 | Wert | Verhalten |
 | --- | --- |
 | `identity` | Kein zusätzlicher Block; exakter bisheriger Forward-Pfad und Fallback für alte Checkpoints |
-| `shared-mlp` | Ein gemeinsamer residualer `H -> 2H -> H`-MLP nach Zeichenfusion und optionalem Task-Adapter |
+| `shared-mlp` | Ein gemeinsamer residualer `H -> 2H -> H`-MLP nach Zeichenfusion |
 
 Der vollständige Kandidatenpfad lautet:
 
@@ -254,7 +196,6 @@ gemeinsame Tokenrepräsentation
           -> alle schemaabhängigen Feature-Heads
           -> strukturierter Decoder
           -> Bundle-Reranker
-          -> optionaler Agreement-Refiner
 ```
 
 Mathematisch verwendet der Block dieselbe exportierbare Wide-Projektion wie
@@ -272,8 +213,8 @@ keine norwegische Sonderverzweigung und keinen Head nur für `Gender`.
 Neue norwegische Trainingsläufe aktivieren `shared-mlp` standardmäßig;
 `--morphology-pre-head-architecture identity` reproduziert den bisherigen
 Control.
-Der aufgelöste Wert wird im Checkpoint gespeichert und von Evaluation,
-Teacher-Laden und Probe automatisch rekonstruiert. Checkpoints ohne das Feld
+Der aufgelöste Wert wird im Checkpoint gespeichert und von Evaluation und
+Teacher-Laden automatisch rekonstruiert. Checkpoints ohne das Feld
 werden als `identity` geladen.
 
 UPOS und Lemma lesen den neuen Block im Forward-Pfad nicht. Eine
@@ -450,9 +391,9 @@ Zeichenfusion, UPOS-Head und Lemma-Zweig bleiben für diesen Term geschützt.
 Der normale überwachte Morphologie-Loss und die Destillation trainieren diese
 Bausteine weiterhin unverändert.
 
-`residual-only` entspricht dem zuvor ausgewählten isolierten Vertrag. Die
-alte CLI-Option `--isolate-morphology-bundle-loss-gradient` bleibt als
-kompatibler Alias dafür erhalten. Der aufgelöste Scope wird als String in der
+`residual-only` entspricht dem zuvor ausgewählten isolierten Vertrag. Der
+Scope wird explizit mit
+`--morphology-bundle-loss-gradient-scope residual-only` gewählt und als String in der
 Trainingskonfiguration neuer Checkpoints gespeichert. Keiner der drei Modi
 ändert Forward-Werte, Inferenz, Parameterzahl oder Export; sie unterscheiden
 sich ausschließlich im Gradienten der zusätzlichen Bundle-Loss.
@@ -474,37 +415,6 @@ vier vollständigen Epochen ohne neue Best-Loss. Patience 2 ist bewusst nicht
 der Standard, weil frühere Student-Verläufe nach zwei Zwischenepochen erneut
 einen besseren Kandidaten lieferten. `--early-stopping-patience 0` deaktiviert
 den Abbruch.
-
-### Optionaler lokaler Agreement-Refiner
-
-Der begrenzte Agreement-Refiner ist als implementierte, aber nach der
-Development-Ablation abgelehnte Forschungsoption erhalten. Er läuft nach
-strukturiertem Decoder und
-Bundle-Reranker und darf deshalb deren aktuelle, weiche Evidenz nutzen. Für
-jedes Token erhält er den Morphologie-Tokenvektor, die weiche
-UPOS-Wahrscheinlichkeitsverteilung und die Wahrscheinlichkeiten aller
-Morphologie-Labels. Diese Eingaben werden in einen gemeinsamen Bottleneck mit
-64 Dimensionen projiziert.
-
-Eine lokale Attention betrachtet ausschließlich gültige Nachbartokens in
-einem Radius von drei Token. Das aktuelle Token selbst ist ausgeschlossen;
-Padding wird durch die Tokenmaske vollständig unterdrückt. Der Kontext kann
-damit beispielsweise Kongruenz zwischen Determinierer, Adjektiv und Nomen
-lernen, ohne Gold-UPOS, Gold-Morphologie, Wörterbuchwerte oder eine externe
-UDPipe-Vorhersage zur Inferenz zu benötigen.
-
-Nur `Definite`, `Gender` und `Number` besitzen Korrekturköpfe. Nullinitialisierte
-Korrekturen und anfangs kleine Sigmoid-Gates addieren die gelernte Evidenz
-residual zu den vorhandenen Logits; alle anderen Features bleiben bitgenau im
-bisherigen Pfad. Die norwegische Spezifikation fügt 29.707 trainierbare
-Parameter hinzu, also rund 119 KB rohe FP32-Parameterwerte. Radius,
-Bottleneck und Zielfeatures liegen typisiert im Checkpoint.
-`--disable-morphology-agreement-refiner` erlaubt die technische Kontrolle
-desselben Checkpoints. Der aktivierte Pfad ist durch strikten `torch.export`
-abgedeckt. Der separat trainierte Lauf verbesserte Nynorsk-UFeats,
-verschlechterte aber Bokmål-UFeats sowie dort alle drei Zielfeatures und beide
-Rare/OOV-Slices. Er ist deshalb kein Teil der ausgewählten Architektur;
-Bundle-32 bleibt der norwegische Student-Standard.
 
 Prisms kanonische Morphologie und eine externe Treebank-Annotation sind zwei
 verschiedene Verträge. Die kanonische Ausgabe bleibt für gemischtes
@@ -1475,25 +1385,18 @@ MultiDecision --> DerivedNone
 
 ### Architekturvarianten und Auswahlhistorie
 
-`TokenTaskHeadArchitecture` kennt sechs explizite, checkpoint-kompatible
-Varianten:
+`TokenTaskHeadArchitecture` hält nach dem vorläufigen Cleanup nur noch die
+Produktionsarchitektur und den kleinen Format-3-Kontrollpfad bereit:
 
 | Wert | Bedeutung | Status |
 | --- | --- | --- |
 | `linear` | LayerNorm, danach direkte lineare Task-Heads | alter Format-3-Kontrollpfad |
-| `shared-mlp` | residualer `H -> H`-MLP vor allen Heads | gemessene Zwischenstufe |
-| `wide-shared-mlp` | residualer `H -> 2H -> H`-MLP | ausgewählte unabhängige Kontrolle |
-| `wide-shared-mlp-task-adapters` | Wide-MLP plus drei Task-Familien-Adapter | gemessen und verworfen |
-| `wide-shared-mlp-structured-morphology` | Wide-MLP plus strukturierter Morphologie-Pass | kontrollierte Vorgängerarchitektur |
 | `wide-shared-mlp-structured-morphology-character-cnn` | strukturierter Vorgänger plus Zeichen-CNN für Morphologie und Lemma | aktueller Standard |
 
-Die schmale `shared-mlp`-Variante verwendet
-`x + Dropout(GELU(Linear(H -> H)(x)))` und fügt bei `H = 192` 37.056
-Parameter hinzu. Sie verbesserte im ersten kontrollierten Vergleich alle
-Hauptmetriken gegenüber `linear`. Die breitere Variante ergänzt eine zweite
-Projektion, enthält 148.032 Parameter und verbesserte insbesondere Lemma sowie
-Morphologie-Micro-F1 und Average Precision auf beiden Schriftstandards. Sie
-wurde deshalb zur Kontrolle für die nachfolgenden Strukturversuche.
+Die früheren `shared-mlp`-, `wide-shared-mlp`-, Task-Adapter- und
+strukturierte Zwischenvarianten bleiben in der Auswahlhistorie und in
+`docs/benchmarks.md` dokumentiert, sind nach ihrer abgeschlossenen Ablation
+aber nicht mehr als ausführbare Produktionspfade im Enum enthalten.
 
 Die Residualverbindung bewahrt in beiden Fällen den direkten normierten
 Informationspfad. Ein einziges gemeinsames MLP vermeidet außerdem einen großen
@@ -1515,9 +1418,11 @@ Enum-Wert einzuführen. Ihre Checkpoint-Metadaten heißen
 
 ### Task-Familien-Adapter als kontrollierter Kandidat
 
-Die Architekturvariante `wide-shared-mlp-task-adapters` behält den
-ausgewählten breiten gemeinsamen MLP unverändert bei und verzweigt erst danach
-in drei kleine residuale Adapter:
+Die entfernte Architekturvariante `wide-shared-mlp-task-adapters` behielt den
+ausgewählten breiten gemeinsamen MLP unverändert bei und verzweigte erst danach
+in drei kleine residuale Adapter. Dieser Abschnitt dokumentiert nur noch die
+Auswahlhistorie; der ausführbare Modell- und CLI-Pfad wurde nach der negativen
+Ablation gelöscht:
 
 ```text
 NorBERT4 + gelernte Mischung der letzten vier Layer
@@ -2031,6 +1936,7 @@ von offenen Arbeiten:
 | Breiter gemeinsamer Residual-MLP | ausgewählt |
 | Gelernte Mischung der letzten vier Backbone-Layer | ausgewählt |
 | Task-Familien-Adapter | kontrolliert gemessen und verworfen |
+| Cleanup verworfener Architekturpfade | abgeschlossen; Agreement-Refiner, Task-Adapter, Zwischenarchitekturen und abgeschlossenes Head-Probe-Werkzeug entfernt |
 | Strukturierter Morphologie-Decoder | kontrolliert gemessen und ausgewählt |
 | Kompakter zeichenbewusster Morphologie-/Lemma-Zweig | kontrolliert gemessen und ausgewählt |
 | Gefrorener Morphologie-Head-Probe | zwei Seeds abgeschlossen; gemeinsamer post-fusion MLP für das Volltraining ausgewählt |
@@ -2088,8 +1994,9 @@ Der implementierte Daten- und Modellvertrag enthält aktuell:
   neue norwegische Trainingsläufe und `identity` als Legacy-Fallback;
 - den ausgewählten strukturierten zweiten Morphologie-Pass mit weichem UPOS-
   und Feature-Kontext und residualen parallelen Korrektur-Heads;
-- weiterhin verfügbare lineare, schmale MLP- und verworfene
-  Task-Adapter-Ablationspfade;
+- den linearen Format-3-Kontrollpfad sowie die ausgewählte vollständige
+  Produktionsarchitektur; verworfene Zwischen- und Task-Adapter-Pfade sind
+  nur noch als Benchmarkhistorie dokumentiert;
 - Gold-only-Training, Distillation und getrennte Development-Evaluation für
   Bokmål und Nynorsk;
 - offizielle UD-kompatible Gold-Token-Metriken für UPOS, das vollständige

@@ -775,9 +775,7 @@ the normalized token vector before all linear task heads:
 head_input = normalized + dropout(gelu(linear(normalized)))
 ```
 
-- `--task-head-architecture` selects `linear`, `shared-mlp`,
-  `wide-shared-mlp`, `wide-shared-mlp-task-adapters`, or
-  `wide-shared-mlp-structured-morphology`, or
+- `--task-head-architecture` selects the `linear` Format-3 control or
   `wide-shared-mlp-structured-morphology-character-cnn`;
 - `wide-shared-mlp-structured-morphology-character-cnn` is the default for new
   Norwegian training runs;
@@ -801,6 +799,11 @@ head_input = normalized + dropout(gelu(linear(normalized)))
 - evaluation and teacher loading restore the stored architecture;
 - older format-3 checkpoints without the field resolve to `linear`;
 - `--epoch-count` exposes the training duration with default 12.
+
+The intermediate `shared-mlp`, `wide-shared-mlp`, Task-Adapter, and
+structured-without-character variants below are retained as selection history
+only. Their executable enum, CLI, model, and test paths were removed in the
+July 2026 cleanup.
 
 The five-epoch candidate is accepted as the new gold-only Student reference:
 
@@ -1366,8 +1369,8 @@ controlled architecture change preserves the bundle objective while
 preventing its auxiliary gradient from changing the shared representation and
 independent task heads.
 
-That gradient-isolation ablation is implemented. The CLI flag
-`--isolate-morphology-bundle-loss-gradient` gives the direct auxiliary loss
+That gradient-isolation ablation was implemented. The explicit scope
+`--morphology-bundle-loss-gradient-scope residual-only` gives the direct auxiliary loss
 numerically identical candidate scores, but autograd can update only the
 bundle reranker's token-to-candidate projection. The evidence derived from
 UPOS and independent morphology logits, the input token representation,
@@ -1525,13 +1528,12 @@ candidate scores numerically identical to the normal forward scores even with
 dropout. The Backbone, shared projection, character fusion, UPOS head, lemma
 path, and reranker refinement gates receive no direct bundle gradient.
 
-The old `--isolate-morphology-bundle-loss-gradient` switch remains a hidden
-compatibility alias for `residual-only`; new runs use
-`--morphology-bundle-loss-gradient-scope`. New checkpoint metadata stores the
+The removed legacy isolation switch has no compatibility alias. New runs use
+`--morphology-bundle-loss-gradient-scope residual-only`. Checkpoint metadata stores the
 resolved string scope, while old checkpoints remain evaluation-compatible
 because the setting is training-only and adds no parameters. Parameter-level
-tests cover all three scopes, score equality, dropout, CLI validation, and the
-legacy alias. Implementation alone makes no quality claim; the fixed training
+tests cover all three scopes, score equality, dropout, and CLI validation.
+Implementation alone makes no quality claim; the fixed training
 run and canonical per-standard reports are tracked as separate gates.
 
 The fixed joint training run is now complete after approximately 2 hours 11
@@ -1931,8 +1933,8 @@ The selected ablation is now implemented as the orthogonal
 historical path and is the fallback for every older format-3 checkpoint;
 `shared-mlp` inserts the probe-matched residual `H -> 2H -> H` projection
 after character fusion and before every independent morphology head. The
-existing structured decoder, Bundle-32 reranker, optional agreement refiner,
-UPOS branch, and lemma branch are otherwise unchanged.
+existing structured decoder, Bundle-32 reranker, UPOS branch, and lemma branch
+are otherwise unchanged.
 
 The new block is deliberately separate from `TokenTaskHeadArchitecture`, so
 future languages and existing task-head variants can reuse the same ablation
@@ -1941,8 +1943,8 @@ it adds 148,032 parameters, approximately 0.57 MiB in FP32. It is initialized
 after all existing modules, preserving bit-identical initialization of every
 common parameter under the same random seed. Checkpoints store
 `morphology_pre_head_architecture`; training prints it, and evaluation,
-distillation-teacher loading, and frozen-probe extraction reconstruct it
-strictly. Strict `torch.export` parity covers the character-aware,
+and distillation-teacher loading reconstruct it strictly. Strict
+`torch.export` parity covers the character-aware,
 structured, Bundle-32 path with the new MLP.
 
 The direct bundle-loss `morphology` scope includes the new projection while
@@ -2136,10 +2138,20 @@ without giving back the shared MLP's 226 complete-bundle gain. UDPipe
 predictions must not enter training, candidate construction, loss weighting,
 or threshold selection, and both official test splits remain untouched.
 
-Before the fusion probe, rejected experimental branches are removed in a
-separate cleanup change. The rejected agreement refiner and task adapters no
-longer need production CLI or model paths. Evaluation audits, `identity`
-reproduction, the selected `linear` scorer, and the compositional scorer
-needed by the immediate fusion comparison remain. Keeping cleanup separate
-from model changes preserves causal attribution and gives the new architecture
-a smaller, clearer integration surface.
+## Vorläufiger Architektur-Cleanup
+
+Der angekündigte Cleanup ist abgeschlossen. Entfernt wurden der abgelehnte
+Agreement-Refiner, die Task-Familien-Adapter, die nicht mehr benötigten
+Task-Head-Zwischenarchitekturen, der alte Gradient-Isolations-Alias und das
+abgeschlossene Frozen-Head-Probe-Werkzeug einschließlich CLI-, Checkpoint- und
+Testpfaden. Diese Experimente bleiben in `docs/benchmarks.md` als
+Auswahlhistorie nachvollziehbar, sind aber nicht länger Teil der
+Produktionsoberfläche.
+
+Erhalten bleiben die ausgewählte vollständige Student-Architektur, der
+`linear`-Kontrollpfad, `identity` zur Reproduktion der Morphologie-Vorprojektion,
+alle drei expliziten Bundle-Gradient-Scopes, der ausgewählte lineare
+Bundle-Scorer, der unmittelbar für die geplante Fusion relevante
+kompositionelle Scorer sowie die Evaluation-Audits. Alte Checkpoints der
+entfernten Forschungsarchitekturen werden nicht mehr geladen; der ausgewählte
+Produktionscheckpoint und sein Format-3-Vertrag bleiben unverändert.

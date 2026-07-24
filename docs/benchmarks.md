@@ -967,7 +967,7 @@ one additional switch:
   --distillation-weight 0.1 \
   --morphology-bundle-candidate-count 32 \
   --morphology-bundle-loss-weight 0.1 \
-  --isolate-morphology-bundle-loss-gradient \
+  --morphology-bundle-loss-gradient-scope residual-only \
   --early-stopping-patience 4 \
   --epoch-count 12 \
   --morphology-weight-cap 10.0
@@ -1058,7 +1058,7 @@ The predeclared convergence command is:
   --distillation-weight 0.1 \
   --morphology-bundle-candidate-count 32 \
   --morphology-bundle-loss-weight 0.1 \
-  --isolate-morphology-bundle-loss-gradient \
+  --morphology-bundle-loss-gradient-scope residual-only \
   --early-stopping-patience 4 \
   --epoch-count 30 \
   --morphology-weight-cap 10.0
@@ -2495,8 +2495,11 @@ The predeclared order is:
    Rare/OOV slices. Use the untouched test splits only once the complete
    Development policy is frozen.
 
-Cleanup of rejected experiment paths is performed separately from these
-model changes. The agreement refiner and rejected task-adapter paths can be
-removed; diagnostic audits and the selected reproduction controls remain.
-The compositional scorer stays only until the adaptive-fusion probe determines
-whether its improved rank signal is useful.
+Cleanup of rejected experiment paths is complete and deliberately separate
+from these model changes. The agreement refiner, rejected task adapters,
+intermediate task-head architectures, legacy isolation alias, and completed
+Frozen-Head-Probe tooling have been removed from executable code. Their
+commands and measurements above are historical records and require a
+pre-cleanup revision if they must be reproduced. Diagnostic audits, selected
+reproduction controls, and the compositional scorer needed by the immediate
+adaptive-fusion comparison remain.

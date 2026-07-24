@@ -6,7 +6,6 @@ from prism.modeling import (
     BackboneLayerAggregationStrategy,
     MorphologyLogitCorrection,
     MorphologyBundleRerankerSpec,
-    MorphologyAgreementRefinerSpec,
     MorphologyPreHeadArchitecture,
     TokenPoolingStrategy,
     TokenTaskHeadArchitecture,
@@ -16,21 +15,9 @@ from prism.schema.serialization import deserialize_character_vocabulary_schema
 from prism.training.morphology_bundle_reranking import (
     deserialize_morphology_bundle_reranker_spec,
 )
-from prism.training.morphology_agreement import (
-    deserialize_morphology_agreement_refiner_spec,
-)
 
 
 TOKEN_TASK_CHECKPOINT_FORMAT_VERSION = 3
-
-
-def morphology_agreement_refiner_spec_from_checkpoint(
-    checkpoint: Mapping[str, object],
-) -> MorphologyAgreementRefinerSpec | None:
-    raw_spec = checkpoint.get("morphology_agreement_refiner")
-    if raw_spec is None:
-        return None
-    return deserialize_morphology_agreement_refiner_spec(raw_spec)
 
 
 def morphology_bundle_reranker_spec_from_checkpoint(

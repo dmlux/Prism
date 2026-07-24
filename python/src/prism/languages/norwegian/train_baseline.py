@@ -24,7 +24,6 @@ from prism.languages.norwegian import (
 )
 from prism.modeling import (
     BackboneLayerAggregationStrategy,
-    MorphologyAgreementRefinerSpec,
     MorphologyBundleLossGradientScope,
     MorphologyBundleScorerArchitecture,
     MorphologyPreHeadArchitecture,
@@ -69,21 +68,13 @@ from prism.training import (
     validate_token_task_checkpoint_format,
     character_vocabulary_from_checkpoint,
     morphology_bundle_reranker_spec_from_checkpoint,
-    morphology_agreement_refiner_spec_from_checkpoint,
     morphology_pre_head_architecture_from_checkpoint,
     build_morphology_bundle_reranker_spec,
     serialize_morphology_bundle_reranker_spec,
-    serialize_morphology_agreement_refiner_spec,
 )
 
 
 CHARACTER_MAXIMUM_COUNT = 32
-MORPHOLOGY_AGREEMENT_BOTTLENECK_SIZE = 64
-MORPHOLOGY_AGREEMENT_TARGET_FEATURE_NAMES = (
-    "Definite",
-    "Gender",
-    "Number",
-)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -104,15 +95,7 @@ class BaselineTrainingArguments:
     morphology_bundle_scorer_architecture: MorphologyBundleScorerArchitecture
     morphology_bundle_loss_weight: float
     morphology_bundle_loss_gradient_scope: MorphologyBundleLossGradientScope
-    morphology_agreement_window_radius: int
     early_stopping_patience: int | None
-
-    @property
-    def isolate_morphology_bundle_loss_gradient(self) -> bool:
-        return (
-            self.morphology_bundle_loss_gradient_scope
-            is MorphologyBundleLossGradientScope.RESIDUAL_ONLY
-        )
 
 
 def parse_training_arguments(
@@ -280,21 +263,6 @@ def parse_training_arguments(
         ),
     )
     parser.add_argument(
-        "--isolate-morphology-bundle-loss-gradient",
-        action="store_true",
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument(
-        "--morphology-agreement-window-radius",
-        type=int,
-        choices=(0, 3),
-        default=0,
-        help=(
-            "Enable the local morphology agreement refiner with a three-token "
-            "window on each side (0 disables it)."
-        ),
-    )
-    parser.add_argument(
         "--early-stopping-patience",
         type=int,
         default=4,
@@ -385,26 +353,14 @@ def parse_training_arguments(
             "--morphology-bundle-scorer-architecture requires "
             "--morphology-bundle-candidate-count 32"
         )
-    if (
-        parsed_arguments.isolate_morphology_bundle_loss_gradient
-        and parsed_arguments.morphology_bundle_loss_gradient_scope is not None
-    ):
-        parser.error(
-            "--isolate-morphology-bundle-loss-gradient cannot be combined with "
-            "--morphology-bundle-loss-gradient-scope"
-        )
     morphology_bundle_loss_gradient_scope = MorphologyBundleLossGradientScope(
-        MorphologyBundleLossGradientScope.RESIDUAL_ONLY.value
-        if parsed_arguments.isolate_morphology_bundle_loss_gradient
-        else (
-            (
-                MorphologyBundleLossGradientScope.MORPHOLOGY.value
-                if resolved_bundle_loss_weight > 0.0
-                else MorphologyBundleLossGradientScope.FULL.value
-            )
-            if parsed_arguments.morphology_bundle_loss_gradient_scope is None
-            else parsed_arguments.morphology_bundle_loss_gradient_scope
+        (
+            MorphologyBundleLossGradientScope.MORPHOLOGY.value
+            if resolved_bundle_loss_weight > 0.0
+            else MorphologyBundleLossGradientScope.FULL.value
         )
+        if parsed_arguments.morphology_bundle_loss_gradient_scope is None
+        else parsed_arguments.morphology_bundle_loss_gradient_scope
     )
     if (
         morphology_bundle_loss_gradient_scope
@@ -463,9 +419,6 @@ def parse_training_arguments(
         ),
         morphology_bundle_loss_weight=resolved_bundle_loss_weight,
         morphology_bundle_loss_gradient_scope=(morphology_bundle_loss_gradient_scope),
-        morphology_agreement_window_radius=(
-            parsed_arguments.morphology_agreement_window_radius
-        ),
         early_stopping_patience=(
             None
             if parsed_arguments.early_stopping_patience == 0
@@ -573,9 +526,6 @@ def _load_distillation_teacher(
         morphology_bundle_reranker_spec=(
             morphology_bundle_reranker_spec_from_checkpoint(checkpoint)
         ),
-        morphology_agreement_refiner_spec=(
-            morphology_agreement_refiner_spec_from_checkpoint(checkpoint)
-        ),
     )
     teacher.load_state_dict(
         checkpoint["model_state_dict"],
@@ -642,10 +592,6 @@ def main() -> None:
         arguments.morphology_bundle_loss_gradient_scope.value,
     )
     print(
-        "Morphology agreement window radius:",
-        arguments.morphology_agreement_window_radius,
-    )
-    print(
         "Early-stopping patience:",
         (
             "disabled"
@@ -695,16 +641,6 @@ def main() -> None:
             ),
         )
     )
-    morphology_agreement_refiner_spec = (
-        None
-        if arguments.morphology_agreement_window_radius == 0
-        else MorphologyAgreementRefinerSpec(
-            window_radius=arguments.morphology_agreement_window_radius,
-            bottleneck_size=MORPHOLOGY_AGREEMENT_BOTTLENECK_SIZE,
-            target_feature_names=MORPHOLOGY_AGREEMENT_TARGET_FEATURE_NAMES,
-        )
-    )
-
     config = SupervisedTrainingConfig(
         epoch_count=arguments.epoch_count,
         batch_size=16,
@@ -761,7 +697,6 @@ def main() -> None:
             None if character_vocabulary is None else character_vocabulary.size
         ),
         morphology_bundle_reranker_spec=morphology_bundle_reranker_spec,
-        morphology_agreement_refiner_spec=morphology_agreement_refiner_spec,
     )
     model.heads.set_morphology_bundle_loss_gradient_scope(
         arguments.morphology_bundle_loss_gradient_scope
@@ -994,13 +929,6 @@ def main() -> None:
                     if morphology_bundle_reranker_spec is None
                     else serialize_morphology_bundle_reranker_spec(
                         morphology_bundle_reranker_spec
-                    )
-                ),
-                "morphology_agreement_refiner": (
-                    None
-                    if morphology_agreement_refiner_spec is None
-                    else serialize_morphology_agreement_refiner_spec(
-                        morphology_agreement_refiner_spec
                     )
                 ),
                 "teacher_checkpoint_path": (

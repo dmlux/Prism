@@ -81,7 +81,9 @@ def _heads() -> TokenTaskHeads:
         hidden_size=4,
         schema=_schema(),
         dropout_probability=0.2,
-        architecture=(TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY),
+        architecture=(
+            TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY_CHARACTER_CNN
+        ),
         morphology_pre_head_architecture=(MorphologyPreHeadArchitecture.SHARED_MLP),
         morphology_bundle_reranker_spec=_reranker_spec(),
     )
@@ -135,7 +137,10 @@ def test_bundle_loss_gradient_scope_updates_only_selected_parameters(
     heads.set_morphology_bundle_loss_gradient_scope(scope)
     hidden_states = torch.randn((1, 2, 4), requires_grad=True)
 
-    logits = heads(hidden_states)
+    logits = heads(
+        hidden_states,
+        character_hidden_states=torch.randn((1, 2, 4)),
+    )
     assert logits.morphology_bundle_scores is not None
     if scope is MorphologyBundleLossGradientScope.FULL:
         assert logits.morphology_bundle_loss_scores is None

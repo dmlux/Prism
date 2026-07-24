@@ -12,7 +12,6 @@ from prism.modeling import (
     CharacterCnnTokenEncoder,
     MorphologyLogitCorrection,
     MorphologyPreHeadArchitecture,
-    MorphologyAgreementRefinerSpec,
     MorphologyBundleCandidate,
     MorphologyBundleRerankerSpec,
     MorphologyBundleScorerArchitecture,
@@ -190,11 +189,6 @@ def test_character_aware_token_tagger_has_strict_export_parity(
                     ),
                 ),
             ),
-            morphology_agreement_refiner_spec=MorphologyAgreementRefinerSpec(
-                window_radius=3,
-                bottleneck_size=4,
-                target_feature_names=("Number",),
-            ),
             morphology_pre_head_architecture=(MorphologyPreHeadArchitecture.SHARED_MLP),
         ),
         pooling_strategy=TokenPoolingStrategy.MEAN,
@@ -232,82 +226,6 @@ def test_character_aware_token_tagger_has_strict_export_parity(
 
     assert len(exported_outputs) == 3
     assert "morphology_logit_correction.offset_0" in adapter.state_dict()
-    for eager, exported_output in zip(
-        eager_outputs,
-        exported_outputs,
-        strict=True,
-    ):
-        torch.testing.assert_close(exported_output, eager)
-
-
-@pytest.mark.parametrize(
-    "architecture",
-    (
-        TokenTaskHeadArchitecture.WIDE_SHARED_MLP_TASK_ADAPTERS,
-        TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY,
-    ),
-)
-def test_extended_token_tagger_has_strict_export_parity(
-    architecture: TokenTaskHeadArchitecture,
-) -> None:
-    schema = TokenTaskSchema(
-        upos=UposSchema(version=1, labels=("NOUN", "VERB")),
-        morphology=MorphologySchema(
-            version=1,
-            features=(
-                MorphologyFeatureSchema(
-                    name="Number",
-                    values=("Plur", "Sing"),
-                    allows_multiple_values=True,
-                ),
-            ),
-        ),
-        lemma_rules=LemmaRuleSchema(
-            version=1,
-            rules=(
-                LemmaEditRule(
-                    prefix_removal=0,
-                    suffix_removal=0,
-                    prefix_addition="",
-                    suffix_addition="",
-                ),
-                LemmaEditRule(
-                    prefix_removal=0,
-                    suffix_removal=1,
-                    prefix_addition="",
-                    suffix_addition="",
-                ),
-            ),
-        ),
-    )
-    model = TokenTagger(
-        backbone=TinyExportBackbone(),
-        heads=TokenTaskHeads(
-            hidden_size=4,
-            schema=schema,
-            dropout_probability=0.0,
-            architecture=architecture,
-        ),
-        pooling_strategy=TokenPoolingStrategy.MEAN,
-    )
-    model.eval()
-    adapter = TokenTaggerExportAdapter(model=model)
-    inputs = (
-        torch.tensor([[101, 11, 12, 102]], dtype=torch.long),
-        torch.tensor([[True, True, True, True]]),
-        torch.tensor([[1, 2]], dtype=torch.long),
-        torch.tensor([[2, 3]], dtype=torch.long),
-        torch.tensor([[True, True]]),
-    )
-
-    eager_outputs = adapter(*inputs)
-    exported_outputs = torch.export.export(
-        adapter,
-        inputs,
-        strict=True,
-    ).module()(*inputs)
-
-    assert len(exported_outputs) == 3
     for eager, exported_output in zip(
         eager_outputs,
         exported_outputs,

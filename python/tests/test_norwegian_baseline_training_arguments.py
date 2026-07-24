@@ -49,7 +49,6 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
         default_arguments.morphology_bundle_loss_gradient_scope
         is MorphologyBundleLossGradientScope.FULL
     )
-    assert default_arguments.morphology_agreement_window_radius == 0
     assert default_arguments.early_stopping_patience == 4
     assert (
         default_arguments.backbone_layer_aggregation
@@ -96,42 +95,6 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
         is TokenTaskHeadArchitecture.LINEAR
     )
     assert linear_arguments.epoch_count == 8
-
-    wide_arguments = parse_training_arguments(
-        (
-            "--task-head-architecture",
-            "wide-shared-mlp",
-        )
-    )
-
-    assert (
-        wide_arguments.token_task_head_architecture
-        is TokenTaskHeadArchitecture.WIDE_SHARED_MLP
-    )
-
-    adapted_arguments = parse_training_arguments(
-        (
-            "--task-head-architecture",
-            "wide-shared-mlp-task-adapters",
-        )
-    )
-
-    assert (
-        adapted_arguments.token_task_head_architecture
-        is TokenTaskHeadArchitecture.WIDE_SHARED_MLP_TASK_ADAPTERS
-    )
-
-    structured_arguments = parse_training_arguments(
-        (
-            "--task-head-architecture",
-            "wide-shared-mlp-structured-morphology",
-        )
-    )
-
-    assert (
-        structured_arguments.token_task_head_architecture
-        is TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY
-    )
 
     character_arguments = parse_training_arguments(
         (
@@ -234,20 +197,6 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
         is MorphologyBundleLossGradientScope.FULL
     )
 
-    legacy_isolation_arguments = parse_training_arguments(
-        (
-            "--morphology-bundle-candidate-count",
-            "32",
-            "--morphology-bundle-loss-weight",
-            "0.1",
-            "--isolate-morphology-bundle-loss-gradient",
-        ),
-    )
-    assert (
-        legacy_isolation_arguments.morphology_bundle_loss_gradient_scope
-        is MorphologyBundleLossGradientScope.RESIDUAL_ONLY
-    )
-
     with pytest.raises(SystemExit):
         parse_training_arguments(
             (
@@ -257,24 +206,6 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
                 "morphology",
             ),
         )
-
-    with pytest.raises(SystemExit):
-        parse_training_arguments(
-            (
-                "--morphology-bundle-candidate-count",
-                "32",
-                "--morphology-bundle-loss-weight",
-                "0.1",
-                "--morphology-bundle-loss-gradient-scope",
-                "morphology",
-                "--isolate-morphology-bundle-loss-gradient",
-            ),
-        )
-
-    agreement_arguments = parse_training_arguments(
-        ("--morphology-agreement-window-radius", "3"),
-    )
-    assert agreement_arguments.morphology_agreement_window_radius == 3
 
     layer_mix_arguments = parse_training_arguments(
         (

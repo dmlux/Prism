@@ -64,7 +64,6 @@ from prism.training import (
     morphology_weights_from_checkpoint,
     morphology_pre_head_architecture_from_checkpoint,
     morphology_bundle_reranker_spec_from_checkpoint,
-    morphology_agreement_refiner_spec_from_checkpoint,
 )
 
 
@@ -78,7 +77,6 @@ class BaselineEvaluationArguments:
     morphology_logit_correction_strength: float
     ud_morphology_policy: str
     disable_morphology_bundle_reranker: bool
-    disable_morphology_agreement_refiner: bool
     morphology_error_audit_feature: str | None
     morphology_error_audit_comparison_path: Path | None
     morphology_feature_comparison_path: Path | None
@@ -169,11 +167,6 @@ def parse_evaluation_arguments(
         "--disable-morphology-bundle-reranker",
         action="store_true",
         help="Disable a checkpointed bundle reranker for a matched ablation.",
-    )
-    parser.add_argument(
-        "--disable-morphology-agreement-refiner",
-        action="store_true",
-        help="Disable a checkpointed local agreement refiner for a diagnostic.",
     )
     parser.add_argument(
         "--morphology-error-audit-feature",
@@ -268,9 +261,6 @@ def parse_evaluation_arguments(
         ud_morphology_policy=parsed_arguments.ud_morphology_policy,
         disable_morphology_bundle_reranker=(
             parsed_arguments.disable_morphology_bundle_reranker
-        ),
-        disable_morphology_agreement_refiner=(
-            parsed_arguments.disable_morphology_agreement_refiner
         ),
         morphology_error_audit_feature=(
             parsed_arguments.morphology_error_audit_feature
@@ -502,9 +492,6 @@ def main() -> None:
             None if character_vocabulary is None else character_vocabulary.size
         ),
         morphology_bundle_reranker_spec=morphology_bundle_reranker_spec,
-        morphology_agreement_refiner_spec=(
-            morphology_agreement_refiner_spec_from_checkpoint(checkpoint)
-        ),
     )
     model.load_state_dict(
         checkpoint["model_state_dict"],
@@ -517,14 +504,6 @@ def main() -> None:
                 "Checkpoint does not contain a morphology bundle reranker."
             )
         bundle_reranker.set_enabled(False)
-    agreement_refiner = model.heads.morphology_agreement_refiner
-    if arguments.disable_morphology_agreement_refiner:
-        if agreement_refiner is None:
-            raise ValueError(
-                "Checkpoint does not contain a morphology agreement refiner."
-            )
-        agreement_refiner.set_enabled(False)
-
     print(
         "Evaluating checkpoint epoch:",
         int(checkpoint["epoch_index"]) + 1,
@@ -555,15 +534,6 @@ def main() -> None:
             "Morphology bundle scorer:",
             bundle_reranker.spec.scorer_architecture.value,
         )
-    print(
-        "Morphology agreement refiner:",
-        "disabled"
-        if agreement_refiner is not None and not agreement_refiner.enabled
-        else "enabled"
-        if agreement_refiner is not None
-        else "absent",
-    )
-
     metrics = evaluate_supervised_token_task_epoch(
         model=model,
         batches=iter_supervised_token_task_batches(
@@ -987,14 +957,6 @@ def main() -> None:
                         if bundle_reranker is not None and not bundle_reranker.enabled
                         else "enabled"
                         if bundle_reranker is not None
-                        else "absent"
-                    ),
-                    "morphology_agreement_refiner": (
-                        "disabled"
-                        if agreement_refiner is not None
-                        and not agreement_refiner.enabled
-                        else "enabled"
-                        if agreement_refiner is not None
                         else "absent"
                     ),
                     "task_interaction_audit": arguments.task_interaction_audit,

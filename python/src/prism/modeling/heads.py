@@ -11,20 +11,12 @@ from prism.modeling.morphology_bundle_reranker import (
     MorphologyBundleReranker,
     MorphologyBundleRerankerSpec,
 )
-from prism.modeling.morphology_agreement import (
-    MorphologyAgreementRefiner,
-    MorphologyAgreementRefinerSpec,
-)
 from prism.modeling.structured_morphology import StructuredMorphologyDecoder
 from prism.schema import TokenTaskSchema
 
 
 class TokenTaskHeadArchitecture(StrEnum):
     LINEAR = "linear"
-    SHARED_MLP = "shared-mlp"
-    WIDE_SHARED_MLP = "wide-shared-mlp"
-    WIDE_SHARED_MLP_TASK_ADAPTERS = "wide-shared-mlp-task-adapters"
-    WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY = "wide-shared-mlp-structured-morphology"
     WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY_CHARACTER_CNN = (
         "wide-shared-mlp-structured-morphology-character-cnn"
     )
@@ -40,34 +32,6 @@ class TokenTaskHeadArchitecture(StrEnum):
 class MorphologyPreHeadArchitecture(StrEnum):
     IDENTITY = "identity"
     SHARED_MLP = "shared-mlp"
-
-
-class SharedResidualTokenProjection(nn.Module):
-    def __init__(
-        self,
-        *,
-        hidden_size: int,
-        dropout_probability: float,
-    ) -> None:
-        super().__init__()
-
-        if hidden_size <= 0:
-            raise ValueError("Hidden size must be positive.")
-        if not 0.0 <= dropout_probability < 1.0:
-            raise ValueError(
-                "Dropout probability must be greater than or equal to zero "
-                "and less than one."
-            )
-
-        self.projection = nn.Linear(hidden_size, hidden_size)
-        self.activation = nn.GELU()
-        self.dropout = nn.Dropout(dropout_probability)
-
-    def forward(self, hidden_states: Tensor) -> Tensor:
-        projected_hidden_states = self.projection(hidden_states)
-        activated_hidden_states = self.activation(projected_hidden_states)
-
-        return hidden_states + self.dropout(activated_hidden_states)
 
 
 class WideSharedResidualTokenProjection(nn.Module):
@@ -109,52 +73,6 @@ class WideSharedResidualTokenProjection(nn.Module):
         return hidden_states + projected_hidden_states
 
 
-class TaskResidualAdapter(nn.Module):
-    def __init__(
-        self,
-        *,
-        hidden_size: int,
-        bottleneck_size: int,
-        dropout_probability: float,
-    ) -> None:
-        super().__init__()
-
-        if hidden_size <= 0:
-            raise ValueError("Hidden size must be positive.")
-        if bottleneck_size <= 0 or bottleneck_size >= hidden_size:
-            raise ValueError(
-                "Adapter bottleneck size must be positive and smaller than "
-                "the hidden size."
-            )
-        if not 0.0 <= dropout_probability < 1.0:
-            raise ValueError(
-                "Dropout probability must be greater than or equal to zero "
-                "and less than one."
-            )
-
-        self.input_projection = nn.Linear(
-            hidden_size,
-            bottleneck_size,
-        )
-        self.activation = nn.GELU()
-        self.dropout = nn.Dropout(dropout_probability)
-        self.output_projection = nn.Linear(
-            bottleneck_size,
-            hidden_size,
-        )
-        nn.init.zeros_(self.output_projection.weight)
-        nn.init.zeros_(self.output_projection.bias)
-
-    def forward(self, hidden_states: Tensor) -> Tensor:
-        bottleneck_hidden_states = self.input_projection(hidden_states)
-        activated_hidden_states = self.activation(bottleneck_hidden_states)
-        adapted_hidden_states = self.output_projection(
-            self.dropout(activated_hidden_states)
-        )
-
-        return hidden_states + adapted_hidden_states
-
-
 class TokenClassificationHead(nn.Module):
     def __init__(
         self,
@@ -194,9 +112,6 @@ class TokenTaskHeads(nn.Module):
             MorphologyPreHeadArchitecture.IDENTITY
         ),
         morphology_bundle_reranker_spec: MorphologyBundleRerankerSpec | None = None,
-        morphology_agreement_refiner_spec: (
-            MorphologyAgreementRefinerSpec | None
-        ) = None,
     ) -> None:
         super().__init__()
 
@@ -209,16 +124,9 @@ class TokenTaskHeads(nn.Module):
         self.input_projection: nn.Module
         if architecture is TokenTaskHeadArchitecture.LINEAR:
             self.input_projection = nn.Identity()
-        elif architecture is TokenTaskHeadArchitecture.SHARED_MLP:
-            self.input_projection = SharedResidualTokenProjection(
-                hidden_size=hidden_size,
-                dropout_probability=dropout_probability,
-            )
-        elif architecture in (
-            TokenTaskHeadArchitecture.WIDE_SHARED_MLP,
-            TokenTaskHeadArchitecture.WIDE_SHARED_MLP_TASK_ADAPTERS,
-            TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY,
-            TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY_CHARACTER_CNN,
+        elif (
+            architecture
+            is TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY_CHARACTER_CNN
         ):
             self.input_projection = WideSharedResidualTokenProjection(
                 hidden_size=hidden_size,
@@ -226,31 +134,6 @@ class TokenTaskHeads(nn.Module):
             )
         else:
             raise ValueError(f"Unsupported task-head architecture: {architecture!r}")
-
-        self.upos_adapter: nn.Module
-        self.morphology_adapter: nn.Module
-        self.lemma_adapter: nn.Module
-        if architecture is TokenTaskHeadArchitecture.WIDE_SHARED_MLP_TASK_ADAPTERS:
-            bottleneck_size = max(1, hidden_size // 2)
-            self.upos_adapter = TaskResidualAdapter(
-                hidden_size=hidden_size,
-                bottleneck_size=bottleneck_size,
-                dropout_probability=dropout_probability,
-            )
-            self.morphology_adapter = TaskResidualAdapter(
-                hidden_size=hidden_size,
-                bottleneck_size=bottleneck_size,
-                dropout_probability=dropout_probability,
-            )
-            self.lemma_adapter = TaskResidualAdapter(
-                hidden_size=hidden_size,
-                bottleneck_size=bottleneck_size,
-                dropout_probability=dropout_probability,
-            )
-        else:
-            self.upos_adapter = nn.Identity()
-            self.morphology_adapter = nn.Identity()
-            self.lemma_adapter = nn.Identity()
 
         self.character_fusion: CharacterResidualFusion | None
         if architecture.uses_character_encoder:
@@ -280,9 +163,9 @@ class TokenTaskHeads(nn.Module):
             dropout_probability=dropout_probability,
         )
         self.structured_morphology_decoder: StructuredMorphologyDecoder | None
-        if architecture in (
-            TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY,
-            TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY_CHARACTER_CNN,
+        if (
+            architecture
+            is TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY_CHARACTER_CNN
         ):
             self.structured_morphology_decoder = StructuredMorphologyDecoder(
                 hidden_size=hidden_size,
@@ -302,18 +185,6 @@ class TokenTaskHeads(nn.Module):
                 upos_label_count=len(schema.upos.labels),
                 morphology_schema=schema.morphology,
                 spec=morphology_bundle_reranker_spec,
-                dropout_probability=dropout_probability,
-            )
-
-        self.morphology_agreement_refiner: MorphologyAgreementRefiner | None
-        if morphology_agreement_refiner_spec is None:
-            self.morphology_agreement_refiner = None
-        else:
-            self.morphology_agreement_refiner = MorphologyAgreementRefiner(
-                hidden_size=hidden_size,
-                upos_label_count=len(schema.upos.labels),
-                morphology_schema=schema.morphology,
-                spec=morphology_agreement_refiner_spec,
                 dropout_probability=dropout_probability,
             )
 
@@ -344,16 +215,6 @@ class TokenTaskHeads(nn.Module):
                 )
             return
         self.morphology_bundle_reranker.set_direct_loss_gradient_scope(scope)
-
-    def set_morphology_bundle_loss_gradient_isolation(
-        self,
-        enabled: bool,
-    ) -> None:
-        self.set_morphology_bundle_loss_gradient_scope(
-            MorphologyBundleLossGradientScope.RESIDUAL_ONLY
-            if enabled
-            else MorphologyBundleLossGradientScope.FULL
-        )
 
     def _calculate_morphology_logits(
         self,
@@ -426,8 +287,7 @@ class TokenTaskHeads(nn.Module):
         self,
         task_hidden_states: Tensor,
     ) -> Tensor:
-        adapted_hidden_states = self.morphology_adapter(task_hidden_states)
-        return self.morphology_pre_head_projection(adapted_hidden_states)
+        return self.morphology_pre_head_projection(task_hidden_states)
 
     def encode_hidden_states(
         self,
@@ -436,7 +296,6 @@ class TokenTaskHeads(nn.Module):
     ) -> TokenTaskHiddenStates:
         normalized_hidden_states = self.input_normalization(hidden_states)
         projected_hidden_states = self.input_projection(normalized_hidden_states)
-        upos_hidden_states = self.upos_adapter(projected_hidden_states)
         task_hidden_states = projected_hidden_states
         if self.character_fusion is not None:
             if character_hidden_states is None:
@@ -455,19 +314,16 @@ class TokenTaskHeads(nn.Module):
         morphology_hidden_states = self._encode_morphology_hidden_states(
             task_hidden_states
         )
-        lemma_hidden_states = self.lemma_adapter(task_hidden_states)
         return TokenTaskHiddenStates(
             task=task_hidden_states,
-            upos=upos_hidden_states,
+            upos=projected_hidden_states,
             morphology=morphology_hidden_states,
-            lemma=lemma_hidden_states,
+            lemma=task_hidden_states,
         )
 
     def classify_hidden_states(
         self,
         hidden_states: TokenTaskHiddenStates,
-        *,
-        token_mask: Tensor | None = None,
     ) -> TokenTaskLogits:
         upos_logits = self.upos_head(hidden_states.upos)
         morphology_logits = self._calculate_morphology_logits(
@@ -493,16 +349,6 @@ class TokenTaskHeads(nn.Module):
                 morphology_logits=morphology_logits,
                 morphology_loss_inputs=morphology_bundle_loss_inputs,
             )
-        if self.morphology_agreement_refiner is not None:
-            if token_mask is None:
-                raise ValueError("Agreement-aware task heads require a token mask.")
-            morphology_logits = self.morphology_agreement_refiner(
-                hidden_states=hidden_states.morphology,
-                token_mask=token_mask,
-                upos_logits=upos_logits,
-                morphology_logits=morphology_logits,
-            )
-
         return TokenTaskLogits(
             upos_logits=upos_logits,
             morphology_logits=morphology_logits,
@@ -515,13 +361,9 @@ class TokenTaskHeads(nn.Module):
         self,
         hidden_states: Tensor,
         character_hidden_states: Tensor | None = None,
-        token_mask: Tensor | None = None,
     ) -> TokenTaskLogits:
         task_hidden_states = self.encode_hidden_states(
             hidden_states,
             character_hidden_states=character_hidden_states,
         )
-        return self.classify_hidden_states(
-            task_hidden_states,
-            token_mask=token_mask,
-        )
+        return self.classify_hidden_states(task_hidden_states)

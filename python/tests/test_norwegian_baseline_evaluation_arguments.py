@@ -23,7 +23,6 @@ def test_parse_evaluation_arguments_accepts_language_profile() -> None:
             "--ud-morphology-policy",
             "treebank",
             "--disable-morphology-bundle-reranker",
-            "--disable-morphology-agreement-refiner",
             "--morphology-error-audit-feature",
             "Gender",
             "--morphology-error-audit-comparison",
@@ -45,7 +44,6 @@ def test_parse_evaluation_arguments_accepts_language_profile() -> None:
     assert arguments.morphology_logit_correction_strength == 0.5
     assert arguments.ud_morphology_policy == "treebank"
     assert arguments.disable_morphology_bundle_reranker
-    assert arguments.disable_morphology_agreement_refiner
     assert arguments.morphology_error_audit_feature == "Gender"
     assert arguments.morphology_error_audit_comparison_path == Path(
         "runs/udpipe/nb-development.conllu"

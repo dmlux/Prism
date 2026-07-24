@@ -37,19 +37,12 @@ from prism.modeling.layer_aggregation import (
 )
 from prism.modeling.heads import (
     MorphologyPreHeadArchitecture,
-    SharedResidualTokenProjection,
-    TaskResidualAdapter,
     TokenClassificationHead,
     TokenTaskHeadArchitecture,
     TokenTaskHeads,
     WideSharedResidualTokenProjection,
 )
 from prism.modeling.structured_morphology import StructuredMorphologyDecoder
-from prism.modeling.morphology_agreement import (
-    MorphologyAgreementRefiner,
-    MorphologyAgreementRefinerSpec,
-    validate_morphology_agreement_refiner_spec,
-)
 from prism.modeling.morphology_bundle_reranker import (
     CompositionalMorphologyBundleScorer,
     MorphologyBundleCandidate,
@@ -96,13 +89,8 @@ __all__ = [
     "MorphologyPreHeadArchitecture",
     "TokenTaskHeadArchitecture",
     "TokenTaskHeads",
-    "SharedResidualTokenProjection",
-    "TaskResidualAdapter",
     "WideSharedResidualTokenProjection",
     "StructuredMorphologyDecoder",
-    "MorphologyAgreementRefiner",
-    "MorphologyAgreementRefinerSpec",
-    "validate_morphology_agreement_refiner_spec",
     "CompositionalMorphologyBundleScorer",
     "MorphologyBundleCandidate",
     "MorphologyBundleLossGradientScope",
