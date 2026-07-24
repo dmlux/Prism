@@ -98,6 +98,7 @@ class SupervisedEvaluationMetrics:
 class NamedTokenTaskEvaluationMetrics:
     name: str
     metrics: TokenTaskEvaluationMetrics
+    universal_dependencies: UniversalDependenciesEvaluationMetrics | None = None
 
     def __post_init__(self) -> None:
         if not self.name or self.name.strip() != self.name:
@@ -390,6 +391,14 @@ def evaluate_supervised_token_task_epoch(
         )
         for name in resolved_slice_masks
     }
+    slice_universal_dependencies_accumulators = {
+        name: (
+            None
+            if universal_dependencies_accumulator is None
+            else universal_dependencies_accumulator.spawn_empty()
+        )
+        for name in resolved_slice_masks
+    }
     batch_index = 0
 
     def process_batch(
@@ -434,12 +443,21 @@ def evaluate_supervised_token_task_epoch(
                     f"Evaluation slice {name!r} contains fewer masks than batches."
                 )
 
+            evaluation_mask = masks[batch_index].to(device=device)
             slice_accumulators[name].add(
                 logits=prediction_logits,
                 predictions=predictions,
                 targets=batch.targets,
-                evaluation_mask=masks[batch_index].to(device=device),
+                evaluation_mask=evaluation_mask,
             )
+            slice_universal_dependencies_accumulator = (
+                slice_universal_dependencies_accumulators[name]
+            )
+            if slice_universal_dependencies_accumulator is not None:
+                slice_universal_dependencies_accumulator.add(
+                    predictions=predictions,
+                    evaluation_mask=evaluation_mask,
+                )
 
         batch_index += 1
         return losses
@@ -496,6 +514,11 @@ def evaluate_supervised_token_task_epoch(
                     empty_slice_message=(
                         f"Evaluation slice {name!r} must select at least one token."
                     ),
+                ),
+                universal_dependencies=(
+                    None
+                    if slice_universal_dependencies_accumulators[name] is None
+                    else slice_universal_dependencies_accumulators[name].finish()
                 ),
             )
             for name, accumulator in slice_accumulators.items()

@@ -657,11 +657,20 @@ token-form frequencies from the checkpoint's joint schema-training corpus:
 - Bokmål and Nynorsk are reported separately without touching either test
   split.
 
-Each slice reports token count, UPOS accuracy, morphology micro
+Each slice reports token count, official-compatible `UPOS`, exact
+complete-bundle `UFeats`, and `Lemmas` F1, plus UPOS accuracy, morphology micro
 precision/recall/F1 over non-`<NONE>` labels, representable lemma-rule
 accuracy, lemma-rule coverage, and end-to-end lemma accuracy. The final metric
 counts an annotated lemma with a rule absent from the training schema as an
-error instead of silently dropping it.
+error instead of silently dropping it. The official slice metrics use the
+same lemma restoration and explicit UD morphology-output policy as the
+complete split.
+
+The aligned external feature report is intentionally optional. Supplying
+`--morphology-feature-comparison PATH` reads an already generated CoNLL-U
+prediction and emits the full Prism-versus-system tables. Omitting the option
+skips that work and runs only the faster standalone Prism evaluation; this
+command never launches UDPipe itself.
 
 The Bokmål and Nynorsk development controls were recorded from the selected
 epoch-12 checkpoint without retraining:
@@ -968,6 +977,479 @@ The auxiliary loss receives the same forward scores as the unisolated run,
 while only the candidate residual projection receives its gradients. Results
 remain intentionally absent until training and both canonical Development
 evaluations complete.
+
+The training half completed in approximately 1 hour 50 minutes 59 seconds and
+again selected epoch 12. The checkpoint is 70,068,462 bytes. Joint Development
+training signals are:
+
+| Joint Development signal | Bundle-32 control | Direct loss | Isolated direct loss |
+| --- | ---: | ---: | ---: |
+| UPOS loss | 0.046729 | **0.046595** | 0.046849 |
+| Morphology loss | 0.008672 | **0.008133** | 0.008676 |
+| Lemma-rule loss | 0.045614 | 0.046031 | **0.045161** |
+| Lemma-rule accuracy | 98.8426% | 98.7938% | **98.8618%** |
+| Bundle loss | not active | **0.112506** | 0.132241 |
+
+The higher isolated bundle loss is expected because only the residual scorer
+can optimize it. The improved lemma signal indicates that the intended
+gradient protection is active, but canonical per-standard metrics remain the
+acceptance gate. Since the best checkpoint is again the final epoch, a longer
+schedule is eligible only if Bokmål and Nynorsk first accept this formulation.
+
+Canonical Bokmål evaluation is complete:
+
+| Canonical Bokmål metric | Bundle-32 control | Direct loss | Isolated loss |
+| --- | ---: | ---: | ---: |
+| UPOS F1 | **99.0046%** | 98.9964% | 98.9854% |
+| UFeats F1 | 96.0076% | **96.7390%** | 96.0351% |
+| Lemmas F1 | 98.9607% | 98.8974% | **98.9881%** |
+| Rare morphology micro F1 | 95.5196% | **96.2849%** | 95.6446% |
+| OOV morphology micro F1 | 94.1716% | **94.8654%** | 94.2055% |
+| Rare lemma end-to-end | 97.2381% | 97.1111% | **97.4603%** |
+| OOV lemma end-to-end | 93.6231% | 92.8393% | **93.6587%** |
+
+Against the selected control, isolation gains 0.0275 UFeats points, 0.0274
+Lemmas points, 0.1250/0.0339 Rare/OOV morphology points, and 0.2222/0.0356
+Rare/OOV lemma points. Overall UPOS loses 0.0192 points while both frequency
+slices are unchanged. The candidate still leads UDPipe 2.17 UPOS by 0.0357
+points and now leads its Lemmas by 0.0137 points, but trails UFeats by 2.0347
+points.
+
+Against the unisolated candidate, the isolated loss recovers 0.0907 Lemmas
+points and 0.8194 OOV-lemma points, while retaining only 0.0275 of the original
+0.7314-point UFeats gain over Bundle-32. This validates the gradient-conflict
+diagnosis and suggests that residual-only isolation is conservative. No
+selection or longer schedule is allowed before the matched Nynorsk report.
+
+Canonical Nynorsk evaluation completes the comparison:
+
+| Canonical Nynorsk metric | Bundle-32 control | Direct loss | Isolated loss |
+| --- | ---: | ---: | ---: |
+| UPOS F1 | 98.6720% | **98.6752%** | 98.6624% |
+| UFeats F1 | 93.6384% | **94.4672%** | 93.8208% |
+| Lemmas F1 | 98.5344% | 98.5056% | **98.5440%** |
+| Rare morphology micro F1 | 91.3736% | **92.3979%** | 91.4515% |
+| OOV morphology micro F1 | 88.4669% | **89.2680%** | 88.5769% |
+| Rare lemma end-to-end | **96.9494%** | 96.9076% | 96.8241% |
+| OOV lemma end-to-end | 91.6404% | 91.5615% | **91.8770%** |
+
+Against Bundle-32, the isolated candidate gains 0.1824 UFeats points, 0.0096
+Lemmas points, 0.0779/0.1100 Rare/OOV morphology points, and 0.2366 OOV-lemma
+points. It loses 0.0096 overall UPOS points, 0.0418/0.0394 Rare/OOV UPOS
+points, and 0.1253 Rare-lemma points. These losses correspond to only three,
+one, one, and three additional errors respectively.
+
+The isolated checkpoint is selected as the compact reference because it
+improves UFeats, Lemmas, Rare/OOV morphology, and OOV lemma on both standards
+without a material regression. The unisolated model remains only a morphology
+upper control. Epoch 12 won again, so the controlled 30-epoch convergence run
+is now permitted. Both official test splits remain untouched.
+
+The predeclared convergence command is:
+
+```shell
+.venv/bin/python -m prism.languages.norwegian.train_baseline \
+  --language-tag no \
+  --model-role student \
+  --checkpoint runs/no-student-character-cnn-dkd-bundle32-direct-loss-isolated-w010-e30-weighted/best.pt \
+  --teacher-checkpoint runs/no-teacher-base-character-cnn-e12-weighted/best.pt \
+  --categorical-distillation-objective dkd \
+  --distillation-temperature 1.0 \
+  --distillation-weight 0.1 \
+  --morphology-bundle-candidate-count 32 \
+  --morphology-bundle-loss-weight 0.1 \
+  --isolate-morphology-bundle-loss-gradient \
+  --early-stopping-patience 4 \
+  --epoch-count 30 \
+  --morphology-weight-cap 10.0
+```
+
+Changing the maximum epoch count also lengthens the linear warmup/decay
+schedule. This is therefore a documented convergence ablation rather than a
+strict continuation of the 12-epoch optimizer trajectory.
+
+The convergence training run completed in approximately 2 hours 26 minutes
+51 seconds. Epoch 12 again produced the lowest combined Development loss, and
+patience 4 stopped training after epoch 16. The selected joint signals are:
+
+| Joint Development signal | 30-epoch-schedule checkpoint |
+| --- | ---: |
+| Combined loss | 0.117648 |
+| UPOS accuracy | 98.8273% |
+| Lemma-rule accuracy | 98.8293% |
+| Bundle loss | 0.132431 |
+| Bundle candidate coverage | 98.2180% |
+
+Epochs 13 through 16 did not improve the selection loss. Early stopping
+therefore avoided the remaining 14 configured epochs, and the longer schedule
+did not move the selected checkpoint beyond epoch 12. This is not yet a
+quality decision: lengthening the schedule changed the learning-rate
+trajectory, so canonical Bokmål and Nynorsk evaluation against the fixed
+12-epoch isolated reference remains required. No UFeats, Lemmas, UPOS, or
+Rare/OOV improvement is claimed from the joint training signal alone.
+
+Canonical Bokmål evaluation is complete:
+
+| Bokmål metric | Isolated 12-epoch reference | 30-epoch schedule | Change |
+| --- | ---: | ---: | ---: |
+| UPOS F1 | **98.9854%** | 98.9524% | -0.0330 pp |
+| UFeats F1 | 96.0351% | **96.1643%** | +0.1292 pp |
+| Lemmas F1 | **98.9881%** | 98.9249% | -0.0632 pp |
+| Rare UPOS accuracy | **98.5079%** | 98.0952% | -0.4127 pp |
+| Rare morphology micro F1 | **95.6446%** | 95.4655% | -0.1791 pp |
+| Rare lemma end-to-end | **97.4603%** | 97.1111% | -0.3492 pp |
+| OOV UPOS accuracy | **98.2187%** | 98.1831% | -0.0356 pp |
+| OOV morphology micro F1 | 94.2055% | **94.5146%** | +0.3091 pp |
+| OOV lemma end-to-end | **93.6587%** | 93.4806% | -0.1781 pp |
+
+The longer schedule recovers 47 additional exact UFeats bundles but loses
+12 UPOS and 23 Lemma predictions over the complete Bokmål Development split.
+Its remaining UFeats gap to UDPipe narrows from 2.0347 to 1.9055 points, while
+the previous 0.0137-point Lemmas lead becomes a 0.0495-point deficit and the
+UPOS lead narrows to 0.0027 points. The candidate therefore already fails the
+all-task selection gate on Bokmål. Nynorsk evaluation remains necessary to
+complete the convergence diagnosis, but it cannot retroactively make this the
+shared selected checkpoint.
+
+Canonical Nynorsk evaluation completes the convergence ablation:
+
+| Nynorsk metric | Isolated 12-epoch reference | 30-epoch schedule | Change |
+| --- | ---: | ---: | ---: |
+| UPOS F1 | 98.6624% | **98.6816%** | +0.0192 pp |
+| UFeats F1 | 93.8208% | **93.8720%** | +0.0512 pp |
+| Lemmas F1 | 98.5440% | **98.5536%** | +0.0096 pp |
+| Rare UPOS accuracy | **98.2867%** | 98.1613% | -0.1254 pp |
+| Rare morphology micro F1 | **91.4515%** | 91.1543% | -0.2972 pp |
+| Rare lemma end-to-end | 96.8241% | **96.8659%** | +0.0418 pp |
+| OOV UPOS accuracy | 97.5158% | 97.5158% | 0.0000 pp |
+| OOV morphology micro F1 | **88.5769%** | 88.5432% | -0.0336 pp |
+| OOV lemma end-to-end | **91.8770%** | 91.6798% | -0.1972 pp |
+
+The longer schedule gains 6 UPOS, 16 complete UFeats bundles, and 3 Lemma
+predictions over the complete Nynorsk Development split. These small overall
+gains do not compensate for its Rare/OOV regressions or its already failed
+Bokmål gate. The 30-epoch convergence candidate is rejected. The
+twelve-epoch isolated direct-bundle checkpoint remains the compact Norwegian
+reference, and training duration is no longer the next morphology
+bottleneck. The next predeclared work is the complete all-feature UDPipe
+diagnostic followed, if justified, by a morphology-specific middle gradient
+scope.
+
+### All-feature UDPipe diagnostic
+
+The comparison after the 30-epoch gate must not reduce morphology quality to
+one aggregate ranking. Official `UFeats` remains the strict complete-bundle
+metric, but it cannot identify whether Prism or UDPipe is stronger for a
+particular feature. The evaluator now accepts an aligned CoNLL-U prediction
+through `--morphology-feature-comparison` and compares the selected checkpoint
+with the persisted UDPipe 2.17 prediction during the same model forward pass.
+Identical sentence counts, token counts, and token forms are validated before
+the report can complete.
+
+The JSON report contains, for every shared feature and both systems:
+
+- overall exact accuracy, including correct absence;
+- annotated-token exact accuracy, excluding unannotated `<NONE>` cases;
+- per-value support, true/false-positive and false-negative counts, precision,
+  recall, and F1;
+- Rare/OOV slices using Prism's training-derived frequency classes;
+- the contribution of that feature to wrong complete bundles;
+- separate canonical and explicit treebank-policy results.
+
+The console prints separate overall/annotated and Rare/OOV tables. Their
+columns are explicitly labeled `Prism`, `UDPipe`, and `Prism-UDPipe` by
+default; `--morphology-feature-comparison-name` can name another aligned
+system without changing the generic comparison core. The full count-level
+result remains in the analysis JSON together with that display name.
+
+Run the canonical Bokmål report with:
+
+```shell
+.venv/bin/python -m prism.languages.norwegian.evaluate_baseline \
+  --language-tag nb \
+  --checkpoint runs/no-student-character-cnn-dkd-bundle32-direct-loss-isolated-w010-e12-weighted/best.pt \
+  --analysis runs/no-student-character-cnn-dkd-bundle32-direct-loss-isolated-w010-e12-weighted/nb-development-feature-comparison.json \
+  --morphology-logit-correction-strength 1.0 \
+  --morphology-feature-comparison runs/udpipe-2.17-251125/ud-2.17/nb-development.conllu
+```
+
+The canonical Bokmål report is complete for the selected twelve-epoch
+isolated direct-bundle checkpoint:
+
+| Bokmål feature | Prism overall | UDPipe overall | Prism annotated | UDPipe annotated |
+| --- | ---: | ---: | ---: | ---: |
+| Gender | 97.2477% | **98.7764%** | 92.3788% | **97.1043%** |
+| Number | 98.8644% | **99.1614%** | 98.0073% | **98.4982%** |
+| Definite | 99.2604% | **99.4418%** | 98.5824% | **98.7866%** |
+| Degree | 99.6618% | **99.7195%** | **97.7679%** | 97.6992% |
+| VerbForm | 99.6481% | **99.6865%** | 98.8266% | **99.0222%** |
+
+Prism produces 1,442 wrong complete bundles and UDPipe 702. Across those
+bundles, Prism has 2,159 individual feature errors and UDPipe 1,387, an excess
+of 772. `Gender` contributes 556 of those excess errors, `Number` 108, and
+`Definite` 66. Together they explain 730, or 94.6%, of the excess individual
+feature errors. `Gender` is the dominant bottleneck on both annotated tokens
+(-4.7255 percentage points) and the Rare slice (-5.2063 points).
+
+The comparison also rejects the idea that UDPipe is uniformly stronger.
+Prism leads overall exact accuracy for `Case`, `Mood`, `NumType`, `Poss`, and
+`Tense`, and ties `Reflex`. On OOV tokens Prism leads nine features, ties four,
+and trails five. The architectural follow-up should therefore remain narrowly
+morphology-specific and preserve the already stronger features rather than
+replace the schema-driven decoder wholesale.
+
+The corresponding canonical Nynorsk report is also complete:
+
+| Nynorsk feature | Prism overall | UDPipe overall | Prism annotated | UDPipe annotated |
+| --- | ---: | ---: | ---: | ---: |
+| Gender | 95.3504% | **96.3584%** | 86.8156% | **89.8527%** |
+| Number | 98.8512% | **99.5424%** | 97.3710% | **97.4043%** |
+| Definite | 99.3312% | **99.6064%** | **98.9982%** | 98.8980% |
+| Degree | **99.6800%** | 99.6480% | **98.6613%** | 97.8093% |
+| Mood | **99.9296%** | 99.8688% | **99.8287%** | 99.2861% |
+
+Prism has 1,931 wrong Nynorsk bundles versus UDPipe's 1,356. Its 2,496
+individual feature errors exceed UDPipe's 1,909 by 587. `Gender`, `Number`,
+and `Definite` contribute excesses of 315, 216, and 86 respectively. Their
+combined 617 errors exceed the entire net deficit because Prism recovers 30
+errors elsewhere, principally through `Mood`, `Tense`, `Degree`, and
+`VerbForm`.
+
+The Nynorsk `Number` and `Definite` overall deficits are predominantly output
+conventions rather than annotated-value recognition. `Number=Sing` has only
+two gold occurrences, but canonical Prism emits it 221 times while UDPipe
+emits it once. `Definite=Def` has no gold support, but canonical Prism emits it
+54 times while UDPipe emits it once; on actually annotated `Definite` tokens,
+Prism is slightly better. The existing explicit Nynorsk treebank policy owns
+these suppressions. They must not be baked into the shared Norwegian neural
+representation merely to improve this benchmark.
+
+`Gender` remains the shared neural bottleneck. Prism is better than UDPipe on
+Nynorsk `Gender=Com` recall (2.18% versus 0%), but UDPipe recognizes
+`Fem`, `Masc`, and `Neut` more reliably. Together with the Bokmål result, this
+authorizes the morphology-specific middle-gradient ablation while requiring
+the existing annotation-policy boundary and the stronger feature heads to
+remain protected.
+
+This is an architectural diagnostic, not a new selection metric optimized in
+isolation. Bokmål confirms that the largest deficits remain `Gender`,
+`Number`, and `Definite` for the selected isolated checkpoint, while Prism
+already leads several other features. Nynorsk confirms the same concentration
+and separates its treebank-convention component from neural quality. The
+planned morphology-specific middle-gradient ablation is therefore authorized.
+A future candidate is selected only if it improves the joint canonical
+Bokmål/Nynorsk all-task gate; merely moving closer to UDPipe on one aggregate
+column is insufficient. Both official test splits remain untouched.
+
+### Morphology-scoped direct-bundle gradient
+
+The authorized middle-gradient ablation is implemented as the third explicit
+scope between the historical `full` control and selected `residual-only`
+reference. `morphology` gives the direct complete-bundle objective gradients
+through the morphology adapter, independent feature heads, structured
+decoder, and bundle residual projection. It detaches Backbone/shared token
+states and UPOS evidence and never enters the lemma path. Normal supervised
+and distillation gradients are unchanged.
+
+All scopes use numerically identical candidate scores. Focused tests verify
+the exact parameter boundary with dropout active. The old isolation flag
+continues to resolve to `residual-only`; the typed scope string is stored in
+new checkpoint metadata and does not change model parameters or inference.
+
+The fixed training command is:
+
+```shell
+.venv/bin/python -m prism.languages.norwegian.train_baseline \
+  --language-tag no \
+  --model-role student \
+  --checkpoint runs/no-student-character-cnn-dkd-bundle32-direct-loss-morphology-gradient-w010-e12-weighted/best.pt \
+  --teacher-checkpoint runs/no-teacher-base-character-cnn-e12-weighted/best.pt \
+  --categorical-distillation-objective dkd \
+  --distillation-temperature 1.0 \
+  --distillation-weight 0.1 \
+  --morphology-bundle-candidate-count 32 \
+  --morphology-bundle-loss-weight 0.1 \
+  --morphology-bundle-loss-gradient-scope morphology \
+  --early-stopping-patience 4 \
+  --epoch-count 12 \
+  --morphology-weight-cap 10.0
+```
+
+The predeclared acceptance gate requires the loss-selected checkpoint to be
+evaluated separately on canonical Bokmål and Nynorsk. It includes complete
+UPOS/UFeats/Lemmas, per-feature, and Rare/OOV reports; the untouched test
+splits remain out of scope.
+
+The fixed training run completed in approximately 2 hours 11 minutes 35
+seconds and selected epoch 12. The checkpoint is
+`runs/no-student-character-cnn-dkd-bundle32-direct-loss-morphology-gradient-w010-e12-weighted/best.pt`
+and stores `morphology` as its resolved gradient scope. Its 70,068,462-byte
+size is identical to the residual-only reference, confirming that the scope
+changes training only.
+
+| Joint Development signal | `full` | `residual-only` | `morphology` |
+| --- | ---: | ---: | ---: |
+| Combined loss | **0.112011** | 0.113910 | 0.112124 |
+| UPOS loss | 0.046595 | 0.046849 | **0.046252** |
+| Morphology loss | **0.008133** | 0.008676 | 0.008535 |
+| Lemma-rule loss | 0.046031 | 0.045161 | **0.044659** |
+| Bundle loss | **0.112506** | 0.132241 | 0.126770 |
+| UPOS accuracy | 98.8480% | 98.8361% | **98.8672%** |
+| Lemma-rule accuracy | 98.7938% | 98.8618% | **98.8648%** |
+
+The result has the intended intermediate shape. Bundle and morphology losses
+move toward the stronger `full` morphology control, while lemma loss improves
+even beyond `residual-only`; UPOS also improves. The combined loss is only
+0.000113 above `full` and 0.001786 below `residual-only`. These joint signals
+justify canonical evaluation, but they do not select the model: only separate
+Bokmål and Nynorsk UPOS/UFeats/Lemmas, per-feature, and Rare/OOV reports can
+show whether the protected gradient boundary improves real predictions.
+
+The canonical Bokmål report, with the predeclared checkpoint-derived logit
+correction at strength `1.0`, is now complete:
+
+| Bokmål Development metric | `full` | `residual-only` | `morphology` | UDPipe 2.17 |
+| --- | ---: | ---: | ---: | ---: |
+| UPOS F1 | 98.9964% | 98.9854% | **98.9991%** | 98.9497% |
+| UFeats F1 | **96.7390%** | 96.0351% | 96.1588% | 98.0698% |
+| Lemmas F1 | 98.8974% | **98.9881%** | 98.9634% | 98.9744% |
+| Rare morphology micro F1 | **96.2849%** | 95.6446% | 95.5501% | — |
+| OOV morphology micro F1 | **94.8654%** | 94.2055% | 94.5367% | — |
+| Rare lemma end-to-end | 97.1111% | **97.4603%** | 97.4286% | — |
+| OOV lemma end-to-end | 92.8393% | **93.6587%** | 93.3025% | — |
+
+Relative to `residual-only`, the middle scope gains 0.1237 UFeats points and
+45 additional exact morphology bundles. It also gains 0.3305 OOV-morphology
+points and improves UPOS, while giving back 0.0945 Rare-morphology points,
+0.0247 Lemmas points, and 0.3562 OOV-lemma points. It therefore behaves as the
+intended compromise, but remains 0.5802 UFeats points below the `full` control
+and 1.9110 points below UDPipe.
+
+The feature report still identifies `Gender` as the dominant Bokmål deficit:
+Prism trails UDPipe by 1.4490 overall points and 4.6989 annotated-token points.
+Against `residual-only`, the middle scope improves Gender overall by 0.0797
+points and Gender OOV by 0.9619 points, but Rare Gender is unchanged. Number
+and Definite remain smaller deficits. This is a real but insufficient recovery
+of the morphology signal, so Bokmål alone does not authorize replacing the
+selected reference. The matching canonical Nynorsk report remains the
+predeclared final gate.
+
+The checkpointed morphology class weights are byte-for-byte numerically equal
+across `full`, `residual-only`, and `morphology`. The gradient-scope ablation
+therefore does not alter the correction inputs. Strength `1.0` remains fixed
+for this comparison; retuning it on Bokmål would confound the scope ablation
+and turn the output policy into a checkpoint-specific Development fit.
+
+The matching canonical Nynorsk report completes the gate:
+
+| Nynorsk Development metric | `full` | `residual-only` | `morphology` | UDPipe 2.17 |
+| --- | ---: | ---: | ---: | ---: |
+| UPOS F1 | 98.6752% | 98.6624% | **98.7136%** | 98.5728% |
+| UFeats F1 | **94.4672%** | 93.8208% | 93.9104% | 95.6608% |
+| Lemmas F1 | 98.5056% | 98.5440% | **98.5856%** | 98.8288% |
+| Rare morphology micro F1 | **92.3979%** | 91.4515% | 91.2468% | — |
+| OOV morphology micro F1 | **89.2680%** | 88.5769% | 88.5645% | — |
+| Rare lemma end-to-end | 96.9076% | 96.8241% | **97.1166%** | — |
+| OOV lemma end-to-end | 91.5615% | 91.8770% | **91.9164%** | — |
+
+Against `residual-only`, the middle scope gains 0.0512 UPOS points, 0.0896
+UFeats points, and 0.0416 Lemmas points, corresponding to 16, 28, and 13
+additional correct Development predictions. It also improves Rare and OOV
+lemma end-to-end by 0.2925 and 0.0394 points. The tradeoff is a 0.2047-point
+Rare-morphology regression and a 0.0124-point OOV-morphology regression.
+Rare/OOV UPOS also falls by 0.1254/0.0789 points despite the overall UPOS gain.
+
+Across both written standards, `morphology` gains 73 exact UFeats bundles, 21
+UPOS predictions, and a net four Lemma predictions over `residual-only`.
+However, Rare morphology regresses on both standards, all four Rare/OOV UPOS
+slices regress, and Bokmål OOV lemma loses ten correct predictions. Those
+task-specific slices initially suggested rejecting the candidate, but did not
+yet measure the target quantity: exact complete-bundle UFeats within each
+slice. Selection therefore remains provisional until that metric is compared
+for both checkpoints on both written standards. The official test splits
+remain untouched.
+
+After adding official-compatible metrics to the frequency slices, the
+standalone Bokmål rerun measures 88.7619% exact Rare UFeats and 87.3174% exact
+OOV UFeats for `morphology`. This corresponds to 354 wrong bundles among 3,150
+Rare tokens and 356 among 2,807 OOV tokens. Together the two disjoint slices
+contain only 16.38% of Development tokens but account for 710 of the model's
+1,397 wrong bundles, or 50.82%. Their morphology micro F1 values of 95.5501%
+and 94.5367% are much higher because micro F1 does not invalidate a complete
+token when one feature is wrong.
+
+The matched `residual-only` Bokmål rerun reaches 89.3016% Rare UFeats and
+85.9637% OOV UFeats. The middle scope therefore loses 17 exact Rare bundles
+but gains 38 exact OOV bundles. Of its 45-bundle overall gain, 38 come from
+OOV, 24 from forms seen more than five times, and Rare contributes -17. This
+directly disproves the preliminary inference that its UFeats gain is
+concentrated mainly in frequent tokens. It makes a meaningful OOV trade:
++1.3537 UFeats points against -0.1425 UPOS points and -0.3562 Lemmas points.
+The candidate rejection is withdrawn pending the equivalent exact Nynorsk
+slice comparison.
+
+The standalone Nynorsk `morphology` report records 86.3769% exact Rare UFeats
+and 83.3202% exact OOV UFeats. That is 326 wrong complete bundles among 2,393
+Rare tokens and 423 among 2,536 OOV tokens. Together these slices are 15.77%
+of Nynorsk Development tokens but contribute 749 of the candidate's 1,903
+wrong bundles, or 39.36%.
+
+The matched `residual-only` Nynorsk report reaches 86.2934% Rare UFeats and
+83.3596% OOV UFeats. The middle scope therefore gains two exact Rare bundles
+and loses one exact OOV bundle. Across both written standards it gains 37 OOV
+bundles and loses 15 Rare bundles, while the complete splits gain 73 UFeats,
+21 UPOS, and a net four Lemma predictions. On OOV tokens specifically, that
+is +37 UFeats predictions against -6 UPOS and -9 Lemmas. Since exact UFeats is
+the demonstrated remaining system-level deficit, OOV generalization is the
+more important real-world guardrail, five of six complete-split task metrics
+improve, and model size/inference are unchanged, `morphology` passes the joint
+gate and replaces `residual-only` as the compact Norwegian reference. The
+Rare regression remains explicitly recorded rather than hidden by the
+selection. `residual-only` remains the protected-gradient control and `full`
+the morphology upper control. The official test splits remain untouched.
+
+The selected reference now compares with reproduced UDPipe 2.17 as follows:
+
+| Development metric | Prism `morphology` | UDPipe 2.17 | Prism - UDPipe |
+| --- | ---: | ---: | ---: |
+| Bokmål UPOS F1 | **98.9991%** | 98.9497% | +0.0494 pp |
+| Bokmål UFeats F1 | 96.1588% | **98.0698%** | -1.9110 pp |
+| Bokmål Lemmas F1 | 98.9634% | **98.9744%** | -0.0110 pp |
+| Nynorsk UPOS F1 | **98.7136%** | 98.5728% | +0.1408 pp |
+| Nynorsk UFeats F1 | 93.9104% | **95.6608%** | -1.7504 pp |
+| Nynorsk Lemmas F1 | 98.5856% | **98.8288%** | -0.2432 pp |
+
+Prism leads UPOS on both written standards and is effectively tied on Bokmål
+Lemmas. UFeats remains the dominant gap: the selected scope narrows the prior
+`residual-only` deficit by 0.1237 points on Bokmål and 0.0896 points on
+Nynorsk. Nynorsk Lemmas remains the second material deficit.
+
+The standalone evaluator now preserves exact per-feature correct counts for
+Rare/OOV slices and ranks their feature errors. With the same selected
+checkpoint, canonical output, and fixed correction strength `1.0`, the OOV
+attribution is:
+
+| OOV feature | Bokmål errors | Bokmål share | Nynorsk errors | Nynorsk share |
+| --- | ---: | ---: | ---: | ---: |
+| Gender | 251 | 46.65% | 312 | 53.52% |
+| Number | 99 | 18.40% | 96 | 16.47% |
+| Definite | 61 | 11.34% | 63 | 10.81% |
+| VerbForm | 46 | 8.55% | 38 | 6.52% |
+| Degree | 40 | 7.43% | 46 | 7.89% |
+
+These five features account for 92.37% of Bokmål and 95.21% of Nynorsk OOV
+feature errors. The denominator is the sum of wrong feature decisions, not
+wrong complete bundles: a token with wrong `Gender` and `Number` contributes
+two errors here but only one official UFeats failure. The agreement across
+both standards makes `Gender` the strongest shared OOV bottleneck, followed
+by `Number`; it does not by itself prove that a larger classifier head is the
+remedy.
+
+For new Norwegian CLI runs, enabling a positive
+`--morphology-bundle-loss-weight` without an explicit gradient scope now
+resolves to `morphology`. Loss weight zero still resolves to `full` because no
+bundle gradient exists. Explicit `full`, `morphology`, `residual-only`, and
+the legacy isolation alias remain available for reproducible ablations.
 
 ## Character-aware format-3 distilled Student
 
@@ -1658,3 +2140,271 @@ attributed to silver data until offline Teacher pseudo-labeling, a fixed and
 deterministic subset plus Gold/Silver mixing policy, and a controlled
 comparison against the selected Student have all completed. The official test
 splits remain untouched.
+
+## Frozen morphology-head probe
+
+This is a Development-only architecture diagnostic, not a released-model
+benchmark. The selected 12-epoch Student is completely frozen at the
+`morphology-pre-head` representation boundary. Seed 42 trains only matched
+linear, shared residual MLP, and feature-specific residual MLP heads for eight
+epochs. All controls use the checkpointed morphology weights and correction
+strength `1.0`.
+
+- Source checkpoint:
+  `runs/no-student-character-cnn-dkd-bundle32-direct-loss-morphology-gradient-w010-e12-weighted/best.pt`
+- Report:
+  `runs/no-student-character-cnn-dkd-bundle32-direct-loss-morphology-gradient-w010-e12-weighted/morphology-head-probe-seed42.json`
+- Training representations: 489,216 tokens
+- Runtime including one-time extraction: 3 minutes 14 seconds
+- Reusable FP32 cache: 439 MB
+
+### Gender accuracy
+
+| Standard and slice | Linear | Shared MLP | Feature MLP | Feature MLP − linear |
+| --- | ---: | ---: | ---: | ---: |
+| Bokmål overall | 94.0334% | 96.6262% | **97.1212%** | **+3.0878 pp** |
+| Bokmål annotated | 82.1727% | 90.2025% | **91.8369%** | **+9.6642 pp** |
+| Bokmål Rare | 83.6825% | 89.7778% | **90.7302%** | **+7.0476 pp** |
+| Bokmål OOV | 84.8949% | **89.8112%** | 89.5262% | **+4.6313 pp** |
+| Nynorsk overall | 92.8800% | 94.6752% | **95.1392%** | **+2.2592 pp** |
+| Nynorsk annotated | 79.5429% | 84.6826% | **86.2062%** | **+6.6633 pp** |
+| Nynorsk Rare | 81.8638% | 86.7112% | **87.9649%** | **+6.1011 pp** |
+| Nynorsk OOV | 82.8470% | **86.5142%** | **86.5142%** | **+3.6672 pp** |
+
+The feature-specific MLP also improves overall `Definite`, `Number`,
+`PronType`, `VerbForm`, and `Degree` on both written standards. The only
+overall regression against the linear probe is three Nynorsk `NumType`
+decisions. Probe parameter counts are 10,036, 158,068, and 678,772
+respectively.
+
+The result identifies a genuine nonlinear head-capacity signal, but the
+standalone probe does not execute the checkpoint's structured morphology
+decoder, Bundle-32 reranker, or agreement path. The complete selected model is
+still 0.2062/0.2592 overall `Gender` points and 1.5319/1.1830 OOV points above
+the standalone feature MLP on Bokmål/Nynorsk. No production architecture is
+selected from this one seed, and both official test splits remain untouched.
+
+### Seed-42 convergence extension
+
+The same cached representations and seed were rerun for 16 epochs. All
+training losses continued to decrease, but Development metrics had largely
+saturated:
+
+| Gender comparison at epoch 16 | Bokmål | Nynorsk |
+| --- | ---: | ---: |
+| Shared MLP − linear, overall | +2.7276 pp | +2.1504 pp |
+| Feature MLP − linear, overall | **+2.8981 pp** | **+2.1984 pp** |
+| Feature MLP − shared MLP, overall | +0.1705 pp | +0.0480 pp |
+| Feature MLP − shared MLP, annotated | +0.6040 pp | +0.0508 pp |
+| Feature MLP − shared MLP, Rare | +0.5397 pp | +0.6686 pp |
+| Feature MLP − shared MLP, OOV | **−0.5344 pp** | **+0.5521 pp** |
+
+Relative to its own epoch-8 result, feature MLP improves overall Gender by
+only 0.1870 Bokmål and 0.0416 Nynorsk points. Bokmål OOV loses three correct
+tokens while Nynorsk OOV gains eight. Across every feature, feature MLP has
+136 fewer Bokmål overall errors than shared MLP but 12 more Bokmål OOV errors;
+for Nynorsk it has only nine fewer overall errors and 15 fewer OOV errors.
+
+The extra 520,704 feature-MLP parameters therefore have a small and
+slice-dependent advantage over shared MLP. This run confirms the nonlinear
+head-capacity signal but does not select the larger head. The next cheap gate
+is a matched 16-epoch second seed, not additional same-seed epochs or a full
+Student run.
+
+### Seed-43 replication and candidate selection
+
+The matched second seed reused the same frozen representations and ran all
+three probes for 16 epochs in 3 minutes 15 seconds:
+
+- Report:
+  `runs/no-student-character-cnn-dkd-bundle32-direct-loss-morphology-gradient-w010-e12-weighted/morphology-head-probe-seed43-e16.json`
+- Random seed: 43
+- Epochs: 16
+- Final losses: linear `0.014339`, shared MLP `0.006764`, feature MLP
+  `0.005204`
+
+| Gender comparison at epoch 16 | Bokmål | Nynorsk |
+| --- | ---: | ---: |
+| Shared MLP − linear, overall | +2.8486 pp | +2.1376 pp |
+| Feature MLP − linear, overall | **+2.9366 pp** | **+2.3488 pp** |
+| Feature MLP − shared MLP, overall | +0.0880 pp | +0.2112 pp |
+| Feature MLP − shared MLP, annotated | +0.3375 pp | +0.7314 pp |
+| Feature MLP − shared MLP, Rare | +0.0635 pp | +1.2537 pp |
+| Feature MLP − shared MLP, OOV | **−0.3207 pp** | **−0.4338 pp** |
+
+The OOV regressions equal nine additional Bokmål and eleven additional
+Nynorsk Gender errors. The same trade-off is visible across the complete
+feature inventory:
+
+| Seed-43 errors | Shared MLP | Feature MLP | Feature MLP difference |
+| --- | ---: | ---: | ---: |
+| Bokmål overall | 2,223 | **2,167** | −56 |
+| Bokmål Rare | 526 | **520** | −6 |
+| Bokmål OOV | **599** | 610 | +11 |
+| Nynorsk overall | 2,535 | **2,457** | −78 |
+| Nynorsk Rare | 428 | **397** | −31 |
+| Nynorsk OOV | **584** | 602 | +18 |
+
+Across both 16-epoch seeds and both written standards, feature MLP removes
+279 overall and 46 Rare feature errors relative to shared MLP, but adds 26
+OOV errors. The result robustly confirms that a nonlinear morphology
+transformation is warranted. It rejects the extra 520,704 feature-specific
+parameters as the first production candidate because their small aggregate
+gain does not generalize to unseen word forms.
+
+The selected next end-to-end ablation is therefore one shared post-fusion
+residual morphology MLP at `morphology-pre-head`. It remains schema- and
+language-independent and feeds the existing independent heads, structured
+decoder, Bundle-32 reranker, and agreement refinement. This diagnostic does
+not change the selected production checkpoint or any official test result.
+
+### Implemented full-training ablation
+
+The probe-selected candidate is implemented behind the independent
+`--morphology-pre-head-architecture` switch. `identity` is the unchanged
+control and compatibility default; `shared-mlp` adds 148,032 parameters at
+hidden size 192 after character fusion and before every morphology head. The
+setting is checkpointed and automatically restored for evaluation,
+distillation-teacher loading, and later probes. Focused tests cover
+same-seed initialization parity for all common parameters, the
+`morphology`-scoped direct-bundle gradient boundary, old-checkpoint fallback,
+CLI parsing, strict state loading, and strict export parity.
+
+The fixed full-training command is:
+
+```shell
+.venv/bin/python -m prism.languages.norwegian.train_baseline \
+  --language-tag no \
+  --model-role student \
+  --checkpoint runs/no-student-character-cnn-dkd-bundle32-direct-loss-morphology-gradient-prehead-shared-mlp-w010-e12-weighted/best.pt \
+  --teacher-checkpoint runs/no-teacher-base-character-cnn-e12-weighted/best.pt \
+  --categorical-distillation-objective dkd \
+  --distillation-temperature 1.0 \
+  --distillation-weight 0.1 \
+  --morphology-pre-head-architecture shared-mlp \
+  --morphology-bundle-candidate-count 32 \
+  --morphology-bundle-loss-weight 0.1 \
+  --morphology-bundle-loss-gradient-scope morphology \
+  --early-stopping-patience 4 \
+  --epoch-count 12 \
+  --morphology-weight-cap 10.0
+```
+
+This changes exactly one inference-time architectural variable relative to
+the selected Student. The current checkpoint remains the control. No
+candidate result or production selection exists until the loss-selected new
+checkpoint has been evaluated separately on canonical Bokmål and Nynorsk,
+including UPOS, complete UFeats, Lemmas, every morphology feature, and
+Rare/OOV slices.
+
+### Completed shared morphology-MLP training gate
+
+The fixed twelve-epoch run completed in approximately 1 hour 54 minutes 8
+seconds and selected the final epoch. Its 70,661,786-byte checkpoint is
+`runs/no-student-character-cnn-dkd-bundle32-direct-loss-morphology-gradient-prehead-shared-mlp-w010-e12-weighted/best.pt`.
+Every epoch produced a new lowest combined Development loss, so the run ended
+cleanly at the fixed schedule limit rather than through early stopping.
+
+| Joint Development signal | Selected identity control | Shared morphology MLP |
+| --- | ---: | ---: |
+| Combined loss | **0.112124** | 0.114135 |
+| Bundle loss | 0.126770 | **0.118622** |
+| Bundle candidate coverage | not used for selection | 98.2180% |
+| UPOS accuracy | **98.8672%** | 98.8302% |
+| Lemma-rule accuracy | **98.8648%** | 98.8367% |
+
+The additional morphology capacity reduces bundle loss by 0.008148, or 6.43%
+relative, but raises combined loss by 0.002011 and loses 0.0370/0.0281
+percentage points of UPOS/Lemma-rule accuracy. This is the intended
+morphology-specific signal accompanied by a small all-task risk. It neither
+selects nor rejects the candidate: separate canonical Bokmål and Nynorsk
+evaluation with the selected full logit correction, complete UFeats, every
+feature, and Rare/OOV slices remains mandatory. The official test splits
+remain untouched.
+
+### Shared morphology-MLP Bokmål gate
+
+The canonical Bokmål Development evaluation with the selected full
+checkpoint-derived logit correction is complete:
+
+| Bokmål Development metric | Selected identity control | Shared morphology MLP | Change |
+| --- | ---: | ---: | ---: |
+| UPOS F1 | **98.9991%** | 98.9689% | -0.0302 pp / -11 correct |
+| UFeats F1 | 96.1588% | **96.6372%** | +0.4784 pp / +174 correct |
+| Lemmas F1 | **98.9634%** | 98.9304% | -0.0330 pp / -12 correct |
+| Rare morphology micro F1 | 95.5501% | **96.3839%** | +0.8338 pp |
+| OOV morphology micro F1 | **94.5367%** | 94.3785% | -0.1582 pp |
+| Rare lemma end-to-end | **97.4286%** | 97.3968% | -0.0318 pp |
+| OOV lemma end-to-end | **93.3025%** | 92.8750% | -0.4275 pp |
+
+The intended target feature improves strongly in-distribution: Gender overall
+gains 0.4124 points, annotated Gender 1.5012 points, and Rare Gender 1.8095
+points. OOV Gender instead regresses by 0.3919 points. Number improves on all
+four slices, while most other feature changes are much smaller.
+
+Against UDPipe 2.17, the candidate remains 0.0192 points ahead on UPOS but
+trails by 1.4326 points on complete UFeats and 0.0440 points on Lemmas. Gender
+remains the dominant external gap: 1.0366 points overall, 3.1977 points on
+annotated tokens, 3.3968 points on Rare tokens, and 2.2800 points on OOV
+tokens.
+
+This is a substantial real UFeats gain, not a benchmark-only annotation
+conversion. It nevertheless fails the standalone Bokmål OOV and all-task
+no-regression ideal. The candidate remains undecided until the matched
+canonical Nynorsk evaluation establishes whether the trade-off is robust
+across both written standards. The official test splits remain untouched.
+
+### Shared morphology-MLP Nynorsk gate and joint decision
+
+The matched canonical Nynorsk Development evaluation completes the
+predeclared gate:
+
+| Nynorsk Development metric | Selected identity control | Shared morphology MLP | Change |
+| --- | ---: | ---: | ---: |
+| UPOS F1 | **98.7136%** | 98.6688% | -0.0448 pp / -14 correct |
+| UFeats F1 | 93.9104% | **94.0768%** | +0.1664 pp / +52 correct |
+| Lemmas F1 | **98.5856%** | 98.5568% | -0.0288 pp / -9 correct |
+| Rare morphology micro F1 | 91.2468% | **91.9361%** | +0.6893 pp |
+| OOV morphology micro F1 | 88.5645% | **88.9226%** | +0.3581 pp |
+| Rare lemma end-to-end | **97.1166%** | 96.9494% | -0.1672 pp |
+| OOV lemma end-to-end | **91.9164%** | 91.8375% | -0.0789 pp |
+
+Gender improves by 0.1728 points overall, 0.5587 on annotated tokens, 0.3343
+on Rare tokens, and 0.1972 on OOV tokens. Definite and Number also improve
+overall, Rare, and OOV. Against UDPipe 2.17, the candidate remains 0.0960
+points ahead on UPOS and trails by 1.5840 UFeats points and 0.2720 Lemmas
+points.
+
+Across both written standards, the shared MLP corrects 226 additional complete
+UFeats bundles and removes 279 individual feature errors. It removes 204
+Gender errors overall and 65 on Rare forms. The cost is 25 UPOS and 21 Lemma
+predictions. On the combined 5,343 OOV tokens, it loses four exact UFeats
+bundles, adds ten individual feature errors, and adds six Gender errors; the
+Bokmål OOV regression is partly but not completely offset by Nynorsk.
+
+This is accepted as the next compact architecture reference. The primary
+remaining external deficit is complete UFeats/Gender, the gain appears on
+both written standards and strongly on Rare forms, and the OOV regression is
+small relative to 226 complete-split UFeats and 204 Gender corrections. The
+OOV and lemma trade-offs remain explicit quality risks for the next
+intervention; they must not be hidden by the aggregate selection.
+
+`shared-mlp` is now the Norwegian CLI default for new training runs. The
+generic model-building default and checkpoint fallback remain `identity`, so
+old artifacts and other language integrations do not silently change.
+`--morphology-pre-head-architecture identity` remains the explicit
+reproduction control. Evaluation and export always use checkpoint metadata.
+Official test splits remain untouched.
+
+The resulting current canonical comparison is:
+
+| Development metric | Prism Bokmål | UDPipe Bokmål | Difference | Prism Nynorsk | UDPipe Nynorsk | Difference |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| UPOS F1 | 98.9689% | 98.9497% | +0.0192 pp | 98.6688% | 98.5728% | +0.0960 pp |
+| UFeats F1 | 96.6372% | 98.0698% | -1.4326 pp | 94.0768% | 95.6608% | -1.5840 pp |
+| Lemmas F1 | 98.9304% | 98.9744% | -0.0440 pp | 98.5568% | 98.8288% | -0.2720 pp |
+
+These values use official-compatible gold-token Development scoring, the
+canonical morphology policy, and logit-correction strength `1.0`. The
+Nynorsk treebank policy has not yet been rerun on this checkpoint and is not
+estimated from the previous model.

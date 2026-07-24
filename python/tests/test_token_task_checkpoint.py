@@ -4,6 +4,7 @@ import torch
 from prism.modeling import (
     BackboneLayerAggregationStrategy,
     MorphologyAgreementRefinerSpec,
+    MorphologyPreHeadArchitecture,
     TokenPoolingStrategy,
     TokenTaskHeadArchitecture,
 )
@@ -16,6 +17,7 @@ from prism.training import (
     character_vocabulary_from_checkpoint,
     maximum_character_count_from_checkpoint,
     morphology_logit_correction_from_checkpoint,
+    morphology_pre_head_architecture_from_checkpoint,
     morphology_bundle_reranker_spec_from_checkpoint,
     morphology_agreement_refiner_spec_from_checkpoint,
     serialize_morphology_agreement_refiner_spec,
@@ -102,6 +104,27 @@ def test_task_head_architecture_is_loaded_from_checkpoint_metadata() -> None:
     ):
         token_task_head_architecture_from_checkpoint(
             {"token_task_head_architecture": "separate-mlp"}
+        )
+
+
+def test_morphology_pre_head_architecture_is_loaded_from_checkpoint_metadata() -> None:
+    assert (
+        morphology_pre_head_architecture_from_checkpoint({})
+        is MorphologyPreHeadArchitecture.IDENTITY
+    )
+    assert (
+        morphology_pre_head_architecture_from_checkpoint(
+            {"morphology_pre_head_architecture": "shared-mlp"}
+        )
+        is MorphologyPreHeadArchitecture.SHARED_MLP
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Unsupported checkpoint morphology pre-head architecture",
+    ):
+        morphology_pre_head_architecture_from_checkpoint(
+            {"morphology_pre_head_architecture": "feature-mlp"}
         )
 
 

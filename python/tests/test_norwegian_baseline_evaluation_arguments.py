@@ -28,6 +28,10 @@ def test_parse_evaluation_arguments_accepts_language_profile() -> None:
             "Gender",
             "--morphology-error-audit-comparison",
             "runs/udpipe/nb-development.conllu",
+            "--morphology-feature-comparison",
+            "runs/udpipe/nn-development.conllu",
+            "--morphology-feature-comparison-name",
+            "UDPipe 2.17",
         )
     )
 
@@ -46,3 +50,22 @@ def test_parse_evaluation_arguments_accepts_language_profile() -> None:
     assert arguments.morphology_error_audit_comparison_path == Path(
         "runs/udpipe/nb-development.conllu"
     )
+    assert arguments.morphology_feature_comparison_path == Path(
+        "runs/udpipe/nn-development.conllu"
+    )
+    assert arguments.morphology_feature_comparison_name == "UDPipe 2.17"
+    assert not arguments.task_interaction_audit
+    assert arguments.task_interaction_gradient_batch_count == 16
+
+
+def test_parse_evaluation_arguments_accepts_task_interaction_audit() -> None:
+    arguments = parse_evaluation_arguments(
+        (
+            "--task-interaction-audit",
+            "--task-interaction-gradient-batches",
+            "12",
+        )
+    )
+
+    assert arguments.task_interaction_audit
+    assert arguments.task_interaction_gradient_batch_count == 12

@@ -60,38 +60,35 @@ def test_gold_tokenized_ud_metrics_match_official_score_semantics() -> None:
         reference_batches=references,
         lemma_decoder=(lambda form, lemma, upos: "$" + lemma if form == "." else lemma),
     )
-    accumulator.add(
-        predictions=TokenTaskPredictionBatch(
-            upos_ids=torch.tensor(
-                [[schema.upos.label_id_for("NOUN"), schema.upos.label_id_for("NOUN")]],
-                dtype=torch.long,
+    predictions = TokenTaskPredictionBatch(
+        upos_ids=torch.tensor(
+            [[schema.upos.label_id_for("NOUN"), schema.upos.label_id_for("NOUN")]],
+            dtype=torch.long,
+        ),
+        morphology_predictions=(
+            torch.tensor(
+                [[[False, True], [True, False]]],
+                dtype=torch.bool,
             ),
-            morphology_predictions=(
-                torch.tensor(
-                    [[[False, True], [True, False]]],
-                    dtype=torch.bool,
-                ),
-                torch.tensor(
-                    [[[False, True], [True, False]]],
-                    dtype=torch.bool,
-                ),
+            torch.tensor(
+                [[[False, True], [True, False]]],
+                dtype=torch.bool,
             ),
-            lemma_rule_ids=torch.tensor(
+        ),
+        lemma_rule_ids=torch.tensor(
+            [
                 [
-                    [
-                        schema.lemma_rules.rule_id_for(
-                            derive_lemma_edit_rule("Huset", "hus")
-                        ),
-                        schema.lemma_rules.rule_id_for(
-                            derive_lemma_edit_rule(".", ".")
-                        ),
-                    ]
-                ],
-                dtype=torch.long,
-            ),
-            token_mask=torch.tensor([[True, True]], dtype=torch.bool),
-        )
+                    schema.lemma_rules.rule_id_for(
+                        derive_lemma_edit_rule("Huset", "hus")
+                    ),
+                    schema.lemma_rules.rule_id_for(derive_lemma_edit_rule(".", ".")),
+                ]
+            ],
+            dtype=torch.long,
+        ),
+        token_mask=torch.tensor([[True, True]], dtype=torch.bool),
     )
+    accumulator.add(predictions=predictions)
 
     metrics = accumulator.finish()
 
@@ -103,6 +100,18 @@ def test_gold_tokenized_ud_metrics_match_official_score_semantics() -> None:
     assert metrics.upos.aligned_accuracy == 0.5
     assert metrics.ufeats.f1 == 1.0
     assert math.isclose(metrics.lemmas.f1, 1.0)
+
+    token_slice_accumulator = accumulator.spawn_empty()
+    token_slice_accumulator.add(
+        predictions=predictions,
+        evaluation_mask=torch.tensor([[False, True]], dtype=torch.bool),
+    )
+    token_slice_metrics = token_slice_accumulator.finish()
+
+    assert token_slice_metrics.upos.gold_total == 1
+    assert token_slice_metrics.upos.f1 == 0.0
+    assert token_slice_metrics.ufeats.f1 == 1.0
+    assert token_slice_metrics.lemmas.f1 == 1.0
 
 
 def test_gold_tokenized_conllu_metrics_compare_complete_ufeats() -> None:

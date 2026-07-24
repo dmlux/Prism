@@ -16,6 +16,15 @@ from prism.evaluation.morphology_error_audit import (
     MorphologyFeatureConfusionCount,
     NamedCount,
 )
+from prism.evaluation.morphology_feature_comparison import (
+    MorphologyFeatureComparison,
+    MorphologyFeatureComparisonAccumulator,
+    MorphologyFeatureComparisonReport,
+    MorphologyFeatureSliceComparison,
+    MorphologyFeatureSystemMetrics,
+    MorphologyFeatureValueMetrics,
+    serialize_morphology_feature_comparison_report,
+)
 from prism.evaluation.prediction_observer import TokenTaskPredictionObserver
 from prism.evaluation.token_frequency import (
     TokenFrequencyClass,
@@ -45,7 +54,13 @@ __all__ = [
     "MorphologyErrorAudit",
     "MorphologyErrorAuditAccumulator",
     "MorphologyErrorRecord",
+    "MorphologyFeatureComparison",
+    "MorphologyFeatureComparisonAccumulator",
+    "MorphologyFeatureComparisonReport",
     "MorphologyFeatureConfusionCount",
+    "MorphologyFeatureSliceComparison",
+    "MorphologyFeatureSystemMetrics",
+    "MorphologyFeatureValueMetrics",
     "NamedCount",
     "TokenTaskPredictionObserver",
     "TokenFrequencyClass",
@@ -62,4 +77,5 @@ __all__ = [
     "evaluate_morphology_bundle_oracle",
     "morphology_bundle_from_features",
     "serialize_universal_dependencies_evaluation_metrics",
+    "serialize_morphology_feature_comparison_report",
 ]

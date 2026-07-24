@@ -2,6 +2,7 @@ import torch
 from torch import nn
 
 from prism.modeling import (
+    MorphologyPreHeadArchitecture,
     SharedResidualTokenProjection,
     StructuredMorphologyDecoder,
     TaskResidualAdapter,
@@ -228,6 +229,92 @@ def test_token_task_heads_select_wide_shared_residual_mlp() -> None:
     assert logits.lemma_rule_logits.shape == (2, 3, 2)
 
 
+def test_token_task_heads_add_shared_post_fusion_morphology_mlp() -> None:
+    torch.manual_seed(7)
+    schema = TokenTaskSchema(
+        upos=UposSchema(version=1, labels=("NOUN", "VERB")),
+        morphology=MorphologySchema(
+            version=1,
+            features=(
+                MorphologyFeatureSchema(
+                    name="Number",
+                    values=("Plur", "Sing"),
+                    allows_multiple_values=True,
+                ),
+            ),
+        ),
+        lemma_rules=LemmaRuleSchema(
+            version=1,
+            rules=(
+                LemmaEditRule(
+                    prefix_removal=0,
+                    suffix_removal=0,
+                    prefix_addition="",
+                    suffix_addition="",
+                ),
+                LemmaEditRule(
+                    prefix_removal=0,
+                    suffix_removal=1,
+                    prefix_addition="",
+                    suffix_addition="",
+                ),
+            ),
+        ),
+    )
+    identity_heads = TokenTaskHeads(
+        hidden_size=4,
+        schema=schema,
+        dropout_probability=0.0,
+        architecture=(
+            TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY_CHARACTER_CNN
+        ),
+    )
+    torch.manual_seed(7)
+    heads = TokenTaskHeads(
+        hidden_size=4,
+        schema=schema,
+        dropout_probability=0.0,
+        architecture=(
+            TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY_CHARACTER_CNN
+        ),
+        morphology_pre_head_architecture=(MorphologyPreHeadArchitecture.SHARED_MLP),
+    )
+    contextual_hidden_states = torch.randn((2, 3, 4))
+    character_hidden_states = torch.randn((2, 3, 4))
+
+    hidden_states = heads.encode_hidden_states(
+        contextual_hidden_states,
+        character_hidden_states=character_hidden_states,
+    )
+
+    assert isinstance(
+        heads.morphology_pre_head_projection,
+        WideSharedResidualTokenProjection,
+    )
+    assert (
+        sum(
+            parameter.numel()
+            for parameter in heads.morphology_pre_head_projection.parameters()
+        )
+        == 76
+    )
+    for name, parameter in identity_heads.state_dict().items():
+        torch.testing.assert_close(heads.state_dict()[name], parameter)
+    restored_heads = TokenTaskHeads(
+        hidden_size=4,
+        schema=schema,
+        dropout_probability=0.0,
+        architecture=(
+            TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY_CHARACTER_CNN
+        ),
+        morphology_pre_head_architecture=(MorphologyPreHeadArchitecture.SHARED_MLP),
+    )
+    restored_heads.load_state_dict(heads.state_dict(), strict=True)
+    torch.testing.assert_close(hidden_states.lemma, hidden_states.task)
+    assert not torch.equal(hidden_states.morphology, hidden_states.task)
+    assert not torch.equal(hidden_states.upos, hidden_states.task)
+
+
 def test_token_task_heads_add_separate_task_residual_adapters() -> None:
     schema = TokenTaskSchema(
         upos=UposSchema(version=1, labels=("NOUN", "VERB")),
@@ -353,6 +440,7 @@ def test_token_task_heads_select_structured_morphology_decoder() -> None:
     )
     assert isinstance(heads.upos_adapter, nn.Identity)
     assert isinstance(heads.morphology_adapter, nn.Identity)
+    assert isinstance(heads.morphology_pre_head_projection, nn.Identity)
     assert isinstance(heads.lemma_adapter, nn.Identity)
     assert isinstance(
         heads.structured_morphology_decoder,

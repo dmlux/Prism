@@ -11,9 +11,11 @@ from prism.exporting import (
 from prism.modeling import (
     CharacterCnnTokenEncoder,
     MorphologyLogitCorrection,
+    MorphologyPreHeadArchitecture,
     MorphologyAgreementRefinerSpec,
     MorphologyBundleCandidate,
     MorphologyBundleRerankerSpec,
+    MorphologyBundleScorerArchitecture,
     TokenPoolingStrategy,
     TokenTagger,
     TokenTaskHeadArchitecture,
@@ -126,7 +128,13 @@ def test_token_tagger_export_embeds_morphology_logit_correction() -> None:
         torch.testing.assert_close(exported_output, eager)
 
 
-def test_character_aware_token_tagger_has_strict_export_parity() -> None:
+@pytest.mark.parametrize(
+    "bundle_scorer_architecture",
+    tuple(MorphologyBundleScorerArchitecture),
+)
+def test_character_aware_token_tagger_has_strict_export_parity(
+    bundle_scorer_architecture: MorphologyBundleScorerArchitecture,
+) -> None:
     schema = TokenTaskSchema(
         upos=UposSchema(version=1, labels=("NOUN", "VERB")),
         morphology=MorphologySchema(
@@ -168,6 +176,7 @@ def test_character_aware_token_tagger_has_strict_export_parity() -> None:
             ),
             morphology_bundle_reranker_spec=MorphologyBundleRerankerSpec(
                 maximum_candidates_per_upos=1,
+                scorer_architecture=bundle_scorer_architecture,
                 candidates=(
                     MorphologyBundleCandidate(
                         upos_id=0,
@@ -186,6 +195,7 @@ def test_character_aware_token_tagger_has_strict_export_parity() -> None:
                 bottleneck_size=4,
                 target_feature_names=("Number",),
             ),
+            morphology_pre_head_architecture=(MorphologyPreHeadArchitecture.SHARED_MLP),
         ),
         pooling_strategy=TokenPoolingStrategy.MEAN,
         character_encoder=CharacterCnnTokenEncoder(

@@ -38,6 +38,7 @@ class TokenTaskEvaluationMetrics:
     lemma_target_count: int
     lemma_annotation_count: int
     upos_accuracy: float
+    morphology_correct_counts: tuple[int, ...]
     morphology_accuracies: tuple[float, ...]
     morphology_annotated_accuracies: tuple[float | None, ...]
     lemma_rule_accuracy: float | None
@@ -315,6 +316,10 @@ class TokenTaskEvaluationAccumulator:
             lemma_target_count=lemma_target_count,
             lemma_annotation_count=lemma_annotation_count,
             upos_accuracy=(self.upos_correct_count / self.token_count).item(),
+            morphology_correct_counts=tuple(
+                int(correct_count.item())
+                for correct_count in self.morphology_correct_counts
+            ),
             morphology_accuracies=tuple(
                 (correct_count / self.token_count).item()
                 for correct_count in self.morphology_correct_counts

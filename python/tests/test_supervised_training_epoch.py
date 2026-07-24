@@ -3,7 +3,12 @@ import math
 import torch
 from torch import nn
 
+from prism.conllu import Token
 from prism.data import TokenTaskTargetBatch
+from prism.evaluation import (
+    UniversalDependenciesEvaluationAccumulator,
+    build_universal_dependencies_reference_batch,
+)
 from prism.modeling import (
     MorphologyLogitCorrection,
     TokenizedBatch,
@@ -20,6 +25,9 @@ from prism.training import (
     train_supervised_token_task_epoch,
 )
 from prism.schema import (
+    TokenTaskSchema,
+    build_lemma_rule_schema,
+    build_upos_schema,
     MorphologyFeatureSchema,
     MorphologySchema,
 )
@@ -191,6 +199,11 @@ def test_evaluation_epoch_reports_task_accuracies() -> None:
 
 def test_evaluation_epoch_reports_named_token_slice() -> None:
     model = TinyEpochModel()
+    schema = TokenTaskSchema(
+        upos=build_upos_schema(("X",)),
+        morphology=MORPHOLOGY_SCHEMA,
+        lemma_rules=build_lemma_rule_schema((("word", "word"),)),
+    )
 
     metrics = evaluate_supervised_token_task_epoch(
         model=model,
@@ -206,6 +219,37 @@ def test_evaluation_epoch_reports_named_token_slice() -> None:
                 torch.tensor([[False]]),
             ),
         },
+        universal_dependencies_accumulator=(
+            UniversalDependenciesEvaluationAccumulator(
+                schema=schema,
+                reference_batches=(
+                    build_universal_dependencies_reference_batch(
+                        (
+                            (
+                                Token(
+                                    text="word",
+                                    lemma="word",
+                                    upos="X",
+                                    features={},
+                                ),
+                            ),
+                        )
+                    ),
+                    build_universal_dependencies_reference_batch(
+                        (
+                            (
+                                Token(
+                                    text="word",
+                                    lemma="word",
+                                    upos="X",
+                                    features={"Feature": "Value"},
+                                ),
+                            ),
+                        )
+                    ),
+                ),
+            )
+        ),
     )
 
     assert len(metrics.token_slices) == 1
@@ -216,6 +260,10 @@ def test_evaluation_epoch_reports_named_token_slice() -> None:
     assert token_slice.metrics.upos_accuracy == 1.0
     assert token_slice.metrics.lemma_rule_accuracy == 1.0
     assert token_slice.metrics.morphology_accuracies == (1.0,)
+    assert token_slice.universal_dependencies is not None
+    assert token_slice.universal_dependencies.upos.f1 == 1.0
+    assert token_slice.universal_dependencies.ufeats.f1 == 1.0
+    assert token_slice.universal_dependencies.lemmas.f1 == 1.0
 
 
 def test_evaluation_epoch_forwards_decoded_predictions_to_observer() -> None:

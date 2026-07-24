@@ -27,6 +27,7 @@ from prism.modeling.alignment import (
 from prism.modeling.outputs import (
     ContextualizedSubwordBatch,
     ContextualizedTokenBatch,
+    TokenTaskHiddenStates,
     TokenTaskLogits,
 )
 from prism.modeling.encoders import contextualize_subwords
@@ -35,6 +36,7 @@ from prism.modeling.layer_aggregation import (
     BackboneLayerAggregationStrategy,
 )
 from prism.modeling.heads import (
+    MorphologyPreHeadArchitecture,
     SharedResidualTokenProjection,
     TaskResidualAdapter,
     TokenClassificationHead,
@@ -49,14 +51,19 @@ from prism.modeling.morphology_agreement import (
     validate_morphology_agreement_refiner_spec,
 )
 from prism.modeling.morphology_bundle_reranker import (
+    CompositionalMorphologyBundleScorer,
     MorphologyBundleCandidate,
+    MorphologyBundleLossGradientScope,
     MorphologyBundleReranker,
     MorphologyBundleRerankerSpec,
+    MorphologyBundleScorerArchitecture,
     validate_morphology_bundle_reranker_spec,
 )
 from prism.modeling.decoding import (
     MorphologyLogitCorrection,
+    apply_morphology_feature_logit_correction,
     apply_morphology_logit_correction,
+    decode_morphology_feature_logits,
 )
 from prism.modeling.taggers import (
     TokenTagger,
@@ -80,11 +87,13 @@ __all__ = [
     "find_subword_spans",
     "ContextualizedSubwordBatch",
     "ContextualizedTokenBatch",
+    "TokenTaskHiddenStates",
     "TokenTaskLogits",
     "contextualize_subwords",
     "BackboneLayerAggregation",
     "BackboneLayerAggregationStrategy",
     "TokenClassificationHead",
+    "MorphologyPreHeadArchitecture",
     "TokenTaskHeadArchitecture",
     "TokenTaskHeads",
     "SharedResidualTokenProjection",
@@ -94,12 +103,17 @@ __all__ = [
     "MorphologyAgreementRefiner",
     "MorphologyAgreementRefinerSpec",
     "validate_morphology_agreement_refiner_spec",
+    "CompositionalMorphologyBundleScorer",
     "MorphologyBundleCandidate",
+    "MorphologyBundleLossGradientScope",
     "MorphologyBundleReranker",
     "MorphologyBundleRerankerSpec",
+    "MorphologyBundleScorerArchitecture",
     "validate_morphology_bundle_reranker_spec",
     "MorphologyLogitCorrection",
+    "apply_morphology_feature_logit_correction",
     "apply_morphology_logit_correction",
+    "decode_morphology_feature_logits",
     "TokenTagger",
     "build_pretrained_token_tagger",
 ]

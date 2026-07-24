@@ -3,6 +3,8 @@
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 
+import torch
+
 from prism.conllu import Token
 from prism.modeling.outputs import TokenTaskPredictionBatch
 from prism.schema import TokenTaskSchema, decode_morphology_values
@@ -265,9 +267,33 @@ class UniversalDependenciesEvaluationAccumulator:
         self._policy_improved_counts = [0] * len(step_names)
         self._policy_regressed_counts = [0] * len(step_names)
 
-    def add(self, *, predictions: TokenTaskPredictionBatch) -> None:
+    def spawn_empty(self) -> "UniversalDependenciesEvaluationAccumulator":
+        """Create an empty accumulator with the same references and decoders."""
+
+        return UniversalDependenciesEvaluationAccumulator(
+            schema=self.schema,
+            reference_batches=self.reference_batches,
+            lemma_decoder=self.lemma_decoder,
+            universal_features_policy_steps=self.universal_features_policy_steps,
+        )
+
+    def add(
+        self,
+        *,
+        predictions: TokenTaskPredictionBatch,
+        evaluation_mask: torch.Tensor | None = None,
+    ) -> None:
         if self._batch_index >= len(self.reference_batches):
             raise ValueError("UD evaluation received more predictions than references.")
+        if evaluation_mask is not None:
+            if evaluation_mask.shape != predictions.token_mask.shape:
+                raise ValueError(
+                    "UD evaluation mask must match the prediction token mask."
+                )
+            if evaluation_mask.dtype != torch.bool:
+                raise ValueError("UD evaluation mask must be boolean.")
+            if torch.any(evaluation_mask & ~predictions.token_mask).item():
+                raise ValueError("UD evaluation mask cannot select padding tokens.")
 
         reference_batch = self.reference_batches[self._batch_index]
         if predictions.upos_ids.shape[0] != len(reference_batch.sentences):
@@ -283,6 +309,10 @@ class UniversalDependenciesEvaluationAccumulator:
                 )
 
             for token_index, reference in enumerate(reference_sentence):
+                if evaluation_mask is not None and not bool(
+                    evaluation_mask[sentence_index, token_index].item()
+                ):
+                    continue
                 predicted_upos = self.schema.upos.label_for_id(
                     int(predictions.upos_ids[sentence_index, token_index].item())
                 )

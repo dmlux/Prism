@@ -34,6 +34,9 @@ Prism currently provides:
   frequencies;
 - a selected, export-tested character-CNN branch that feeds complete-token form
   information into morphology and lemma while leaving UPOS unchanged;
+- a selected shared post-fusion morphology MLP that improves complete UFeats
+  and Gender across Bokmål and Nynorsk while preserving an explicit identity
+  control for compatibility and ablations;
 - a typed task-specific distillation policy with independent UPOS, morphology,
   and lemma temperatures and weights;
 - optional categorical DKD with independently weighted target-class and
@@ -48,8 +51,10 @@ compact character CNN for morphology and lemma, then distills an accepted
 NorBERT4-Base Teacher at temperature 1.0 and weight 0.1. The character branch
 improves Rare end-to-end lemma accuracy by 2.67/2.42 percentage points and Rare
 morphology micro F1 by 1.76/1.50 points on Bokmål/Nynorsk. OOV lemma,
-morphology, and UPOS also improve on both written standards. The 69.9 MB
-checkpoint remains below the 100 MB target. Decoupled knowledge distillation
+morphology, and UPOS also improve on both written standards. The selected
+shared morphology MLP then corrects 226 additional complete UFeats bundles and
+204 Gender decisions across Bokmål and Nynorsk for a 70,661,786-byte
+checkpoint that remains below the 100 MB target. Decoupled knowledge distillation
 further lowers loss and improves overall UPOS, lemma, and Rare/OOV lemma and
 morphology on both standards without changing inference cost. Its localized
 Rare/OOV UPOS tradeoffs remain explicit. Both official test splits remain

@@ -5,6 +5,7 @@ from prism.modeling import (
     MorphologyBundleCandidate,
     MorphologyBundleReranker,
     MorphologyBundleRerankerSpec,
+    MorphologyBundleScorerArchitecture,
 )
 from prism.schema import MorphologyFeatureSchema, MorphologySchema
 from prism.training import (
@@ -32,7 +33,11 @@ def _schema() -> MorphologySchema:
     )
 
 
-def _spec() -> MorphologyBundleRerankerSpec:
+def _spec(
+    scorer_architecture: MorphologyBundleScorerArchitecture = (
+        MorphologyBundleScorerArchitecture.LINEAR
+    ),
+) -> MorphologyBundleRerankerSpec:
     return MorphologyBundleRerankerSpec(
         maximum_candidates_per_upos=2,
         candidates=(
@@ -52,6 +57,7 @@ def _spec() -> MorphologyBundleRerankerSpec:
                 training_count=2,
             ),
         ),
+        scorer_architecture=scorer_architecture,
     )
 
 
@@ -128,6 +134,43 @@ def test_bundle_reranker_can_isolate_direct_loss_gradient() -> None:
     assert reranker.refinement_gates.grad is None
 
 
+def test_compositional_bundle_scorer_can_isolate_direct_loss_gradient() -> None:
+    reranker = MorphologyBundleReranker(
+        hidden_size=4,
+        upos_label_count=2,
+        morphology_schema=_schema(),
+        spec=_spec(MorphologyBundleScorerArchitecture.COMPOSITIONAL_MLP),
+        dropout_probability=0.0,
+    )
+    reranker.set_direct_loss_gradient_isolation(True)
+    hidden_states = torch.randn((1, 2, 4), requires_grad=True)
+    upos_logits = torch.randn((1, 2, 2), requires_grad=True)
+    morphology_logits = (
+        torch.randn((1, 2, 2), requires_grad=True),
+        torch.randn((1, 2, 3), requires_grad=True),
+    )
+
+    _, candidate_scores, isolated_loss_scores = reranker.refine_with_training_scores(
+        hidden_states=hidden_states,
+        upos_logits=upos_logits,
+        morphology_logits=morphology_logits,
+    )
+
+    assert candidate_scores is not None
+    assert isolated_loss_scores is not None
+    torch.testing.assert_close(isolated_loss_scores, candidate_scores)
+    isolated_loss_scores.square().sum().backward()
+
+    assert hidden_states.grad is None
+    assert upos_logits.grad is None
+    assert all(logits.grad is None for logits in morphology_logits)
+    assert any(
+        parameter.grad is not None
+        for parameter in reranker.candidate_projection.parameters()
+    )
+    assert reranker.refinement_gates.grad is None
+
+
 def test_bundle_reranker_spec_uses_top_k_and_round_trips() -> None:
     targets = (
         TokenTargets(
@@ -171,12 +214,71 @@ def test_bundle_reranker_spec_uses_top_k_and_round_trips() -> None:
     )
 
 
-def test_bundle_reranker_supports_strict_export() -> None:
+def test_bundle_reranker_spec_preserves_compositional_scorer() -> None:
+    spec = _spec(MorphologyBundleScorerArchitecture.COMPOSITIONAL_MLP)
+
+    assert (
+        deserialize_morphology_bundle_reranker_spec(
+            serialize_morphology_bundle_reranker_spec(spec)
+        )
+        == spec
+    )
+    legacy_metadata = serialize_morphology_bundle_reranker_spec(spec)
+    del legacy_metadata["scorer_architecture"]
+    assert (
+        deserialize_morphology_bundle_reranker_spec(legacy_metadata).scorer_architecture
+        is MorphologyBundleScorerArchitecture.LINEAR
+    )
+
+
+def test_compositional_bundle_scorer_is_zero_initialized_and_trainable() -> None:
     reranker = MorphologyBundleReranker(
         hidden_size=4,
         upos_label_count=2,
         morphology_schema=_schema(),
-        spec=_spec(),
+        spec=_spec(MorphologyBundleScorerArchitecture.COMPOSITIONAL_MLP),
+        dropout_probability=0.0,
+    )
+    hidden_states = torch.randn((1, 2, 4), requires_grad=True)
+    upos_logits = torch.randn((1, 2, 2))
+    morphology_logits = (
+        torch.randn((1, 2, 2)),
+        torch.randn((1, 2, 3)),
+    )
+
+    evidence_scores = reranker._candidate_evidence_scores(
+        upos_logits=upos_logits,
+        morphology_logits=morphology_logits,
+    )
+    _, candidate_scores = reranker.refine_with_scores(
+        hidden_states=hidden_states,
+        upos_logits=upos_logits,
+        morphology_logits=morphology_logits,
+    )
+
+    assert candidate_scores is not None
+    torch.testing.assert_close(candidate_scores, evidence_scores)
+    candidate_scores.square().sum().backward()
+    assert any(
+        parameter.grad is not None
+        for parameter in reranker.candidate_projection.parameters()
+    )
+
+
+@torch.no_grad()
+def test_bundle_reranker_supports_strict_export() -> None:
+    for architecture in MorphologyBundleScorerArchitecture:
+        _assert_bundle_reranker_supports_strict_export(architecture)
+
+
+def _assert_bundle_reranker_supports_strict_export(
+    architecture: MorphologyBundleScorerArchitecture,
+) -> None:
+    reranker = MorphologyBundleReranker(
+        hidden_size=4,
+        upos_label_count=2,
+        morphology_schema=_schema(),
+        spec=_spec(architecture),
         dropout_probability=0.0,
     )
     inputs = {

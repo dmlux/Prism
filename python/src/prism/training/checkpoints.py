@@ -7,6 +7,7 @@ from prism.modeling import (
     MorphologyLogitCorrection,
     MorphologyBundleRerankerSpec,
     MorphologyAgreementRefinerSpec,
+    MorphologyPreHeadArchitecture,
     TokenPoolingStrategy,
     TokenTaskHeadArchitecture,
 )
@@ -41,19 +42,10 @@ def morphology_bundle_reranker_spec_from_checkpoint(
     return deserialize_morphology_bundle_reranker_spec(raw_spec)
 
 
-def morphology_logit_correction_from_checkpoint(
+def morphology_weights_from_checkpoint(
     checkpoint: Mapping[str, object],
-    *,
-    strength: float,
-) -> MorphologyLogitCorrection | None:
-    """Build an optional evaluation correction from checkpointed loss weights."""
-
-    if not 0.0 <= strength <= 1.0:
-        raise ValueError(
-            "Morphology logit-correction strength must be between zero and one."
-        )
-    if strength == 0.0:
-        return None
+) -> tuple[torch.Tensor, ...]:
+    """Load the per-feature morphology loss weights stored in a checkpoint."""
 
     raw_weights = checkpoint.get("morphology_weights")
     if not isinstance(raw_weights, (list, tuple)) or not raw_weights:
@@ -71,10 +63,26 @@ def morphology_logit_correction_from_checkpoint(
         ):
             raise ValueError("Checkpoint morphology weights must be numeric.")
         weights.append(torch.tensor(feature_weights, dtype=torch.float32))
+    return tuple(weights)
+
+
+def morphology_logit_correction_from_checkpoint(
+    checkpoint: Mapping[str, object],
+    *,
+    strength: float,
+) -> MorphologyLogitCorrection | None:
+    """Build an optional evaluation correction from checkpointed loss weights."""
+
+    if not 0.0 <= strength <= 1.0:
+        raise ValueError(
+            "Morphology logit-correction strength must be between zero and one."
+        )
+    if strength == 0.0:
+        return None
 
     return MorphologyLogitCorrection(
         strength=strength,
-        weights=tuple(weights),
+        weights=morphology_weights_from_checkpoint(checkpoint),
     )
 
 
@@ -124,6 +132,27 @@ def token_task_head_architecture_from_checkpoint(
     except ValueError as error:
         raise ValueError(
             f"Unsupported checkpoint task-head architecture: {raw_architecture!r}."
+        ) from error
+
+
+def morphology_pre_head_architecture_from_checkpoint(
+    checkpoint: Mapping[str, object],
+) -> MorphologyPreHeadArchitecture:
+    raw_architecture = checkpoint.get(
+        "morphology_pre_head_architecture",
+        MorphologyPreHeadArchitecture.IDENTITY.value,
+    )
+    if not isinstance(raw_architecture, str):
+        raise ValueError(
+            "Checkpoint morphology pre-head architecture must be a string."
+        )
+
+    try:
+        return MorphologyPreHeadArchitecture(raw_architecture)
+    except ValueError as error:
+        raise ValueError(
+            "Unsupported checkpoint morphology pre-head architecture: "
+            f"{raw_architecture!r}."
         ) from error
 
 

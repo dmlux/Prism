@@ -25,6 +25,9 @@ from prism.languages.norwegian import (
 from prism.modeling import (
     BackboneLayerAggregationStrategy,
     MorphologyAgreementRefinerSpec,
+    MorphologyBundleLossGradientScope,
+    MorphologyBundleScorerArchitecture,
+    MorphologyPreHeadArchitecture,
     PretrainedBackboneSpec,
     TokenPoolingStrategy,
     TokenTagger,
@@ -67,6 +70,7 @@ from prism.training import (
     character_vocabulary_from_checkpoint,
     morphology_bundle_reranker_spec_from_checkpoint,
     morphology_agreement_refiner_spec_from_checkpoint,
+    morphology_pre_head_architecture_from_checkpoint,
     build_morphology_bundle_reranker_spec,
     serialize_morphology_bundle_reranker_spec,
     serialize_morphology_agreement_refiner_spec,
@@ -92,14 +96,23 @@ class BaselineTrainingArguments:
     distillation_policy: TokenTaskDistillationPolicy
     token_pooling_strategy: TokenPoolingStrategy
     token_task_head_architecture: TokenTaskHeadArchitecture
+    morphology_pre_head_architecture: MorphologyPreHeadArchitecture
     backbone_layer_aggregation: BackboneLayerAggregationStrategy
     epoch_count: int
     treebank_release: str
     morphology_bundle_candidate_count: int
+    morphology_bundle_scorer_architecture: MorphologyBundleScorerArchitecture
     morphology_bundle_loss_weight: float
-    isolate_morphology_bundle_loss_gradient: bool
+    morphology_bundle_loss_gradient_scope: MorphologyBundleLossGradientScope
     morphology_agreement_window_radius: int
     early_stopping_patience: int | None
+
+    @property
+    def isolate_morphology_bundle_loss_gradient(self) -> bool:
+        return (
+            self.morphology_bundle_loss_gradient_scope
+            is MorphologyBundleLossGradientScope.RESIDUAL_ONLY
+        )
 
 
 def parse_training_arguments(
@@ -203,6 +216,18 @@ def parse_training_arguments(
         ),
     )
     parser.add_argument(
+        "--morphology-pre-head-architecture",
+        choices=tuple(
+            architecture.value for architecture in MorphologyPreHeadArchitecture
+        ),
+        default=MorphologyPreHeadArchitecture.SHARED_MLP.value,
+        help=(
+            "Optional post-fusion morphology projection before all morphology "
+            "feature heads (shared-mlp is selected for new training runs; "
+            "identity reproduces the previous control)."
+        ),
+    )
+    parser.add_argument(
         "--backbone-layer-aggregation",
         choices=tuple(strategy.value for strategy in BackboneLayerAggregationStrategy),
         default=BackboneLayerAggregationStrategy.LEARNED_LAST_FOUR.value,
@@ -227,18 +252,37 @@ def parse_training_arguments(
         help="Enable the training-derived morphology bundle reranker with 32 candidates per UPOS.",
     )
     parser.add_argument(
+        "--morphology-bundle-scorer-architecture",
+        choices=tuple(
+            architecture.value
+            for architecture in MorphologyBundleScorerArchitecture
+        ),
+        default=MorphologyBundleScorerArchitecture.LINEAR.value,
+        help=(
+            "Residual scorer for complete morphology candidates. "
+            "compositional-mlp is the nonlinear architecture ablation."
+        ),
+    )
+    parser.add_argument(
         "--morphology-bundle-loss-weight",
         type=float,
         default=0.0,
         help=("Weight for direct complete-bundle supervision (0 disables it)."),
     )
     parser.add_argument(
+        "--morphology-bundle-loss-gradient-scope",
+        choices=tuple(scope.value for scope in MorphologyBundleLossGradientScope),
+        default=None,
+        help=(
+            "Parameters updated by the direct bundle loss: full, morphology, "
+            "or residual-only. Defaults to morphology when bundle loss is "
+            "enabled and to full when it is disabled."
+        ),
+    )
+    parser.add_argument(
         "--isolate-morphology-bundle-loss-gradient",
         action="store_true",
-        help=(
-            "Restrict the direct bundle-loss gradient to the reranker's residual "
-            "candidate scorer."
-        ),
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--morphology-agreement-window-radius",
@@ -333,12 +377,43 @@ def parse_training_arguments(
             "--morphology-bundle-candidate-count 32"
         )
     if (
+        parsed_arguments.morphology_bundle_candidate_count == 0
+        and parsed_arguments.morphology_bundle_scorer_architecture
+        != MorphologyBundleScorerArchitecture.LINEAR.value
+    ):
+        parser.error(
+            "--morphology-bundle-scorer-architecture requires "
+            "--morphology-bundle-candidate-count 32"
+        )
+    if (
         parsed_arguments.isolate_morphology_bundle_loss_gradient
+        and parsed_arguments.morphology_bundle_loss_gradient_scope is not None
+    ):
+        parser.error(
+            "--isolate-morphology-bundle-loss-gradient cannot be combined with "
+            "--morphology-bundle-loss-gradient-scope"
+        )
+    morphology_bundle_loss_gradient_scope = MorphologyBundleLossGradientScope(
+        MorphologyBundleLossGradientScope.RESIDUAL_ONLY.value
+        if parsed_arguments.isolate_morphology_bundle_loss_gradient
+        else (
+            (
+                MorphologyBundleLossGradientScope.MORPHOLOGY.value
+                if resolved_bundle_loss_weight > 0.0
+                else MorphologyBundleLossGradientScope.FULL.value
+            )
+            if parsed_arguments.morphology_bundle_loss_gradient_scope is None
+            else parsed_arguments.morphology_bundle_loss_gradient_scope
+        )
+    )
+    if (
+        morphology_bundle_loss_gradient_scope
+        is not MorphologyBundleLossGradientScope.FULL
         and resolved_bundle_loss_weight == 0.0
     ):
         parser.error(
-            "--isolate-morphology-bundle-loss-gradient requires a positive "
-            "--morphology-bundle-loss-weight"
+            "A restricted --morphology-bundle-loss-gradient-scope requires a "
+            "positive --morphology-bundle-loss-weight"
         )
     if (
         parsed_arguments.teacher_checkpoint_path is not None
@@ -370,6 +445,9 @@ def parse_training_arguments(
         token_task_head_architecture=TokenTaskHeadArchitecture(
             parsed_arguments.task_head_architecture
         ),
+        morphology_pre_head_architecture=MorphologyPreHeadArchitecture(
+            parsed_arguments.morphology_pre_head_architecture
+        ),
         backbone_layer_aggregation=BackboneLayerAggregationStrategy(
             parsed_arguments.backbone_layer_aggregation
         ),
@@ -378,10 +456,13 @@ def parse_training_arguments(
         morphology_bundle_candidate_count=(
             parsed_arguments.morphology_bundle_candidate_count
         ),
-        morphology_bundle_loss_weight=resolved_bundle_loss_weight,
-        isolate_morphology_bundle_loss_gradient=(
-            parsed_arguments.isolate_morphology_bundle_loss_gradient
+        morphology_bundle_scorer_architecture=(
+            MorphologyBundleScorerArchitecture(
+                parsed_arguments.morphology_bundle_scorer_architecture
+            )
         ),
+        morphology_bundle_loss_weight=resolved_bundle_loss_weight,
+        morphology_bundle_loss_gradient_scope=(morphology_bundle_loss_gradient_scope),
         morphology_agreement_window_radius=(
             parsed_arguments.morphology_agreement_window_radius
         ),
@@ -478,6 +559,9 @@ def _load_distillation_teacher(
         dropout_probability=0.1,
         pooling_strategy=token_pooling_strategy_from_checkpoint(checkpoint),
         head_architecture=teacher_architecture,
+        morphology_pre_head_architecture=(
+            morphology_pre_head_architecture_from_checkpoint(checkpoint)
+        ),
         layer_aggregation_strategy=(
             backbone_layer_aggregation_strategy_from_checkpoint(checkpoint)
         ),
@@ -536,10 +620,18 @@ def main() -> None:
     print("Treebank release:", arguments.treebank_release)
     print("Token pooling:", arguments.token_pooling_strategy.value)
     print("Task-head architecture:", arguments.token_task_head_architecture.value)
+    print(
+        "Morphology pre-head architecture:",
+        arguments.morphology_pre_head_architecture.value,
+    )
     print("Backbone layer aggregation:", arguments.backbone_layer_aggregation.value)
     print(
         "Morphology bundle candidates per UPOS:",
         arguments.morphology_bundle_candidate_count,
+    )
+    print(
+        "Morphology bundle scorer:",
+        arguments.morphology_bundle_scorer_architecture.value,
     )
     print(
         "Morphology bundle loss weight:",
@@ -547,11 +639,7 @@ def main() -> None:
     )
     print(
         "Morphology bundle loss gradient:",
-        (
-            "residual-scorer-only"
-            if arguments.isolate_morphology_bundle_loss_gradient
-            else "all-upstream-inputs"
-        ),
+        arguments.morphology_bundle_loss_gradient_scope.value,
     )
     print(
         "Morphology agreement window radius:",
@@ -602,6 +690,9 @@ def main() -> None:
                 for target in sentence.targets
             ),
             maximum_candidates_per_upos=(arguments.morphology_bundle_candidate_count),
+            scorer_architecture=(
+                arguments.morphology_bundle_scorer_architecture
+            ),
         )
     )
     morphology_agreement_refiner_spec = (
@@ -625,8 +716,8 @@ def main() -> None:
         random_seed=42,
         morphology_weight_cap=arguments.morphology_weight_cap,
         morphology_bundle_loss_weight=arguments.morphology_bundle_loss_weight,
-        isolate_morphology_bundle_loss_gradient=(
-            arguments.isolate_morphology_bundle_loss_gradient
+        morphology_bundle_loss_gradient_scope=(
+            arguments.morphology_bundle_loss_gradient_scope
         ),
         early_stopping_patience=arguments.early_stopping_patience,
     )
@@ -664,6 +755,7 @@ def main() -> None:
         dropout_probability=0.1,
         pooling_strategy=arguments.token_pooling_strategy,
         head_architecture=arguments.token_task_head_architecture,
+        morphology_pre_head_architecture=arguments.morphology_pre_head_architecture,
         layer_aggregation_strategy=arguments.backbone_layer_aggregation,
         character_vocabulary_size=(
             None if character_vocabulary is None else character_vocabulary.size
@@ -671,8 +763,8 @@ def main() -> None:
         morphology_bundle_reranker_spec=morphology_bundle_reranker_spec,
         morphology_agreement_refiner_spec=morphology_agreement_refiner_spec,
     )
-    model.heads.set_morphology_bundle_loss_gradient_isolation(
-        arguments.isolate_morphology_bundle_loss_gradient
+    model.heads.set_morphology_bundle_loss_gradient_scope(
+        arguments.morphology_bundle_loss_gradient_scope
     )
 
     teacher = _load_distillation_teacher(
@@ -883,6 +975,9 @@ def main() -> None:
                 "token_task_head_architecture": (
                     arguments.token_task_head_architecture.value
                 ),
+                "morphology_pre_head_architecture": (
+                    arguments.morphology_pre_head_architecture.value
+                ),
                 "backbone_layer_aggregation": (
                     arguments.backbone_layer_aggregation.value
                 ),
@@ -932,7 +1027,12 @@ def main() -> None:
                 ),
                 "backbone_model_id": (backbone_spec.model_id),
                 "backbone_revision": (backbone_spec.revision),
-                "training_config": asdict(config),
+                "training_config": {
+                    **asdict(config),
+                    "morphology_bundle_loss_gradient_scope": (
+                        config.morphology_bundle_loss_gradient_scope.value
+                    ),
+                },
                 "morphology_weights": (
                     None
                     if loss_weights is None

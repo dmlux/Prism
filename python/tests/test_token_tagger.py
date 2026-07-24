@@ -87,7 +87,25 @@ def test_token_tagger_connects_backbone_alignment_and_task_heads() -> None:
     )
 
     logits = model(batch)
+    task_hidden_states = model.encode_task_hidden_states(batch)
+    logits_from_exposed_boundary = model.heads.classify_hidden_states(
+        task_hidden_states,
+        token_mask=batch.token_mask,
+    )
 
     assert logits.upos_logits.shape == (1, 2, 2)
     assert logits.morphology_logits[0].shape == (1, 2, 2)
     assert logits.lemma_rule_logits.shape == (1, 2, 2)
+    assert task_hidden_states.morphology.shape == (1, 2, 4)
+    torch.testing.assert_close(
+        logits_from_exposed_boundary.upos_logits,
+        logits.upos_logits,
+    )
+    torch.testing.assert_close(
+        logits_from_exposed_boundary.morphology_logits[0],
+        logits.morphology_logits[0],
+    )
+    torch.testing.assert_close(
+        logits_from_exposed_boundary.lemma_rule_logits,
+        logits.lemma_rule_logits,
+    )

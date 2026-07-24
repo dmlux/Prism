@@ -6,6 +6,7 @@ from torch import nn
 from prism.modeling import (
     BackboneLayerAggregationStrategy,
     CharacterCnnTokenEncoder,
+    MorphologyPreHeadArchitecture,
     PretrainedBackboneSpec,
     SharedResidualTokenProjection,
     StructuredMorphologyDecoder,
@@ -174,6 +175,22 @@ def test_build_pretrained_token_tagger_uses_backbone_hidden_size() -> None:
 
     assert isinstance(character_model.character_encoder, CharacterCnnTokenEncoder)
     assert character_model.heads.character_fusion is not None
+
+    with patch(
+        "prism.modeling.taggers.load_backbone_model",
+        return_value=backbone,
+    ):
+        morphology_mlp_model = build_pretrained_token_tagger(
+            backbone_spec=spec,
+            schema=schema,
+            dropout_probability=0.1,
+            morphology_pre_head_architecture=(MorphologyPreHeadArchitecture.SHARED_MLP),
+        )
+
+    assert isinstance(
+        morphology_mlp_model.heads.morphology_pre_head_projection,
+        WideSharedResidualTokenProjection,
+    )
 
     with patch(
         "prism.modeling.taggers.load_backbone_model",

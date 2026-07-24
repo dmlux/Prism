@@ -4,6 +4,9 @@ import pytest
 
 from prism.modeling import (
     BackboneLayerAggregationStrategy,
+    MorphologyBundleLossGradientScope,
+    MorphologyBundleScorerArchitecture,
+    MorphologyPreHeadArchitecture,
     TokenPoolingStrategy,
     TokenTaskHeadArchitecture,
 )
@@ -30,10 +33,22 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
         default_arguments.token_task_head_architecture
         is TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY_CHARACTER_CNN
     )
+    assert (
+        default_arguments.morphology_pre_head_architecture
+        is MorphologyPreHeadArchitecture.SHARED_MLP
+    )
     assert default_arguments.epoch_count == 12
     assert default_arguments.treebank_release == "current"
     assert default_arguments.morphology_bundle_candidate_count == 0
+    assert (
+        default_arguments.morphology_bundle_scorer_architecture
+        is MorphologyBundleScorerArchitecture.LINEAR
+    )
     assert default_arguments.morphology_bundle_loss_weight == 0.0
+    assert (
+        default_arguments.morphology_bundle_loss_gradient_scope
+        is MorphologyBundleLossGradientScope.FULL
+    )
     assert default_arguments.morphology_agreement_window_radius == 0
     assert default_arguments.early_stopping_patience == 4
     assert (
@@ -130,12 +145,62 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
         is TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY_CHARACTER_CNN
     )
 
+    morphology_pre_head_arguments = parse_training_arguments(
+        (
+            "--morphology-pre-head-architecture",
+            "shared-mlp",
+        )
+    )
+    assert (
+        morphology_pre_head_arguments.morphology_pre_head_architecture
+        is MorphologyPreHeadArchitecture.SHARED_MLP
+    )
+
+    identity_morphology_pre_head_arguments = parse_training_arguments(
+        (
+            "--morphology-pre-head-architecture",
+            "identity",
+        )
+    )
+    assert (
+        identity_morphology_pre_head_arguments.morphology_pre_head_architecture
+        is MorphologyPreHeadArchitecture.IDENTITY
+    )
+
     reranker_arguments = parse_training_arguments(
         ("--morphology-bundle-candidate-count", "32"),
     )
     assert reranker_arguments.morphology_bundle_candidate_count == 32
+    assert (
+        reranker_arguments.morphology_bundle_scorer_architecture
+        is MorphologyBundleScorerArchitecture.LINEAR
+    )
     assert reranker_arguments.morphology_bundle_loss_weight == 0.0
-    assert not reranker_arguments.isolate_morphology_bundle_loss_gradient
+    assert (
+        reranker_arguments.morphology_bundle_loss_gradient_scope
+        is MorphologyBundleLossGradientScope.FULL
+    )
+
+    compositional_reranker_arguments = parse_training_arguments(
+        (
+            "--morphology-bundle-candidate-count",
+            "32",
+            "--morphology-bundle-scorer-architecture",
+            "compositional-mlp",
+        ),
+    )
+    assert (
+        compositional_reranker_arguments.morphology_bundle_scorer_architecture
+        is MorphologyBundleScorerArchitecture.COMPOSITIONAL_MLP
+    )
+
+    with pytest.raises(SystemExit):
+        parse_training_arguments(
+            (
+                "--morphology-bundle-scorer-architecture",
+                "compositional-mlp",
+            ),
+        )
 
     bundle_loss_arguments = parse_training_arguments(
         (
@@ -143,14 +208,68 @@ def test_parse_training_arguments_preserves_baseline_variants() -> None:
             "32",
             "--morphology-bundle-loss-weight",
             "0.1",
-            "--isolate-morphology-bundle-loss-gradient",
             "--early-stopping-patience",
             "0",
         ),
     )
     assert bundle_loss_arguments.morphology_bundle_loss_weight == 0.1
-    assert bundle_loss_arguments.isolate_morphology_bundle_loss_gradient
+    assert (
+        bundle_loss_arguments.morphology_bundle_loss_gradient_scope
+        is MorphologyBundleLossGradientScope.MORPHOLOGY
+    )
     assert bundle_loss_arguments.early_stopping_patience is None
+
+    full_gradient_arguments = parse_training_arguments(
+        (
+            "--morphology-bundle-candidate-count",
+            "32",
+            "--morphology-bundle-loss-weight",
+            "0.1",
+            "--morphology-bundle-loss-gradient-scope",
+            "full",
+        ),
+    )
+    assert (
+        full_gradient_arguments.morphology_bundle_loss_gradient_scope
+        is MorphologyBundleLossGradientScope.FULL
+    )
+
+    legacy_isolation_arguments = parse_training_arguments(
+        (
+            "--morphology-bundle-candidate-count",
+            "32",
+            "--morphology-bundle-loss-weight",
+            "0.1",
+            "--isolate-morphology-bundle-loss-gradient",
+        ),
+    )
+    assert (
+        legacy_isolation_arguments.morphology_bundle_loss_gradient_scope
+        is MorphologyBundleLossGradientScope.RESIDUAL_ONLY
+    )
+
+    with pytest.raises(SystemExit):
+        parse_training_arguments(
+            (
+                "--morphology-bundle-candidate-count",
+                "32",
+                "--morphology-bundle-loss-gradient-scope",
+                "morphology",
+            ),
+        )
+
+    with pytest.raises(SystemExit):
+        parse_training_arguments(
+            (
+                "--morphology-bundle-candidate-count",
+                "32",
+                "--morphology-bundle-loss-weight",
+                "0.1",
+                "--morphology-bundle-loss-gradient-scope",
+                "morphology",
+                "--isolate-morphology-bundle-loss-gradient",
+            ),
+        )
 
     agreement_arguments = parse_training_arguments(
         ("--morphology-agreement-window-radius", "3"),

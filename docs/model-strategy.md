@@ -1,7 +1,7 @@
 # Prism model and runtime strategy
 
 Status: active architectural direction with selected shared Norwegian student
-Last updated: 2026-07-21
+Last updated: 2026-07-24
 
 ## Purpose
 
@@ -443,6 +443,38 @@ backbone-size increase. Prism will test the following interventions in order:
    space, and output policies are frozen, so pseudo-labels cannot amplify an
    annotation-contract mistake.
 
+This work does not make UDPipe's architecture Prism's target architecture.
+UDPipe is an external quality reference, not a teacher, decoder specification,
+or source of labels for model selection. Prism deliberately retains one
+schema-driven classifier per morphology feature as its primary public
+contract. This supports per-feature confidence, feature-level error analysis,
+genuinely multi-valued features, and combinations that were not observed as
+complete training bundles. The structured decoder, bundle reranker, and direct
+bundle loss are coherence layers around those predictions; they must not turn
+the model into a closed whole-tag lookup merely to improve one benchmark
+column.
+
+Complete-bundle `UFeats` and feature-level quality answer different questions.
+`UFeats` is strict conjunction accuracy: one wrong value makes the entire word
+incorrect. It therefore measures whether Prism emits a completely consistent
+UD analysis, but it does not show which system is better for every individual
+feature. Every future UDPipe comparison must consequently report both:
+
+- official complete-bundle `UFeats` on identically tokenized data;
+- for every shared feature, overall and annotated-token exact accuracy plus
+  per-value precision, recall, F1, and support;
+- Rare/OOV feature summaries for Prism, with the frequency classes derived
+  only from its training data;
+- explicit convention mappings separately from canonical model quality.
+
+The currently documented direct feature comparison establishes that UDPipe is
+better on the three largest deficit features, `Gender`, `Number`, and
+`Definite`, for the measured historical DKD Student. It does not establish
+that UDPipe is better on every other feature, and it must not be generalized
+that way. A complete all-feature comparison against the selected checkpoint is
+therefore a required diagnostic before feature-specific objectives are
+changed.
+
 The first intervention is a selected output policy, not a trained model
 change. For class weight `w`, raw logit `z`, and strength `a`, decoding uses
 `z_corrected = z - a * log(w)`. The checkpointed training weights are the only
@@ -601,19 +633,100 @@ morphology conditioning.
 
 The accepted order before a larger Teacher is now:
 
-1. measure the implemented residual-scorer-only gradient variant of the direct
-   complete-bundle objective on the compact Student;
-2. audit lemma errors and gold-rule ranks by rule frequency, token
-   frequency/OOV status, and UPOS;
-3. add soft structured lemma context only if the audit shows that UPOS or
+1. keep the selected twelve-epoch morphology-scoped compact Student;
+   `residual-only` remains the protected-gradient control and the completed
+   30-epoch isolated schedule remains rejected;
+2. retain the completed per-feature Prism-versus-UDPipe Development report:
+   both standards concentrate the residual error in `Gender`, `Number`, and
+   `Definite`, while Prism already leads several other features and Nynorsk
+   additionally exposes a separate annotation-convention component;
+3. retain the completed `morphology` gradient-scope result: it trains
+   morphology-specific heads and decoder parameters while keeping Backbone,
+   shared representation, UPOS evidence, and lemma representation protected,
+   and the joint Bokmål/Nynorsk gate selected it for its complete-split and
+   OOV UFeats gains;
+4. retain the completed two-seed frozen-head probe and full-training gate:
+   the shared post-fusion residual `H -> 2H -> H` morphology MLP is selected
+   after gaining 226 complete UFeats bundles and removing 204 Gender errors
+   across Bokmål/Nynorsk; the small combined OOV and lemma regressions remain
+   explicit guardrails, while the larger feature-specific MLP stays rejected;
+5. use `shared-mlp` for new Norwegian training runs while keeping explicit
+   `identity` reproduction and checkpoint-metadata fallback for older
+   artifacts;
+6. before changing training or model structure, add one evaluation-only audit
+   that measures gold-bundle rank and margin inside the current candidate
+   space, gold lemma-rule rank by frequency/OOV/UPOS, and cosine similarity
+   between UPOS, morphology, and lemma gradients on shared parameter groups;
+   this diagnostic must not update parameters, checkpoints, thresholds, or
+   output policies;
+7. if candidate ranking remains the bottleneck, compare the current linear
+   residual scorer with one compact nonlinear compositional scorer while
+   preserving the independent feature heads, open-combination fallback,
+   model-size budget, and export contract;
+8. if the audit confirms frequent morphology-versus-lemma gradient conflict,
+   evaluate one training-only conflict-mitigation method in a separate
+   ablation rather than combining it with the scorer change;
+9. use the all-feature report to target only demonstrated feature deficits;
+   acceptance still requires canonical UFeats, per-feature, Rare/OOV, UPOS,
+   and Lemma quality across both written standards rather than UDPipe rank
+   alone;
+10. add soft structured lemma context only if the audit shows that UPOS or
    morphology resolves a material share of current errors;
-4. reconsider NorBERT4-large only after the task-aligned Base control is
-   measured.
+11. retrain the final architecture-matched Base Teacher before producing silver
+   labels, then measure a matched distilled Student against the same
+   architecture without distillation;
+12. reconsider NorBERT4-large only after the task-aligned Base control is
+   measured and the remaining errors show a capacity limit.
 
 This order changes the actual learned model rather than post-processing a
 benchmark. Any candidate must improve the canonical Bokmål and Nynorsk gold
 Development reports and preserve untouched test splits before it may label
 silver data.
+
+The Step-6 audit is now implemented and completed on the selected shared-MLP
+checkpoint. It attributes 930 of 1,223 Bokmål complete-bundle errors and 880
+of 1,851 Nynorsk errors to candidate ranking, versus only 72 and 782 missing
+gold candidates. Among covered errors, the gold bundle is in the first two
+candidates for 74.11% of Bokmål and 71.19% of Nynorsk cases. This is sufficient
+evidence to implement Step 7 as a controlled architecture ablation.
+
+The new `compositional-mlp` scorer replaces only the learned linear residual.
+It composes candidate vectors from schema-derived UPOS and feature-label
+embeddings, computes a nonlinear token query, and scores their compatibility.
+Its final query projection starts at zero, preserving the existing candidate
+evidence exactly at initialization. The old `linear` scorer remains the
+training default and the fallback for checkpoint metadata that predates the
+field. The current Norwegian reranker grows from 35,723 to 89,298 parameters,
+and both variants pass strict export.
+
+Step 8 is not selected from this audit. Average gradient cosines remain
+positive across both standards; only Nynorsk UPOS-versus-Lemma gradients in
+the shared projection show a majority-negative sample (9 of 16 batches).
+This does not establish a general morphology-versus-lemma conflict and must
+not be combined with the scorer run. Step 10 also remains gated: the lemma
+rank audit shows large OOV Top-2 headroom, but does not yet prove that
+UPOS/morphology context, rather than character or edit-rule evidence, resolves
+those errors.
+
+A second parallel whole-`UFeats` classifier is technically possible, but it
+would duplicate an existing responsibility. The selected Bundle-32 reranker
+already acts as a complete-bundle expert: it scores whole training-derived
+UPOS/morphology candidates and marginalizes their distribution back into the
+individual feature logits. The direct bundle objective already supplies the
+corresponding whole-bundle supervision. Adding another flat classifier over
+the same bundles would split scarce bundle examples between two competing
+paths, repeat the same closed-inventory limitation, and make it less clear
+which path owns final calibration.
+
+The planned scorer ablation therefore improves this existing UFeats path
+instead of adding a duplicate head. Its token side uses a small nonlinear query
+projection; its candidate side composes a representation from schema-derived
+UPOS and feature-value labels; their compatibility contributes a
+zero-initialized residual energy to the existing independent-head evidence.
+The candidate distribution is still marginalized back into each feature, and
+the independent decoder remains the fallback for combinations outside the
+inventory. This keeps the change language-independent and tests the measured
+candidate-ranking hypothesis directly.
 
 The direct bundle objective is an auxiliary term, not a replacement for the
 18 feature objectives. It marginalizes identical complete morphology bundles
@@ -622,12 +735,24 @@ gold UPOS part of that target. Candidate coverage and auxiliary loss are
 reported per epoch. The first controlled Student candidate used weight `0.1`;
 weight `0` reproduces the existing Bundle-32 training objective. It selected
 epoch 12 and validated the morphology objective on both standards, but failed
-the all-task gate because Lemmas regressed. The next matched candidate
-therefore retains weight `0.1`, maximum 12 epochs, patience 4, and every other
-training choice while restricting the auxiliary gradient to the bundle
-residual scorer. Forward scores remain numerically identical. The existing
-Bundle-32 checkpoint and the unisolated direct-loss checkpoint remain the
-fixed controls, and no selection-score change is introduced in this ablation.
+the all-task gate because Lemmas regressed. Restricting the same auxiliary
+gradient to the bundle residual scorer then improved canonical UFeats, Lemmas,
+Rare/OOV morphology, and OOV lemma over Bundle-32 on both standards, with only
+single-digit error-count UPOS and Nynorsk Rare-lemma trades. It served as the
+protected-gradient reference, and its rejected 30-epoch extension confirmed
+that schedule length was not the bottleneck. The subsequent `morphology` scope
+widened only through morphology-owned parameters. It gains 73 complete-split
+UFeats predictions and 37 OOV UFeats predictions across both standards versus
+`residual-only`, while five of six complete-split task metrics improve and
+inference remains identical. That twelve-epoch checkpoint is now the selected
+compact reference; the measured Rare and small OOV UPOS/Lemma trades remain
+explicit guardrails for the next intervention.
+
+The production CLI follows this selection: a positive direct-bundle loss with
+no explicit gradient scope resolves to `morphology`; zero bundle-loss weight
+continues to resolve to `full` because the scope is then inactive. Explicit
+scope values remain required in benchmark commands whenever the scope itself
+is the controlled variable.
 
 ## Repository structure
 

@@ -69,6 +69,44 @@ class ContextualizedTokenBatch:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class TokenTaskHiddenStates:
+    """Task-specific representations immediately before the prediction heads."""
+
+    task: Tensor
+    upos: Tensor
+    morphology: Tensor
+    lemma: Tensor
+
+    def __post_init__(self) -> None:
+        hidden_states = (
+            self.task,
+            self.upos,
+            self.morphology,
+            self.lemma,
+        )
+        if any(states.ndim != 3 for states in hidden_states):
+            raise ValueError("Token-task hidden states must have three dimensions.")
+        if any(not states.is_floating_point() for states in hidden_states):
+            raise ValueError("Token-task hidden states must use floating-point dtypes.")
+        if any(states.shape != self.task.shape for states in hidden_states[1:]):
+            raise ValueError("Token-task hidden states must share all dimensions.")
+        if any(dimension <= 0 for dimension in self.task.shape):
+            raise ValueError("Token-task hidden-state dimensions must be positive.")
+
+    @property
+    def batch_size(self) -> int:
+        return self.task.shape[0]
+
+    @property
+    def max_token_count(self) -> int:
+        return self.task.shape[1]
+
+    @property
+    def hidden_size(self) -> int:
+        return self.task.shape[2]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class TokenTaskLogits:
     upos_logits: Tensor
     morphology_logits: tuple[Tensor, ...]

@@ -7,6 +7,7 @@ from prism.data import TokenTargets
 from prism.modeling.morphology_bundle_reranker import (
     MorphologyBundleCandidate,
     MorphologyBundleRerankerSpec,
+    MorphologyBundleScorerArchitecture,
 )
 
 
@@ -14,6 +15,9 @@ def build_morphology_bundle_reranker_spec(
     *,
     targets: Iterable[TokenTargets],
     maximum_candidates_per_upos: int,
+    scorer_architecture: MorphologyBundleScorerArchitecture = (
+        MorphologyBundleScorerArchitecture.LINEAR
+    ),
 ) -> MorphologyBundleRerankerSpec:
     if maximum_candidates_per_upos <= 0:
         raise ValueError("Maximum candidates per UPOS must be positive.")
@@ -45,6 +49,7 @@ def build_morphology_bundle_reranker_spec(
     return MorphologyBundleRerankerSpec(
         maximum_candidates_per_upos=maximum_candidates_per_upos,
         candidates=tuple(candidates),
+        scorer_architecture=scorer_architecture,
     )
 
 
@@ -53,6 +58,7 @@ def serialize_morphology_bundle_reranker_spec(
 ) -> dict[str, object]:
     return {
         "maximum_candidates_per_upos": spec.maximum_candidates_per_upos,
+        "scorer_architecture": spec.scorer_architecture.value,
         "candidates": [
             {
                 "upos_id": candidate.upos_id,
@@ -72,11 +78,16 @@ def deserialize_morphology_bundle_reranker_spec(
     if not isinstance(value, Mapping):
         raise ValueError("Bundle-reranker checkpoint metadata must be a mapping.")
     maximum = value.get("maximum_candidates_per_upos")
+    raw_scorer_architecture = value.get(
+        "scorer_architecture",
+        MorphologyBundleScorerArchitecture.LINEAR.value,
+    )
     raw_candidates = value.get("candidates")
     if (
         not isinstance(maximum, int)
         or isinstance(maximum, bool)
         or maximum <= 0
+        or not isinstance(raw_scorer_architecture, str)
         or not isinstance(raw_candidates, (list, tuple))
     ):
         raise ValueError("Bundle-reranker checkpoint metadata is invalid.")
@@ -114,4 +125,7 @@ def deserialize_morphology_bundle_reranker_spec(
     return MorphologyBundleRerankerSpec(
         maximum_candidates_per_upos=maximum,
         candidates=tuple(candidates),
+        scorer_architecture=MorphologyBundleScorerArchitecture(
+            raw_scorer_architecture
+        ),
     )

@@ -1,3 +1,4 @@
+from prism.modeling import MorphologyBundleLossGradientScope
 from prism.training import SupervisedTrainingConfig
 
 
@@ -13,7 +14,9 @@ def test_supervised_training_config_exposes_reproducible_policy() -> None:
         random_seed=42,
         morphology_weight_cap=10.0,
         morphology_bundle_loss_weight=0.1,
-        isolate_morphology_bundle_loss_gradient=True,
+        morphology_bundle_loss_gradient_scope=(
+            MorphologyBundleLossGradientScope.MORPHOLOGY
+        ),
     )
 
     assert config.epoch_count == 3
@@ -26,4 +29,7 @@ def test_supervised_training_config_exposes_reproducible_policy() -> None:
     assert config.random_seed == 42
     assert config.morphology_weight_cap == 10.0
     assert config.morphology_bundle_loss_weight == 0.1
-    assert config.isolate_morphology_bundle_loss_gradient
+    assert (
+        config.morphology_bundle_loss_gradient_scope
+        is MorphologyBundleLossGradientScope.MORPHOLOGY
+    )

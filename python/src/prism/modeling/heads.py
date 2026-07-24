@@ -1,10 +1,13 @@
 from enum import StrEnum
 
+import torch
 from torch import Tensor, nn
 
 from prism.modeling.character_encoders import CharacterResidualFusion
-from prism.modeling.outputs import TokenTaskLogits
+from prism.modeling.outputs import TokenTaskHiddenStates, TokenTaskLogits
 from prism.modeling.morphology_bundle_reranker import (
+    MorphologyBundleLossGradientScope,
+    MorphologyBundleLossInputs,
     MorphologyBundleReranker,
     MorphologyBundleRerankerSpec,
 )
@@ -32,6 +35,11 @@ class TokenTaskHeadArchitecture(StrEnum):
             self
             is TokenTaskHeadArchitecture.WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY_CHARACTER_CNN
         )
+
+
+class MorphologyPreHeadArchitecture(StrEnum):
+    IDENTITY = "identity"
+    SHARED_MLP = "shared-mlp"
 
 
 class SharedResidualTokenProjection(nn.Module):
@@ -182,6 +190,9 @@ class TokenTaskHeads(nn.Module):
         schema: TokenTaskSchema,
         dropout_probability: float,
         architecture: TokenTaskHeadArchitecture = TokenTaskHeadArchitecture.LINEAR,
+        morphology_pre_head_architecture: MorphologyPreHeadArchitecture = (
+            MorphologyPreHeadArchitecture.IDENTITY
+        ),
         morphology_bundle_reranker_spec: MorphologyBundleRerankerSpec | None = None,
         morphology_agreement_refiner_spec: (
             MorphologyAgreementRefinerSpec | None
@@ -194,6 +205,7 @@ class TokenTaskHeads(nn.Module):
             elementwise_affine=False,
         )
         self.architecture = architecture
+        self.morphology_pre_head_architecture = morphology_pre_head_architecture
         self.input_projection: nn.Module
         if architecture is TokenTaskHeadArchitecture.LINEAR:
             self.input_projection = nn.Identity()
@@ -305,24 +317,123 @@ class TokenTaskHeads(nn.Module):
                 dropout_probability=dropout_probability,
             )
 
+        self.morphology_pre_head_projection: nn.Module
+        if morphology_pre_head_architecture is MorphologyPreHeadArchitecture.IDENTITY:
+            self.morphology_pre_head_projection = nn.Identity()
+        elif (
+            morphology_pre_head_architecture is MorphologyPreHeadArchitecture.SHARED_MLP
+        ):
+            self.morphology_pre_head_projection = WideSharedResidualTokenProjection(
+                hidden_size=hidden_size,
+                dropout_probability=dropout_probability,
+            )
+        else:
+            raise ValueError(
+                "Unsupported morphology pre-head architecture: "
+                f"{morphology_pre_head_architecture!r}"
+            )
+
+    def set_morphology_bundle_loss_gradient_scope(
+        self,
+        scope: MorphologyBundleLossGradientScope,
+    ) -> None:
+        if self.morphology_bundle_reranker is None:
+            if scope is not MorphologyBundleLossGradientScope.FULL:
+                raise ValueError(
+                    "A restricted bundle-loss gradient requires a bundle reranker."
+                )
+            return
+        self.morphology_bundle_reranker.set_direct_loss_gradient_scope(scope)
+
     def set_morphology_bundle_loss_gradient_isolation(
         self,
         enabled: bool,
     ) -> None:
-        if self.morphology_bundle_reranker is None:
-            if enabled:
-                raise ValueError(
-                    "Bundle-loss gradient isolation requires a bundle reranker."
-                )
-            return
-        self.morphology_bundle_reranker.set_direct_loss_gradient_isolation(enabled)
+        self.set_morphology_bundle_loss_gradient_scope(
+            MorphologyBundleLossGradientScope.RESIDUAL_ONLY
+            if enabled
+            else MorphologyBundleLossGradientScope.FULL
+        )
 
-    def forward(
+    def _calculate_morphology_logits(
+        self,
+        *,
+        morphology_hidden_states: Tensor,
+        upos_logits: Tensor,
+    ) -> tuple[Tensor, ...]:
+        morphology_logits = tuple(
+            head(morphology_hidden_states) for head in self.morphology_heads
+        )
+        if self.structured_morphology_decoder is not None:
+            morphology_logits = self.structured_morphology_decoder(
+                upos_logits=upos_logits,
+                morphology_logits=morphology_logits,
+            )
+        return morphology_logits
+
+    @staticmethod
+    def _preserve_value_with_gradient_from(
+        *,
+        value: Tensor,
+        gradient_source: Tensor,
+    ) -> Tensor:
+        return gradient_source + (value - gradient_source).detach()
+
+    def _morphology_bundle_loss_inputs(
+        self,
+        *,
+        task_hidden_states: Tensor,
+        morphology_hidden_states: Tensor,
+        upos_logits: Tensor,
+        morphology_logits: tuple[Tensor, ...],
+    ) -> MorphologyBundleLossInputs | None:
+        reranker = self.morphology_bundle_reranker
+        if (
+            reranker is None
+            or reranker.direct_loss_gradient_scope
+            is not MorphologyBundleLossGradientScope.MORPHOLOGY
+            or not torch.is_grad_enabled()
+        ):
+            return None
+
+        protected_morphology_hidden_states = self._encode_morphology_hidden_states(
+            task_hidden_states.detach()
+        )
+        protected_morphology_logits = self._calculate_morphology_logits(
+            morphology_hidden_states=protected_morphology_hidden_states,
+            upos_logits=upos_logits.detach(),
+        )
+        return MorphologyBundleLossInputs(
+            hidden_states=self._preserve_value_with_gradient_from(
+                value=morphology_hidden_states,
+                gradient_source=protected_morphology_hidden_states,
+            ),
+            upos_logits=upos_logits.detach(),
+            morphology_logits=tuple(
+                self._preserve_value_with_gradient_from(
+                    value=value,
+                    gradient_source=gradient_source,
+                )
+                for value, gradient_source in zip(
+                    morphology_logits,
+                    protected_morphology_logits,
+                    strict=True,
+                )
+            ),
+        )
+
+    def _encode_morphology_hidden_states(
+        self,
+        task_hidden_states: Tensor,
+    ) -> Tensor:
+        adapted_hidden_states = self.morphology_adapter(task_hidden_states)
+        return self.morphology_pre_head_projection(adapted_hidden_states)
+
+    def encode_hidden_states(
         self,
         hidden_states: Tensor,
         character_hidden_states: Tensor | None = None,
-        token_mask: Tensor | None = None,
-    ) -> TokenTaskLogits:
+    ) -> TokenTaskHiddenStates:
         normalized_hidden_states = self.input_normalization(hidden_states)
         projected_hidden_states = self.input_projection(normalized_hidden_states)
         upos_hidden_states = self.upos_adapter(projected_hidden_states)
@@ -341,34 +452,52 @@ class TokenTaskHeads(nn.Module):
                 "Character hidden states require a character-aware architecture."
             )
 
-        morphology_hidden_states = self.morphology_adapter(task_hidden_states)
+        morphology_hidden_states = self._encode_morphology_hidden_states(
+            task_hidden_states
+        )
         lemma_hidden_states = self.lemma_adapter(task_hidden_states)
-        upos_logits = self.upos_head(upos_hidden_states)
-        morphology_logits = tuple(
-            head(morphology_hidden_states) for head in self.morphology_heads
+        return TokenTaskHiddenStates(
+            task=task_hidden_states,
+            upos=upos_hidden_states,
+            morphology=morphology_hidden_states,
+            lemma=lemma_hidden_states,
+        )
+
+    def classify_hidden_states(
+        self,
+        hidden_states: TokenTaskHiddenStates,
+        *,
+        token_mask: Tensor | None = None,
+    ) -> TokenTaskLogits:
+        upos_logits = self.upos_head(hidden_states.upos)
+        morphology_logits = self._calculate_morphology_logits(
+            morphology_hidden_states=hidden_states.morphology,
+            upos_logits=upos_logits,
         )
         morphology_bundle_scores = None
         morphology_bundle_loss_scores = None
-        if self.structured_morphology_decoder is not None:
-            morphology_logits = self.structured_morphology_decoder(
+        if self.morphology_bundle_reranker is not None:
+            morphology_bundle_loss_inputs = self._morphology_bundle_loss_inputs(
+                task_hidden_states=hidden_states.task,
+                morphology_hidden_states=hidden_states.morphology,
                 upos_logits=upos_logits,
                 morphology_logits=morphology_logits,
             )
-        if self.morphology_bundle_reranker is not None:
             (
                 morphology_logits,
                 morphology_bundle_scores,
                 morphology_bundle_loss_scores,
             ) = self.morphology_bundle_reranker.refine_with_training_scores(
-                hidden_states=morphology_hidden_states,
+                hidden_states=hidden_states.morphology,
                 upos_logits=upos_logits,
                 morphology_logits=morphology_logits,
+                morphology_loss_inputs=morphology_bundle_loss_inputs,
             )
         if self.morphology_agreement_refiner is not None:
             if token_mask is None:
                 raise ValueError("Agreement-aware task heads require a token mask.")
             morphology_logits = self.morphology_agreement_refiner(
-                hidden_states=morphology_hidden_states,
+                hidden_states=hidden_states.morphology,
                 token_mask=token_mask,
                 upos_logits=upos_logits,
                 morphology_logits=morphology_logits,
@@ -377,7 +506,22 @@ class TokenTaskHeads(nn.Module):
         return TokenTaskLogits(
             upos_logits=upos_logits,
             morphology_logits=morphology_logits,
-            lemma_rule_logits=self.lemma_rule_head(lemma_hidden_states),
+            lemma_rule_logits=self.lemma_rule_head(hidden_states.lemma),
             morphology_bundle_scores=morphology_bundle_scores,
             morphology_bundle_loss_scores=morphology_bundle_loss_scores,
+        )
+
+    def forward(
+        self,
+        hidden_states: Tensor,
+        character_hidden_states: Tensor | None = None,
+        token_mask: Tensor | None = None,
+    ) -> TokenTaskLogits:
+        task_hidden_states = self.encode_hidden_states(
+            hidden_states,
+            character_hidden_states=character_hidden_states,
+        )
+        return self.classify_hidden_states(
+            task_hidden_states,
+            token_mask=token_mask,
         )

@@ -1,6 +1,10 @@
 from dataclasses import dataclass
 import math
 
+from prism.modeling.morphology_bundle_reranker import (
+    MorphologyBundleLossGradientScope,
+)
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SupervisedTrainingConfig:
@@ -14,7 +18,9 @@ class SupervisedTrainingConfig:
     random_seed: int
     morphology_weight_cap: float | None = None
     morphology_bundle_loss_weight: float = 0.0
-    isolate_morphology_bundle_loss_gradient: bool = False
+    morphology_bundle_loss_gradient_scope: MorphologyBundleLossGradientScope = (
+        MorphologyBundleLossGradientScope.FULL
+    )
     early_stopping_patience: int | None = None
 
     def __post_init__(self) -> None:
@@ -57,12 +63,19 @@ class SupervisedTrainingConfig:
             raise ValueError(
                 "Morphology bundle loss weight must be finite and non-negative."
             )
+        if not isinstance(
+            self.morphology_bundle_loss_gradient_scope,
+            MorphologyBundleLossGradientScope,
+        ):
+            raise ValueError("Morphology bundle-loss gradient scope is invalid.")
         if (
-            self.isolate_morphology_bundle_loss_gradient
+            self.morphology_bundle_loss_gradient_scope
+            is not MorphologyBundleLossGradientScope.FULL
             and self.morphology_bundle_loss_weight == 0.0
         ):
             raise ValueError(
-                "Bundle-loss gradient isolation requires a positive bundle loss weight."
+                "A restricted bundle-loss gradient requires a positive bundle loss "
+                "weight."
             )
         if (
             self.early_stopping_patience is not None

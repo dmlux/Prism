@@ -5,12 +5,16 @@ from prism.modeling.batches import TokenizedBatch
 from prism.modeling.character_batches import CharacterTokenBatch
 from prism.modeling.character_encoders import CharacterCnnTokenEncoder
 from prism.modeling.encoders import contextualize_subwords
-from prism.modeling.heads import TokenTaskHeadArchitecture, TokenTaskHeads
+from prism.modeling.heads import (
+    MorphologyPreHeadArchitecture,
+    TokenTaskHeadArchitecture,
+    TokenTaskHeads,
+)
 from prism.modeling.layer_aggregation import (
     BackboneLayerAggregation,
     BackboneLayerAggregationStrategy,
 )
-from prism.modeling.outputs import TokenTaskLogits
+from prism.modeling.outputs import TokenTaskHiddenStates, TokenTaskLogits
 from prism.modeling.morphology_bundle_reranker import MorphologyBundleRerankerSpec
 from prism.modeling.morphology_agreement import MorphologyAgreementRefinerSpec
 from prism.schema import TokenTaskSchema
@@ -40,11 +44,11 @@ class TokenTagger(nn.Module):
         )
         self.character_encoder = character_encoder
 
-    def forward(
+    def encode_task_hidden_states(
         self,
         batch: TokenizedBatch,
         character_batch: CharacterTokenBatch | None = None,
-    ) -> TokenTaskLogits:
+    ) -> TokenTaskHiddenStates:
         subword_batch = contextualize_subwords(
             model=self.backbone,
             batch=batch,
@@ -66,10 +70,23 @@ class TokenTagger(nn.Module):
         elif character_batch is not None:
             raise ValueError("Character inputs require a character-aware tagger.")
 
-        return self.heads(
+        return self.heads.encode_hidden_states(
             token_batch.hidden_states,
             character_hidden_states=character_hidden_states,
-            token_mask=token_batch.token_mask,
+        )
+
+    def forward(
+        self,
+        batch: TokenizedBatch,
+        character_batch: CharacterTokenBatch | None = None,
+    ) -> TokenTaskLogits:
+        task_hidden_states = self.encode_task_hidden_states(
+            batch,
+            character_batch=character_batch,
+        )
+        return self.heads.classify_hidden_states(
+            task_hidden_states,
+            token_mask=batch.token_mask,
         )
 
 
@@ -80,6 +97,9 @@ def build_pretrained_token_tagger(
     dropout_probability: float,
     pooling_strategy: TokenPoolingStrategy = TokenPoolingStrategy.FIRST,
     head_architecture: TokenTaskHeadArchitecture = TokenTaskHeadArchitecture.LINEAR,
+    morphology_pre_head_architecture: MorphologyPreHeadArchitecture = (
+        MorphologyPreHeadArchitecture.IDENTITY
+    ),
     layer_aggregation_strategy: BackboneLayerAggregationStrategy = (
         BackboneLayerAggregationStrategy.LAST
     ),
@@ -106,6 +126,7 @@ def build_pretrained_token_tagger(
         schema=schema,
         dropout_probability=dropout_probability,
         architecture=head_architecture,
+        morphology_pre_head_architecture=morphology_pre_head_architecture,
         morphology_bundle_reranker_spec=morphology_bundle_reranker_spec,
         morphology_agreement_refiner_spec=morphology_agreement_refiner_spec,
     )
