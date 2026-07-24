@@ -1813,6 +1813,29 @@ Teacher quality must first pass the official UPOS/UFeats/Lemmas comparison;
 the later labeling policy must then select a deterministic, documented subset
 rather than silently turning all 50 million tokens into one experiment.
 
+A compatible public-domain Nynorsk source is now identified but not yet
+downloaded or prepared: Språkbanken resource
+[`oai:nb.no:sbr-60`](https://www.nb.no/sprakbanken/en/resource-catalogue/oai-nb-no-sbr-60/)
+contains 50,000 OCR-derived municipal documents and approximately 127 million
+words, of which about 88.5 million are classified as Nynorsk; the corpus is
+CC0 and every text carries a language classification. It is the preferred
+running-text companion to the prepared Bokmål source. It requires a separate
+JSON source adapter, the same UD-overlap and deduplication gates, and explicit
+filtering to its Nynorsk-classified pages before it may enter a silver pilot.
+
+Two other resources remain separate from that running-text contract:
+Språkbanken's mixed-language
+[`oai:nb.no:sbr-34`](https://www.nb.no/sprakbanken/en/resource-catalogue/oai-nb-no-sbr-34/)
+public-domain books are CC0 but require reliable language identification and
+stronger OCR/orthography controls; the
+[`oai:nb.no:sbr-65`](https://www.nb.no/sprakbanken/en/resource-catalogue/oai-nb-no-sbr-65/)
+Nynorsk pronunciation lexicon is also CC0 and supplies inflected forms,
+lemmas, and lexical features, but no sentence context. The latter is a
+possible later lexical Gender/OOV supervision source, not interchangeable
+with Teacher-labeled silver sentences. Norsk ordbank Nynorsk is not classified
+as public domain here: its catalogue license is CC BY and therefore needs a
+separate provenance and redistribution decision before use.
+
 ## Frozen morphology-head probe
 
 A bounded head-capacity diagnostic is now implemented before the next full
@@ -2026,28 +2049,41 @@ capacity.
 2. Record and reject the completed `compositional-mlp` scorer as a full output
    path. It improves internal candidate Top-1 but regresses final UFeats,
    Rare/OOV morphology, and Lemmas after the current static fusion.
-3. Train a **frozen adaptive probability-fusion probe**. All existing model
-   parameters remain frozen; only a compact token- and feature-dependent gate
-   learns when to trust the independent feature path or the bundle path.
-4. Decompose missing candidates into bundles that were seen in training but
-   removed by Top-32 and bundles never seen in training. Measure Top-32,
-   Top-64, Top-128, and complete-inventory coverage before changing training.
-5. If unseen combinations remain material, replace the closed candidate
-   inventory with bounded compositional candidate generation and a structured
-   energy scorer. Preserve per-feature confidences and unseen-combination
-   support rather than turning morphology into one flat language-specific
-   tag classifier.
-6. Train exact-bundle consistency on the **final post-fusion probabilities**
-   so that a better candidate rank cannot be undone by an independently
-   optimized refinement stage. The existing per-feature objectives remain.
-7. After morphology stabilizes, evaluate a frozen lemma near-miss reranker.
+3. Retain the completed **frozen adaptive probability-fusion probe** as a
+   rejected diagnostic. All existing model parameters remained frozen and
+   only a compact token- and feature-dependent gate learned when to trust the
+   independent feature path or the bundle path. It failed the joint
+   Bokmål/Nynorsk and Rare/OOV gate.
+4. Retain the completed candidate decomposition: Top-64 removes every
+   training-seen pruning miss on both standards; never-seen bundles affect
+   only one Bokmål and 150 Nynorsk Development tokens.
+5. Retain the completed controlled Top-64 reranker ablation as rejected.
+   Although it removes all measured Top-32 pruning misses, it regresses
+   Bokmål UFeats and Rare/OOV quality and yields only a small Nynorsk gain.
+   Defer bounded compositional candidate generation and preserve the selected
+   Top-32 inventory plus per-feature confidences.
+6. Defer the proposed exact-bundle consistency objective on the **final
+   post-fusion probabilities**. It remains a documented architecture option,
+   but the completed Top-64 result does not justify another expensive
+   architecture run before testing whether broader lexical coverage addresses
+   the dominant Gender/Rare/OOV errors.
+7. Implement the offline, provenance-carrying Teacher-label artifact and run
+   one deterministic, confidence-filtered pilot over the already prepared
+   Bokmål source. This is the immediate implementation boundary; it does not
+   authorize labeling all 50 million tokens.
+8. Add the language-independent JSON source-adapter boundary needed by the
+   CC0 Nynorsk municipal corpus, prepare only its Nynorsk-classified content,
+   and define a balanced Bokmål/Nynorsk silver sampling policy.
+9. Compare the resulting Gold/Silver Student with the selected Gold-only
+   Student under the unchanged two-standard, per-feature, Rare/OOV, UPOS, and
+   Lemma gate. Silver data are accepted only if Gender improves materially
+   without moving losses into other tasks.
+10. After morphology stabilizes, evaluate a frozen lemma near-miss reranker.
    Soft UPOS/morphology context is accepted only if it resolves audited errors
    beyond character and edit-rule evidence.
-8. Retrain the architecture-matched Base Teacher, produce confidence-filtered
-   silver labels, and compare the resulting distilled Student with the same
-   final architecture trained without distillation.
-9. Reconsider NorBERT4-large only if the final structured output path and
-   silver-data control expose a remaining capacity limit.
+11. Reconsider the final-output bundle objective and NorBERT4-large only if
+   the controlled silver-data result exposes a remaining representation or
+   structured-decoding limit.
 
 The audit is exposed by `evaluate_baseline
 --task-interaction-audit --task-interaction-gradient-batches N` and is
@@ -2112,14 +2148,107 @@ or reverse useful rank evidence. A hard candidate Top-1 diagnostic reaches
 final output, but is not a production solution because it removes the
 independent path's open-combination fallback.
 
-The next probe consequently changes only fusion. It will mix probabilities
+The completed probe consequently changed only fusion. It mixed probabilities
 as `p_final = (1 - g) * p_feature + g * p_bundle`, with `g` predicted from
 inference-available model confidence, margins, agreement, and the morphology
-token representation. It is trained on the training split with the selected
+token representation. It was trained on the training split with the selected
 checkpoint frozen. A planning expectation of roughly 0.15--0.35 Bokmål
-UFeats points is reasonable; it is not a benchmark claim. A full retraining
-is justified only after the probe improves the joint Bokmål/Nynorsk and
-Rare/OOV gate.
+UFeats points had been recorded before measurement; it was not a benchmark
+claim and was not reached. The failed joint Bokmål/Nynorsk and Rare/OOV gate
+does not justify a full retraining.
+
+The frozen adaptive fusion probe was implemented without changing the
+selected production checkpoint. It consumed the exact pre-fusion independent
+logits, marginalized bundle probabilities, candidate scores, and morphology
+token representation from the production forward path. It applied the
+selected checkpoint-derived logit correction consistently to both
+probability paths and trained only a compact schema-driven gate. Development
+labels and UDPipe predictions were never training inputs.
+
+The fixed two-standard run is complete and rejects the probe. Bokmål exact
+UFeats falls from 96.6372% to 95.6639% (-0.9733 points, 354 additional wrong
+bundles); Rare/OOV falls by 3.4920/3.2063 points. Nynorsk falls from 94.0768%
+to 93.7280% (-0.3488 points, 109 additional wrong bundles), with Rare/OOV
+losses of 0.6686/1.4196 points. Gender alone loses 281 Bokmål and 138 Nynorsk
+correct decisions.
+
+The learned mean gates are near one for almost every feature, including
+0.9885/0.9893 for Gender/Number. The training-only gate therefore learned to
+prefer the bundle expert almost unconditionally. It improves over the
+bundle-only path but does not recover the selected static residual fusion,
+especially outside frequent training forms. Falling training loss through
+epoch 16 is consequently not evidence of Development generalization. This
+rejects the current convex probability-fusion design and its training
+contract; it does not justify hyperparameter tuning against Development.
+The selected production checkpoint and static fusion remain unchanged. After
+the result was recorded, the rejected probe CLI, training module, temporary
+fusion boundary, and focused tests were removed again. The production surface
+therefore carries no abandoned adaptive-fusion path.
+
+### Candidate-inventory coverage decomposition
+
+The read-only morphology-bundle oracle now measures the actual union of Top-K
+candidates across all UPOS groups. For each limit it reports covered tokens,
+bundles seen in training but pruned by Top-K, and bundles never seen anywhere
+in training. Top-32/64/128 and the full inventory are reported for complete,
+annotated, Rare, and OOV slices. No checkpoint is loaded and no training is
+performed.
+
+| Split | Top-32 coverage | Seen/pruned | Never seen | Top-64/full coverage |
+| --- | ---: | ---: | ---: | ---: |
+| Bokmål all | 99.2934% | 256 | 1 | 99.9973% |
+| Bokmål Rare | 99.6190% | 11 | 1 | 99.9683% |
+| Bokmål OOV | 99.6081% | 11 | 0 | 100.0000% |
+| Nynorsk all | 96.9664% | 798 | 150 | 99.5200% |
+| Nynorsk Rare | 94.7764% | 96 | 29 | 98.7881% |
+| Nynorsk OOV | 95.2287% | 96 | 25 | 99.0142% |
+
+The joint training inventory contains 256 distinct bundles and 298
+UPOS-bundle pairs. Top-32 keeps 185 pairs; Top-64 keeps 288. Top-64 removes
+every pruning miss on both standards, while Top-128 and the full inventory add
+no further Development bundle coverage. Open compositional candidate
+generation is therefore deferred: unseen combinations are not the dominant
+measured coverage loss. The temporary Top-64 training option and the expanded
+coverage-reporting surface were removed after the controlled result was
+recorded. The production CLI again exposes only `0` and the selected `32`.
+
+### Controlled Top-64 result
+
+The matched Top-32 control and Top-64 candidate used the same data, seed,
+architecture, Base Teacher, training policy, epoch-12 selection, and
+canonical full-logit-correction evaluation. Only the retained candidate limit
+changed. Runtime candidate coverage rose from 98.2180% to 99.7767%, but this
+additional coverage did not produce a joint quality gain:
+
+| Split and metric | Top-32 control | Top-64 candidate | Change |
+| --- | ---: | ---: | ---: |
+| Bokmål UPOS F1 | 98.9607% | 98.9607% | 0.0000 pp |
+| Bokmål UFeats F1 | **96.7005%** | 96.6592% | -0.0413 pp / -15 correct |
+| Bokmål Lemmas F1 | **98.9029%** | 98.8919% | -0.0110 pp / -4 correct |
+| Bokmål Rare UFeats F1 | **91.0794%** | 90.7937% | -0.2857 pp / -9 correct |
+| Bokmål OOV UFeats F1 | **87.2818%** | 87.1749% | -0.1069 pp / -3 correct |
+| Nynorsk UPOS F1 | **98.6880%** | 98.6688% | -0.0192 pp / -6 correct |
+| Nynorsk UFeats F1 | 94.1632% | **94.2464%** | +0.0832 pp / +26 correct |
+| Nynorsk Lemmas F1 | 98.5280% | **98.5504%** | +0.0224 pp / +7 correct |
+| Nynorsk Rare UFeats F1 | 87.4634% | **87.5052%** | +0.0418 pp / +1 correct |
+| Nynorsk OOV UFeats F1 | 83.8328% | **84.0300%** | +0.1972 pp / +5 correct |
+
+Across both complete splits Top-64 gains only 11 exact UFeats decisions while
+losing six UPOS decisions. More importantly, it fails the predeclared
+two-standard and Rare/OOV non-regression gate: the larger inventory trades
+Bokmål quality for a small Nynorsk improvement instead of reliably exploiting
+the 1.5587-point coverage increase. The result rejects Top-64 as the shared
+model default and points back to final-output supervision/fusion rather than
+more closed candidates.
+
+The newly trained Top-32 control is also not promoted over the selected
+checkpoint. Relative to the selected Student it gains 23/27 complete UFeats
+decisions on Bokmål/Nynorsk but loses 10/9 Lemma decisions, moving opposite
+to the recorded lemma-recovery guardrail. Its purpose remains a matched
+control for this ablation. The selected production checkpoint stays
+`runs/no-student-character-cnn-dkd-bundle32-direct-loss-morphology-gradient-prehead-shared-mlp-w010-e12-weighted/best.pt`.
+The temporary Top-64 CLI/test surface and the completed coverage-decomposition
+extension were removed after documentation; no rejected runtime path remains.
 
 A separate flat UFeats classifier is not the planned default. The selected
 Bundle-32 reranker already provides the same conceptual parallel whole-bundle
@@ -2144,9 +2273,10 @@ Der angekündigte Cleanup ist abgeschlossen. Entfernt wurden der abgelehnte
 Agreement-Refiner, die Task-Familien-Adapter, die nicht mehr benötigten
 Task-Head-Zwischenarchitekturen, der alte Gradient-Isolations-Alias und das
 abgeschlossene Frozen-Head-Probe-Werkzeug einschließlich CLI-, Checkpoint- und
-Testpfaden. Diese Experimente bleiben in `docs/benchmarks.md` als
-Auswahlhistorie nachvollziehbar, sind aber nicht länger Teil der
-Produktionsoberfläche.
+Testpfaden. Nach seiner Messung wurde auch der verworfene adaptive
+Fusions-Probe vollständig aus den ausführbaren Pfaden entfernt. Diese
+Experimente bleiben in `docs/benchmarks.md` als Auswahlhistorie
+nachvollziehbar, sind aber nicht länger Teil der Produktionsoberfläche.
 
 Erhalten bleiben die ausgewählte vollständige Student-Architektur, der
 `linear`-Kontrollpfad, `identity` zur Reproduktion der Morphologie-Vorprojektion,

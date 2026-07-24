@@ -290,7 +290,7 @@ Morphologie. `--disable-morphology-bundle-reranker` schaltet den residualen
 Pass bei der Evaluation vollständig ab und ermöglicht eine Kontrolle desselben
 Checkpoints. Der gesamte Pfad besitzt strikte `torch.export`-Parität.
 
-#### Geplante adaptive Bundle-Fusion
+#### Verworfener adaptiver Bundle-Fusions-Probe
 
 Der aktuelle Reranker verwendet je Feature einen gelernten, aber für alle
 Tokens konstanten Gate-Wert und addiert die marginalisierte Bundle-Evidenz
@@ -299,9 +299,9 @@ dieser Vertrag ein besseres Kandidatenranking wieder verschlechtern kann:
 Der kompositionelle Scorer reduziert Bokmål-Rankingfehler von 930 auf 871,
 erhöht aber Refinementfehler von 221 auf 277.
 
-Der nächste kontrollierte Architektur-Probe ersetzt diese statische
-Logitaddition nicht sofort im Vollmodell, sondern trainiert zunächst bei
-vollständig eingefrorenem Checkpoint nur eine kleine adaptive Fusion. Sie
+Der kontrollierte Architektur-Probe ersetzt diese statische Logitaddition
+nicht sofort im Vollmodell, sondern trainiert bei vollständig eingefrorenem
+Checkpoint nur eine kleine adaptive Fusion. Sie
 mischt Feature- und Bundle-Wahrscheinlichkeit abhängig von Token und Feature:
 
 ```text
@@ -309,17 +309,58 @@ p_final = (1 - g) * p_feature + g * p_bundle
 ```
 
 `g` wird ausschließlich aus modellinternen, zur Inferenz verfügbaren Signalen
-gebildet: Morphologie-Tokenrepräsentation, Konfidenz beziehungsweise Entropie
-beider Pfade, Score-Margins und deren Übereinstimmung. Goldlabels,
-Development-Ergebnisse und UDPipe-Ausgaben sind keine Gate-Eingaben. Die
-Komponente bleibt schemaabhängig, aber sprachunabhängig und muss vor einem
-Volltraining dieselben Bokmål-/Nynorsk-, Rare/OOV-, UPOS- und Lemma-Gates wie
-andere Architekturkandidaten bestehen.
+gebildet: Morphologie-Tokenrepräsentation, gelernter Feature-Identität,
+normalisierter Entropie und Margin beider Pfade sowie deren mittlerer
+Wahrscheinlichkeitsabweichung. Goldlabels, Development-Ergebnisse und
+UDPipe-Ausgaben sind keine Gate-Eingaben. Der Probe trainiert nur auf dem
+Trainingssplit. Die ausgewählte vollständige Logit-Korrektur wird vor der
+Fusion auf beide Pfade angewendet, damit der Vergleich denselben
+Ausgabevertrag wie die kanonische Evaluation besitzt.
 
-Diese Fusion ist **noch kein Bestandteil des ausgewählten Modells**. Erst ein
-erfolgreicher Frozen-Probe rechtfertigt ihre Integration in Training,
-Checkpointmetadaten und Export. Die heutige statische Fusion bleibt bis dahin
-der normative Inferenzvertrag.
+Die Messimplementierung verwendete keinen zweiten angenäherten Modellpfad,
+sondern griff direkt an der Produktionsgrenze auf unabhängige Feature-Logits,
+marginalisierte Bundle-Wahrscheinlichkeiten und die
+Morphologie-Tokenrepräsentation zu. Nach der Ablehnung wurden dieser
+temporäre Zugriff, das Probe-Modul, die CLI und ihre Tests wieder entfernt.
+Nur Ergebnis und Ablehnungsgrund bleiben als Auswahlhistorie erhalten.
+
+Diese Fusion ist **kein Bestandteil des ausgewählten Modells**. Der
+gespeicherte Probe ist ausdrücklich diagnostisch. Der abgeschlossene
+Bokmål-/Nynorsk-Lauf verwirft die Variante: Gegenüber der statischen Fusion
+verliert sie 0,9733/0,3488 Punkte exakte UFeats sowie 3,4920/0,6686 Punkte auf
+Rare und 3,2063/1,4196 Punkte auf OOV. Die Gates konvergieren für fast alle
+Features nahe eins und behandeln den Bundle-Pfad damit nahezu als alleinigen
+Experten. Das generalisiert nicht über den Trainingssplit hinaus und verliert
+insbesondere 281/138 korrekte Gender-Entscheidungen auf Bokmål/Nynorsk.
+Checkpointmetadaten und Export werden nicht erweitert; die statische Fusion
+bleibt der normative Inferenzvertrag.
+
+#### Historischer Candidate-Coverage-Audit
+
+Der temporär erweiterte, trainingsfreie Bundle-Oracle trennte für Top-32,
+Top-64, Top-128 und
+das vollständige Trainingsinventar drei Fälle: Das Gold-Bundle ist enthalten,
+es wurde im Training gesehen aber durch Top-K entfernt, oder es wurde im
+gemeinsamen Trainingssplit nie gesehen. Gemessen wird die tatsächliche
+Vereinigung aller UPOS-spezifischen Kandidatengruppen des Rerankers.
+Gold-UPOS-Coverage bleibt als zusätzliche Diagnose erhalten; Complete,
+annotated, Rare und OOV werden getrennt berichtet.
+
+Das gemeinsame Inventar enthält 298 UPOS-Bundle-Paare und 256 verschiedene
+Bundles. Top-32 behält 185 Paare und erreicht 99,2934%/96,9664% Coverage auf
+Bokmål/Nynorsk. Top-64 behält 288 Paare und erreicht mit
+99,9973%/99,5200% bereits dieselbe Coverage wie das Vollinventar. Die
+verbleibenden ein beziehungsweise 150 Tokens besitzen nie gesehene Bundles.
+Die kontrollierte Top-64-Ablation ist inzwischen abgeschlossen und verworfen.
+Trotz einer Laufzeit-Coverage von 99,7767% statt 98,2180% verliert sie auf
+Bokmål 0,0413 Punkte UFeats sowie 0,2857/0,1069 Punkte auf Rare/OOV. Auf
+Nynorsk gewinnt sie 0,0832 Punkte UFeats und 0,1972 Punkte auf OOV, verliert
+aber 0,0192 Punkte UPOS. Nur elf zusätzliche vollständige UFeats-Bündel über
+beide Standards rechtfertigen weder die Bokmål-Regression noch den größeren
+Kandidatenraum. Top-32 bleibt daher der normative Architekturvertrag; offene
+Kandidatengenerierung bleibt vorerst nicht gerechtfertigt. Die temporäre
+Top-64-CLI und die erweiterte Coverage-Ausgabe wurden nach Dokumentation des
+Ergebnisses wieder entfernt. Der Produktionsvertrag bietet nur `0` und `32`.
 
 Ein abschaltbarer Evaluation-Audit misst, ob weitere Kandidaten, ein besserer
 Scorer oder eine nachgelagerte Verfeinerung benötigt werden. Er ordnet jeden
@@ -2143,6 +2184,22 @@ historischen Oslo-Bergen-Annotationen nur die markierten Satzgrenzen und
 konfigurierten OCR-Grenze, Sätze über der Token-Grenze, Duplikate sowie
 Überschneidungen mit allen UD-Splits beider norwegischer Profile werden
 entfernt.
+
+Als gemeinfreier Nynorsk-Gegenpart ist Språkbanken-Ressource
+[`oai:nb.no:sbr-60`](https://www.nb.no/sprakbanken/en/resource-catalogue/oai-nb-no-sbr-60/)
+vorgemerkt. Sie enthält 50.000 kommunale OCR-Dokumente mit rund 127 Millionen
+Wörtern, davon etwa 88,5 Millionen als Nynorsk klassifiziert, und steht unter
+CC0. Das sprachklassifizierte JSON-Format benötigt einen eigenen
+Quelladapter; alle nachgelagerten Verträge für Deduplizierung,
+UD-Überlappungsschutz, Provenienz und Teacher-Labels bleiben identisch.
+Der Korpus ist noch nicht heruntergeladen oder aufbereitet.
+
+Das ebenfalls CC0-lizenzierte Nynorsk-Aussprachelexikon
+[`oai:nb.no:sbr-65`](https://www.nb.no/sprakbanken/en/resource-catalogue/oai-nb-no-sbr-65/)
+enthält Flexionsformen, Lemmas und lexikalische Merkmale, jedoch keinen
+Satzkontext. Es bleibt deshalb ein möglicher späterer lexikalischer
+Gender-/OOV-Supervisionskanal und wird nicht mit Teacher-gelabelten
+Silbersätzen vermischt.
 
 `SilverCorpusManifest` ist die reproduzierbare Grenze dieses ersten Schritts.
 Es enthält insbesondere Corpus-ID, Quell-URL, SHA-256 des Archivs, Lizenz,
