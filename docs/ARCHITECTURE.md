@@ -331,9 +331,13 @@ Evidenzbasis aus lernen.
 Bei 185 Kandidaten und `H = 192` umfasst diese Variante einschließlich Gates
 89.298 Parameter. Gegenüber dem linearen Reranker sind das 53.575 zusätzliche
 Parameter oder ungefähr 209 KiB rohe FP32-Gewichte. Die CLI wählt sie mit
-`--morphology-bundle-scorer-architecture compositional-mlp`; `linear` bleibt
-bis zur vollständigen Bokmål-/Nynorsk-Ablation der Standard. Beide Pfade
-bestehen strikten `torch.export`.
+`--morphology-bundle-scorer-architecture compositional-mlp`. Die
+Bokmål-Ablation verwirft diese Variante als vollständigen Ausgabepfad:
+Sie verbessert das interne Kandidatenranking, verliert diesen Gewinn aber
+durch die nachgelagerte statische Fusion wieder. `linear` bleibt deshalb der
+ausgewählte Standard. Der kompositionelle Pfad bleibt vorübergehend als
+Diagnoseeingang für den geplanten adaptiven Fusions-Probe erhalten. Beide
+Pfade bestehen strikten `torch.export`.
 
 Die Kandidatenverteilung wird wieder zu Wahrscheinlichkeiten je
 Morphologie-Label marginalisiert. Gelernte Gates mischen diese
@@ -344,6 +348,37 @@ insbesondere einen harten Fehlerkaskadenvertrag von vorhergesagtem UPOS zu
 Morphologie. `--disable-morphology-bundle-reranker` schaltet den residualen
 Pass bei der Evaluation vollständig ab und ermöglicht eine Kontrolle desselben
 Checkpoints. Der gesamte Pfad besitzt strikte `torch.export`-Parität.
+
+#### Geplante adaptive Bundle-Fusion
+
+Der aktuelle Reranker verwendet je Feature einen gelernten, aber für alle
+Tokens konstanten Gate-Wert und addiert die marginalisierte Bundle-Evidenz
+residual zu den Feature-Logits. Der abgeschlossene Scorer-Audit zeigt, dass
+dieser Vertrag ein besseres Kandidatenranking wieder verschlechtern kann:
+Der kompositionelle Scorer reduziert Bokmål-Rankingfehler von 930 auf 871,
+erhöht aber Refinementfehler von 221 auf 277.
+
+Der nächste kontrollierte Architektur-Probe ersetzt diese statische
+Logitaddition nicht sofort im Vollmodell, sondern trainiert zunächst bei
+vollständig eingefrorenem Checkpoint nur eine kleine adaptive Fusion. Sie
+mischt Feature- und Bundle-Wahrscheinlichkeit abhängig von Token und Feature:
+
+```text
+p_final = (1 - g) * p_feature + g * p_bundle
+```
+
+`g` wird ausschließlich aus modellinternen, zur Inferenz verfügbaren Signalen
+gebildet: Morphologie-Tokenrepräsentation, Konfidenz beziehungsweise Entropie
+beider Pfade, Score-Margins und deren Übereinstimmung. Goldlabels,
+Development-Ergebnisse und UDPipe-Ausgaben sind keine Gate-Eingaben. Die
+Komponente bleibt schemaabhängig, aber sprachunabhängig und muss vor einem
+Volltraining dieselben Bokmål-/Nynorsk-, Rare/OOV-, UPOS- und Lemma-Gates wie
+andere Architekturkandidaten bestehen.
+
+Diese Fusion ist **noch kein Bestandteil des ausgewählten Modells**. Erst ein
+erfolgreicher Frozen-Probe rechtfertigt ihre Integration in Training,
+Checkpointmetadaten und Export. Die heutige statische Fusion bleibt bis dahin
+der normative Inferenzvertrag.
 
 Ein abschaltbarer Evaluation-Audit misst, ob weitere Kandidaten, ein besserer
 Scorer oder eine nachgelagerte Verfeinerung benötigt werden. Er ordnet jeden

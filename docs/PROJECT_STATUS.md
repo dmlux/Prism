@@ -2012,38 +2012,40 @@ reproduces the previous control explicitly. Evaluation, Teacher loading,
 export, and probes continue to reconstruct the checkpointed value rather than
 using the new-training default. Official test splits remain untouched.
 
-### Planned post-shared-MLP investigation
+### Post-shared-MLP investigation and current roadmap
 
-The next work is deliberately separated into diagnosis and controlled
-ablation. The read-only audit and the resulting scorer architecture are now
-implemented; neither result changes the selected checkpoint until a controlled
-training run passes the fixed joint gate.
+The read-only task-interaction audit and the first nonlinear scorer ablation
+are complete. The selected checkpoint remains unchanged because the scorer
+candidate fails the canonical Bokmål gate. The next work now targets the
+measured fusion and coverage boundaries rather than adding more Backbone
+capacity.
 
-1. Add one evaluation-only audit for the selected shared-MLP checkpoint. It
-   reports the gold complete-bundle rank and score margin inside the current
-   candidate space, gold lemma-rule ranks split by rule frequency,
-   token-frequency/OOV class, and UPOS, plus cosine similarities and conflict
-   rates between UPOS, morphology, and lemma gradients on the Backbone,
-   shared projection, and character-fusion parameter groups. It must not
-   update parameters or tune a decoding policy.
-2. If the correct bundle is commonly available but ranked too low, replace
-   only the current linear token-to-candidate residual with a compact
-   nonlinear compositional scorer. A token query is compared with a candidate
-   representation composed from schema-derived UPOS and feature-value labels;
-   the result remains a zero-initialized residual on the existing candidate
-   evidence. Independent feature heads, structured decoding, candidate
-   marginalization, unseen-combination fallback, checkpoint metadata, and
-   export parity remain part of the contract.
-3. If morphology and lemma gradients are frequently opposed on shared
-   parameters, evaluate one gradient-conflict method as a separate
-   training-only ablation. It must not be introduced in the same run as the
-   scorer change, because that would make the source of any improvement
-   unidentifiable and would hide whether architecture or optimization recovered
-   the 21 lemma predictions lost by the shared-MLP candidate.
-4. Add soft UPOS/morphology context to the lemma-rule head only if the
-   gold-rule-rank audit shows that this information can resolve a material
-   subset of lemma errors. Otherwise the lemma intervention must target the
-   character/edit-rule representation rather than adding unproven coupling.
+1. Retain the completed task-interaction audit as the diagnostic baseline.
+2. Record and reject the completed `compositional-mlp` scorer as a full output
+   path. It improves internal candidate Top-1 but regresses final UFeats,
+   Rare/OOV morphology, and Lemmas after the current static fusion.
+3. Train a **frozen adaptive probability-fusion probe**. All existing model
+   parameters remain frozen; only a compact token- and feature-dependent gate
+   learns when to trust the independent feature path or the bundle path.
+4. Decompose missing candidates into bundles that were seen in training but
+   removed by Top-32 and bundles never seen in training. Measure Top-32,
+   Top-64, Top-128, and complete-inventory coverage before changing training.
+5. If unseen combinations remain material, replace the closed candidate
+   inventory with bounded compositional candidate generation and a structured
+   energy scorer. Preserve per-feature confidences and unseen-combination
+   support rather than turning morphology into one flat language-specific
+   tag classifier.
+6. Train exact-bundle consistency on the **final post-fusion probabilities**
+   so that a better candidate rank cannot be undone by an independently
+   optimized refinement stage. The existing per-feature objectives remain.
+7. After morphology stabilizes, evaluate a frozen lemma near-miss reranker.
+   Soft UPOS/morphology context is accepted only if it resolves audited errors
+   beyond character and edit-rule evidence.
+8. Retrain the architecture-matched Base Teacher, produce confidence-filtered
+   silver labels, and compare the resulting distilled Student with the same
+   final architecture trained without distillation.
+9. Reconsider NorBERT4-large only if the final structured output path and
+   silver-data control expose a remaining capacity limit.
 
 The audit is exposed by `evaluate_baseline
 --task-interaction-audit --task-interaction-gradient-batches N` and is
@@ -2078,7 +2080,7 @@ overall and 93.37%/98.24% on Bokmål OOV; Nynorsk is 98.64%/99.63% overall and
 92.53%/97.38% on OOV. A future lemma experiment must first attribute these
 near-miss errors to contextual evidence versus character/edit-rule evidence.
 
-The justified Step-2 ablation is implemented as
+The audit-motivated scorer ablation is implemented as
 `--morphology-bundle-scorer-architecture compositional-mlp`. It composes each
 candidate representation from learned schema-derived UPOS and feature-label
 embeddings and compares it with a nonlinear token query. The final query
@@ -2088,6 +2090,34 @@ backward-compatible checkpoint fallback. For the current 185-candidate,
 `H=192` Norwegian contract, the reranker grows from 35,723 to 89,298
 parameters: an increase of 53,575 parameters, or about 209 KiB of raw FP32
 weights. Both variants pass strict `torch.export`.
+
+The matched Bokmål result rejects the scorer as the new default:
+
+| Metric | Selected linear scorer | Compositional scorer | Change |
+| --- | ---: | ---: | ---: |
+| UPOS F1 | 98.9689% | **99.0019%** | +0.0330 pp |
+| UFeats F1 | **96.6372%** | 96.5960% | -0.0412 pp |
+| Lemmas F1 | **98.9304%** | 98.8644% | -0.0660 pp |
+| Rare UFeats F1 | **90.9841%** | 90.6032% | -0.3809 pp |
+| OOV UFeats F1 | **86.7474%** | 86.2487% | -0.4987 pp |
+
+The result is not a capacity failure. Candidate Top-1 on covered tokens rises
+from 97.3388% to 97.4773%, and ranking errors fall from 930 to 871. At the
+same time refinement errors rise from 221 to 277 and final errors rise from
+1,223 to 1,238. The current token-invariant residual gates therefore suppress
+or reverse useful rank evidence. A hard candidate Top-1 diagnostic reaches
+96.7885% over all Bokmål tokens, exposing 0.1513 points over the selected
+final output, but is not a production solution because it removes the
+independent path's open-combination fallback.
+
+The next probe consequently changes only fusion. It will mix probabilities
+as `p_final = (1 - g) * p_feature + g * p_bundle`, with `g` predicted from
+inference-available model confidence, margins, agreement, and the morphology
+token representation. It is trained on the training split with the selected
+checkpoint frozen. A planning expectation of roughly 0.15--0.35 Bokmål
+UFeats points is reasonable; it is not a benchmark claim. A full retraining
+is justified only after the probe improves the joint Bokmål/Nynorsk and
+Rare/OOV gate.
 
 A separate flat UFeats classifier is not the planned default. The selected
 Bundle-32 reranker already provides the same conceptual parallel whole-bundle
@@ -2105,3 +2135,11 @@ Nynorsk lemma predictions lost relative to the selected `identity` control
 without giving back the shared MLP's 226 complete-bundle gain. UDPipe
 predictions must not enter training, candidate construction, loss weighting,
 or threshold selection, and both official test splits remain untouched.
+
+Before the fusion probe, rejected experimental branches are removed in a
+separate cleanup change. The rejected agreement refiner and task adapters no
+longer need production CLI or model paths. Evaluation audits, `identity`
+reproduction, the selected `linear` scorer, and the compositional scorer
+needed by the immediate fusion comparison remain. Keeping cleanup separate
+from model changes preserves causal attribution and gives the new architecture
+a smaller, clearer integration surface.

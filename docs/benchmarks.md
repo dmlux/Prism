@@ -2408,3 +2408,95 @@ These values use official-compatible gold-token Development scoring, the
 canonical morphology policy, and logit-correction strength `1.0`. The
 Nynorsk treebank policy has not yet been rerun on this checkpoint and is not
 estimated from the previous model.
+
+### Compositional bundle-scorer Bokmål gate
+
+The controlled nonlinear scorer run is:
+
+`runs/no-student-compositional-bundle-scorer-e12-weighted/best.pt`
+
+It changes only the bundle residual scorer from `linear` to
+`compositional-mlp`; the selected shared morphology MLP, direct bundle-loss
+weight and gradient scope, data, seed, schedule, and canonical evaluation
+policy remain matched. The checkpoint selected epoch 12.
+
+| Bokmål Development metric | Selected linear scorer | Compositional scorer | Change |
+| --- | ---: | ---: | ---: |
+| UPOS F1 | 98.9689% | **99.0019%** | +0.0330 pp / +12 correct |
+| UFeats F1 | **96.6372%** | 96.5960% | -0.0412 pp / -15 correct |
+| Lemmas F1 | **98.9304%** | 98.8644% | -0.0660 pp / -24 correct |
+| Rare UFeats F1 | **90.9841%** | 90.6032% | -0.3809 pp |
+| OOV UFeats F1 | **86.7474%** | 86.2487% | -0.4987 pp |
+| OOV Lemmas F1 | **92.8750%** | 92.2693% | -0.6057 pp |
+
+The candidate fails the first canonical gate and is not selected. A Nynorsk
+selection run is therefore not required to reject it as the new default.
+`linear` remains the selected scorer and the selected production checkpoint
+does not change.
+
+The paired read-only task-interaction audits nevertheless identify useful
+internal signal:
+
+| Bokmål bundle audit | Selected linear scorer | Compositional scorer | Change |
+| --- | ---: | ---: | ---: |
+| Final errors | **1,223** | 1,238 | +15 |
+| Missing-candidate errors | **72** | 90 | +18 |
+| Ranking errors | 930 | **871** | -59 |
+| Refinement errors | **221** | 277 | +56 |
+| Gold candidate Top-1 on covered tokens | 97.3388% | **97.4773%** | +0.1385 pp |
+| Hard candidate Top-1 over all tokens | 96.6510% | **96.7885%** | +0.1375 pp |
+
+The scorer therefore learns a better top candidate, but the current static
+residual marginalization gives almost the entire gain back. Hard candidate
+decoding is only a diagnostic: it would lose the independent path's
+open-combination behavior and is not selected as production decoding.
+Relative to the selected final output, its 96.7885% value exposes about
+0.1513 UFeats points of directly observable Bokmål headroom, not a promised
+model improvement.
+
+This result changes the next experiment. The scorer is not promoted, and
+capacity is not increased again. The next gate is a frozen adaptive
+probability-fusion probe. Its planning expectation is approximately
+0.15--0.35 Bokmål UFeats points, with values above 0.4 considered optimistic.
+This estimate is not a benchmark result and the gains of later stages are not
+assumed to be additive.
+
+### Planned path after the scorer rejection
+
+The predeclared order is:
+
+1. **Frozen adaptive fusion probe.** Freeze the selected checkpoint and train
+   only a compact token- and feature-dependent gate on the training split.
+   It mixes independent feature probabilities with marginalized bundle
+   probabilities. Development and UDPipe outputs never train the gate.
+2. **Candidate-coverage decomposition.** Without changing predictions, split
+   missing gold bundles into training-seen-but-Top-32-pruned and never-seen
+   combinations. Report coverage and rank curves for Top-32, Top-64,
+   Top-128, and the complete training inventory.
+3. **Open structured candidate generation.** If genuinely unseen bundles are
+   material, generate a bounded beam from high-probability per-feature values
+   and score combinations with a schema-derived energy function. This must
+   retain independent feature confidences and a language-independent export
+   contract.
+4. **Final-output bundle objective.** Apply exact-bundle supervision or a
+   consistency objective to the probabilities actually emitted after fusion,
+   while retaining all per-feature losses. This addresses refinement errors
+   instead of supervising only the pre-fusion candidate distribution.
+5. **Lemma near-miss probe.** Only after morphology stabilizes, train a small
+   frozen reranker over the audited top lemma rules. Add soft UPOS/morphology
+   context only if it resolves errors beyond character and edit-rule evidence.
+6. **Architecture-matched Teacher and silver data.** Retrain the Base Teacher
+   with the final accepted output contract, label only under a fixed
+   confidence policy, and compare the distilled Student with a matched
+   gold-only Student. NorBERT4-large remains deferred until a demonstrated
+   capacity limit.
+7. **Final external gate.** Compare fixed Bokmål and Nynorsk Development
+   outputs with UDPipe using UPOS, exact UFeats, Lemmas, all features, and
+   Rare/OOV slices. Use the untouched test splits only once the complete
+   Development policy is frozen.
+
+Cleanup of rejected experiment paths is performed separately from these
+model changes. The agreement refiner and rejected task-adapter paths can be
+removed; diagnostic audits and the selected reproduction controls remain.
+The compositional scorer stays only until the adaptive-fusion probe determines
+whether its improved rank signal is useful.

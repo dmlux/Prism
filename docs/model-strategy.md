@@ -653,42 +653,42 @@ The accepted order before a larger Teacher is now:
 5. use `shared-mlp` for new Norwegian training runs while keeping explicit
    `identity` reproduction and checkpoint-metadata fallback for older
    artifacts;
-6. before changing training or model structure, add one evaluation-only audit
-   that measures gold-bundle rank and margin inside the current candidate
-   space, gold lemma-rule rank by frequency/OOV/UPOS, and cosine similarity
-   between UPOS, morphology, and lemma gradients on shared parameter groups;
-   this diagnostic must not update parameters, checkpoints, thresholds, or
-   output policies;
-7. if candidate ranking remains the bottleneck, compare the current linear
-   residual scorer with one compact nonlinear compositional scorer while
-   preserving the independent feature heads, open-combination fallback,
-   model-size budget, and export contract;
-8. if the audit confirms frequent morphology-versus-lemma gradient conflict,
-   evaluate one training-only conflict-mitigation method in a separate
-   ablation rather than combining it with the scorer change;
-9. use the all-feature report to target only demonstrated feature deficits;
-   acceptance still requires canonical UFeats, per-feature, Rare/OOV, UPOS,
-   and Lemma quality across both written standards rather than UDPipe rank
-   alone;
-10. add soft structured lemma context only if the audit shows that UPOS or
-   morphology resolves a material share of current errors;
-11. retrain the final architecture-matched Base Teacher before producing silver
-   labels, then measure a matched distilled Student against the same
-   architecture without distillation;
-12. reconsider NorBERT4-large only after the task-aligned Base control is
-   measured and the remaining errors show a capacity limit.
+6. retain the completed task-interaction audit: ranking dominates covered
+   errors, general gradient conflict is not established, and Nynorsk has an
+   additional candidate-coverage problem;
+7. reject the completed nonlinear `compositional-mlp` scorer as the final
+   output path: it improves internal Top-1 ranking but regresses final UFeats,
+   Rare/OOV morphology, and Lemmas under the current static fusion;
+8. before another full run, train only a frozen token- and feature-dependent
+   probability-fusion gate on the training split and evaluate the unchanged
+   checkpoint through the complete Bokmål/Nynorsk gate;
+9. measure whether missing candidates are Top-32 pruning losses or genuinely
+   unseen bundles, including Top-64, Top-128, and complete-inventory curves;
+10. if unseen combinations are material, add bounded compositional candidate
+    generation and a structured energy scorer rather than another closed flat
+    UFeats classifier;
+11. align the exact-bundle objective with the final post-fusion probabilities
+    while retaining the individual feature objectives;
+12. add a frozen lemma near-miss reranker only after morphology stabilizes;
+    provide it soft UPOS/morphology context only if the audit proves that this
+    context resolves errors beyond character/edit-rule evidence;
+13. retrain the final architecture-matched Base Teacher before producing
+    confidence-filtered silver labels, then compare a matched distilled
+    Student against the same architecture without distillation;
+14. reconsider NorBERT4-large only after structured decoding, final-output
+    supervision, and the silver-data control expose a capacity limit.
 
 This order changes the actual learned model rather than post-processing a
 benchmark. Any candidate must improve the canonical Bokmål and Nynorsk gold
 Development reports and preserve untouched test splits before it may label
 silver data.
 
-The Step-6 audit is now implemented and completed on the selected shared-MLP
+The task-interaction audit is now implemented and completed on the selected shared-MLP
 checkpoint. It attributes 930 of 1,223 Bokmål complete-bundle errors and 880
 of 1,851 Nynorsk errors to candidate ranking, versus only 72 and 782 missing
 gold candidates. Among covered errors, the gold bundle is in the first two
-candidates for 74.11% of Bokmål and 71.19% of Nynorsk cases. This is sufficient
-evidence to implement Step 7 as a controlled architecture ablation.
+candidates for 74.11% of Bokmål and 71.19% of Nynorsk cases. This supplied
+sufficient evidence for the completed controlled scorer ablation.
 
 The new `compositional-mlp` scorer replaces only the learned linear residual.
 It composes candidate vectors from schema-derived UPOS and feature-label
@@ -699,14 +699,31 @@ training default and the fallback for checkpoint metadata that predates the
 field. The current Norwegian reranker grows from 35,723 to 89,298 parameters,
 and both variants pass strict export.
 
-Step 8 is not selected from this audit. Average gradient cosines remain
+The Bokmål end-to-end gate rejects this scorer as the new default. It raises
+UPOS by 0.0330 points but lowers UFeats by 0.0412, Lemmas by 0.0660, Rare
+UFeats by 0.3809, and OOV UFeats by 0.4987 points. The internal audit explains
+the apparent contradiction: ranking errors fall by 59 and covered-token
+candidate Top-1 rises by 0.1385 points, while refinement errors rise by 56.
+The learned nonlinear compatibility is useful signal, but the current static
+residual logit fusion does not use it reliably.
+
+The immediate experiment is therefore a frozen adaptive probability-fusion
+probe, not another Backbone or scorer expansion. It learns only a compact
+gate between independent feature probabilities and marginalized bundle
+probabilities. The gate may use model-internal confidence, margins,
+agreement, and the morphology token representation, but never Development
+labels or UDPipe predictions. A successful probe must improve the complete
+Bokmål/Nynorsk and Rare/OOV gate before it is integrated into full training,
+checkpoint metadata, or export.
+
+Gradient-conflict mitigation is not selected from this audit. Average gradient cosines remain
 positive across both standards; only Nynorsk UPOS-versus-Lemma gradients in
 the shared projection show a majority-negative sample (9 of 16 batches).
 This does not establish a general morphology-versus-lemma conflict and must
-not be combined with the scorer run. Step 10 also remains gated: the lemma
-rank audit shows large OOV Top-2 headroom, but does not yet prove that
-UPOS/morphology context, rather than character or edit-rule evidence, resolves
-those errors.
+not be combined with the scorer run. Soft lemma context also remains gated:
+the lemma-rank audit shows large OOV Top-2 headroom, but does not yet prove
+that UPOS/morphology context, rather than character or edit-rule evidence,
+resolves those errors.
 
 A second parallel whole-`UFeats` classifier is technically possible, but it
 would duplicate an existing responsibility. The selected Bundle-32 reranker
@@ -718,14 +735,14 @@ the same bundles would split scarce bundle examples between two competing
 paths, repeat the same closed-inventory limitation, and make it less clear
 which path owns final calibration.
 
-The planned scorer ablation therefore improves this existing UFeats path
-instead of adding a duplicate head. Its token side uses a small nonlinear query
-projection; its candidate side composes a representation from schema-derived
-UPOS and feature-value labels; their compatibility contributes a
-zero-initialized residual energy to the existing independent-head evidence.
+The completed scorer ablation therefore changed this existing UFeats path
+instead of adding a duplicate head. Its token side uses a small nonlinear
+query projection; its candidate side composes a representation from
+schema-derived UPOS and feature-value labels; their compatibility contributes
+a zero-initialized residual energy to the existing independent-head evidence.
 The candidate distribution is still marginalized back into each feature, and
 the independent decoder remains the fallback for combinations outside the
-inventory. This keeps the change language-independent and tests the measured
+inventory. This kept the change language-independent and tested the measured
 candidate-ranking hypothesis directly.
 
 The direct bundle objective is an auxiliary term, not a replacement for the
