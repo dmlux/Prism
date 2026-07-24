@@ -1813,6 +1813,42 @@ Teacher quality must first pass the official UPOS/UFeats/Lemmas comparison;
 the later labeling policy must then select a deterministic, documented subset
 rather than silently turning all 50 million tokens into one experiment.
 
+### Nynorsk silver source
+
+The second licensed silver source is fixed: Språkbanken's `oai:nb.no:sbr-60`
+corpus of legal documents from Norwegian Nynorsk municipalities, distributed
+as CC0. Its single JSON member maps a document URN to
+`[page_number, language_code, page_text]` entries, so pages are already
+language-classified, but carry no word segmentation, sentence boundaries, or
+OCR confidence.
+
+The preparation layer therefore adds two language-independent components with
+focused tests. `prism.data.segmentation` implements a versioned
+(`prism-rule-segmentation-v1`), deterministic, precision-first sentence
+extraction: OCR line-wrap and hyphenation merging, abbreviation- and
+ordinal-protected sentence splitting, span-based tokenization with exact
+spacing, and conservative quality filters that discard headers, tables,
+dot-leader artifacts, quoted fragments, and low-letter-ratio lines. The
+Norwegian abbreviation inventory and predeclared filter defaults live in
+`prism.languages.norwegian.silver_extraction`. `prism.data.sakspapir` streams
+the 897-MB JSON object incrementally, filters pages to `nno`, restores page
+order, and deduplicates against both Norwegian gold treebanks. This is an
+explicit offline data-preparation policy; runtime raw-text tokenization
+remains a separate later product decision.
+
+`prepare_silver_corpus` now selects the source through `--source
+{nbdigital-nob,sakspapir-nno}` with backward-compatible Bokmål defaults. The
+completed Nynorsk run took approximately 2 minutes 8 seconds and retained
+32,406 documents, 2,012,251 sentences, and 37,126,629 tokens in a 725-MB
+JSONL artifact under `data/processed/sakspapir-nno/`, validated against its
+manifest. The source archive SHA-256 is
+`fac1f1f3a7409ad4933e282fda1f416fc1f4d2c80fa8acf98d7de1eb815e343e`. The
+manifest records the complete extraction policy including the abbreviation
+inventory. Both written standards now have comparable CC0 silver volumes
+(50.4M Bokmål and 37.1M Nynorsk tokens), so the later gold/silver mixing
+policy does not have to rely on Bokmål-only silver text. No pseudo-labels
+have been generated from either source yet.
+
 A compatible public-domain Nynorsk source is now identified but not yet
 downloaded or prepared: Språkbanken resource
 [`oai:nb.no:sbr-60`](https://www.nb.no/sprakbanken/en/resource-catalogue/oai-nb-no-sbr-60/)

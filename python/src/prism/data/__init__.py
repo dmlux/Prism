@@ -29,6 +29,20 @@ from prism.data.nbdigital import (
     iter_nbdigital_silver_sentences,
     parse_nbdigital_document_name,
 )
+from prism.data.sakspapir import (
+    SAKSPAPIR_CORPUS_ID,
+    SAKSPAPIR_LANGUAGE_TAG,
+    SAKSPAPIR_LICENSE_ID,
+    SAKSPAPIR_LICENSE_URL,
+    SAKSPAPIR_PAGE_LANGUAGE_CODE,
+    SAKSPAPIR_SOURCE_URL,
+    iter_sakspapir_silver_sentences,
+)
+from prism.data.segmentation import (
+    SENTENCE_EXTRACTION_POLICY_VERSION,
+    SentenceExtractionPolicy,
+    extract_pretokenized_sentences,
+)
 from prism.data.silver import (
     SILVER_CORPUS_FORMAT_VERSION,
     PretokenizedSilverSentence,
@@ -63,6 +77,16 @@ __all__ = [
     "NbDigitalDocumentMetadata",
     "iter_nbdigital_silver_sentences",
     "parse_nbdigital_document_name",
+    "SAKSPAPIR_CORPUS_ID",
+    "SAKSPAPIR_LANGUAGE_TAG",
+    "SAKSPAPIR_LICENSE_ID",
+    "SAKSPAPIR_LICENSE_URL",
+    "SAKSPAPIR_PAGE_LANGUAGE_CODE",
+    "SAKSPAPIR_SOURCE_URL",
+    "iter_sakspapir_silver_sentences",
+    "SENTENCE_EXTRACTION_POLICY_VERSION",
+    "SentenceExtractionPolicy",
+    "extract_pretokenized_sentences",
     "SILVER_CORPUS_FORMAT_VERSION",
     "PretokenizedSilverSentence",
     "SilverCorpusManifest",

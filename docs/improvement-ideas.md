@@ -2,7 +2,8 @@
 
 Status: Brainstorm zur Bewertung, **keine akzeptierte Strategie**.
 Erstellt: 2026-07-20
-Zuletzt überarbeitet: 2026-07-20 (Abgleich mit dem Forschungsstand 2025/2026)
+Zuletzt überarbeitet: 2026-07-24 (Silber-Labeling-Policy-Entwurf; Einordnung
+Teacher-Kaskade nach Forschungsstand)
 
 Dieses Dokument sammelt konkrete, moderne Techniken, mit denen der ausgelieferte
 Student **kleiner**, **schneller** und **besser** werden kann. Jeder Vorschlag
@@ -94,6 +95,116 @@ Provenienz-Disziplin nötig, passt aber zu Prisms Artefakt-Regeln).
 **Passung:** Nutzt den bereits akzeptierten Teacher, respektiert Offline-Ziel
 (nur beim Training), verändert den ausgelieferten Student nicht in der Größe.
 
+#### 1a. Warum ein „nur gleich guter" Teacher trotzdem reicht
+
+Ein häufiger Einwand: Der Teacher ist kaum besser als der Student, also lernt
+der Student vor allem Teacher-Fehler, und mehr als eine Annäherung an den
+Teacher ist ohnehin nicht drin. Beides stimmt nur für das bisher gemessene
+Regime – Logit-Distillation auf denselben Gold-Daten. Beim Silber-Labeling ist
+der Teacher dagegen kein Wissens-Deckel, sondern ein **skalierbarer Annotator**,
+und der Student kann ihn nachweislich übertreffen:
+
+1. **Kontext-zu-Lexikon-Transfer.** Der Teacher labelt z.B. Genus dort richtig,
+   wo die Syntax es verrät (*en bil*, *et hus*, Adjektiv-Kongruenz). Über einen
+   großen Korpus erscheint fast jedes Nomen irgendwo in so einem verräterischen
+   Kontext. Der Student sieht dasselbe Wort vielfach konsistent gelabelt und
+   lernt die Eigenschaft **lexikalisch** (Char-CNN, Embeddings) – und wendet sie
+   dann in Kontexten an, in denen der Teacher selbst scheitern würde. Das
+   Korpus wirkt wie ein Ensemble tausender Teacher-Vorhersagen pro Wort; die
+   Aggregation erzeugt Wissen, das kein einzelner Teacher-Forward-Pass hat.
+   Genau das trifft Prisms gemessenes Fehlerprofil (Gender auf Rare/OOV-Nomen):
+   „OOV" heißt nur „nicht in ~490k Gold-Tokens" – im Silber-Korpus sind diese
+   Wörter häufig.
+2. **Gelernt wird die beste Teilmenge, nicht der Durchschnitt.** Mit
+   kalibrierter Konfidenz-Filterung und Teacher-Agreement liegt die
+   Label-Qualität im behaltenen Teil weit über der Durchschnittsgenauigkeit
+   des Teachers.
+3. **Gold-Anker.** Gold + Silber werden gemeinsam trainiert; unsystematische
+   Teacher-Fehler sind über den Korpus inkonsistent und schwer zu fitten.
+4. **Empirisch belegt:** Born-Again Networks (Student = Teacher-Architektur,
+   Student schlägt Teacher) und das Noisy-Student-Verfahren (iteriertes
+   Pseudo-Labeling übertrifft den Ausgangs-Teacher) zeigen, dass ein
+   überlegener Teacher **keine Voraussetzung** ist.
+
+Die echte Gefahr sind **systematische** Teacher-Fehler – dagegen richten sich
+Agreement-Filter, Gold-Anker und die getrennten Bokmål-/Nynorsk-Gates der
+folgenden Policy.
+
+#### 1b. Silber-Labeling-Policy (konkreter Entwurf, noch nicht akzeptiert)
+
+Voraussetzungen in fester Reihenfolge, bevor Silber-Labels erzeugt werden:
+
+1. **Architektur-gematchter Base-Teacher** (gleiche Student-Architektur auf
+   `norbert4-base`) ist trainiert und schlägt auf beiden Schriftstandards
+   kanonisch sowohl den korrigierten historischen Teacher-Kontrollpunkt als
+   auch den aktuellen Student (UFeats, UPOS, Lemmas, Rare/OOV, Korrektur 1.0).
+   Schlägt er den Student nicht klar, wird `norbert4-large` als **Labeler**
+   autorisiert – nicht als Kaskadenglied (siehe 4).
+2. **Kalibrierung vor Filterung:** Temperatur-Skalierung pro Task-Head des
+   Teachers auf den Development-Splits. Ein unkalibrierter Konfidenz-Filter
+   sortiert systematisch falsch; der dokumentierte Wide-MLP-NLL-Befund macht
+   das konkret. Labeling verwendet ausschließlich **korrigierte** Logits
+   (dokumentiertes Gate: unkorrigierte Teacher-Morphologie ist kein
+   Pseudo-Gold).
+
+Labeling- und Filter-Vertrag (sprachneutral, typisiert):
+
+- **Konfidenz-Schwelle pro Task**, abgeleitet aus Development: Die Schwelle
+  wird so gewählt, dass die Teacher-Genauigkeit auf den akzeptierten
+  Dev-Tokens ein vordeklariertes Ziel erreicht (z.B. ≥ 99,5 % pro Task) –
+  keine handgewählte feste Zahl, dadurch pro Sprache reproduzierbar ableitbar.
+- **Zwei-Teacher-Agreement:** Der korrigierte historische Character-CNN-Teacher
+  dient als Agreement-Kontrolle. Tokens mit Disagreement werden **maskiert**
+  (die bestehenden Loss-Masken für fehlende Annotationen tragen das bereits),
+  nicht stillschweigend übernommen.
+- **Satz-Verwurf:** Sätze mit mehr als einem vordeklarierten Anteil maskierter
+  Tokens (z.B. > 30 %) fallen ganz weg, damit der Student keine systematisch
+  „durchlöcherten" Sätze lernt.
+- Jedes Silber-Artefakt trägt Manifest mit Quelle, SHA-256, Teacher-Checkpoints,
+  Kalibrierungs- und Schwellen-Policy – wie im bestehenden
+  `prepare_silver_corpus`-Vertrag.
+
+Gold/Silber-Mischung mit Nynorsk-Schutz:
+
+- Gold bleibt in jeder Epoche vollständig enthalten; die NBdigital-Quelle ist
+  **Bokmål-only**, daher wird der Nynorsk-Gold-Anteil pro Epoche konstant
+  gehalten (Oversampling), damit Bokmål-Silber Nynorsk nicht verdrängt.
+- Silber-Beispiele erhalten ein eigenes, vordeklariertes Loss-Gewicht
+  (< Gold); erste Ablation als kleines Grid, nicht nachträglich getunt.
+- **Nynorsk-Silberquelle (umgesetzt 2026-07-24):** Språkbanken
+  `oai:nb.no:sbr-60` „Legal documents from Norwegian Nynorsk municipalities"
+  – CC0, moderne Orthographie (kommunale Sakspapiere), Seiten bereits
+  sprachklassifiziert. Die Vorbereitung ist implementiert
+  (`prism.data.segmentation` + `prism.data.sakspapir`, Details in
+  `PROJECT_STATUS.md`) und liefert 2.012.251 Sätze / 37,1 Mio. Tokens –
+  vergleichbar mit den 50,4 Mio. Bokmål-Tokens, sodass die Mischung nicht
+  dauerhaft nur über Oversampling geschützt werden muss. Alternative mit
+  offener, aber nicht gemeinfreier Lizenz bleibt Målfrid 2021 (`sbr-69`,
+  NLOD 2.0). Die gemeinfreien NBdigital-Bücher (`sbr-34`) enthalten zwar
+  Nynorsk, aber überwiegend in **veralteter Orthographie** (Landsmål/frühe
+  Reformen) – als Trainingsquelle für modernes Nynorsk riskant.
+
+Pilot mit Dosis-Wirkungs-Kurve statt Vollkorpus:
+
+- Deterministische Teilmengen von z.B. **1M → 5M → 10M Tokens** (dokumentierte
+  Auswahlregel), erst danach Entscheidung über den 50M-Vollkorpus.
+- Messpunkte nach jeder Dosis: kanonische Bokmål- und Nynorsk-Gates (UFeats,
+  UPOS, Lemmas, jede Morphologie-Feature, Rare/OOV) – mit besonderem Blick auf
+  **Gender/OOV**, den erklärten Zielfehler.
+
+Abbruch- und Erfolgs-Kriterien (vordeklariert):
+
+- Abbruch bzw. Policy-Revision, wenn ein Schriftstandard auf einem
+  Gate-Aggregat regressiert, der dokumentierte Lemma-Guardrail verletzt wird
+  oder Gender/OOV nach der 5M-Dosis keine messbare Verbesserung zeigt.
+- Erfolg autorisiert die nächste Stufe: größere Dosis, danach optional eine
+  **Noisy-Student-Iteration** (der verbesserte Student wird neuer Labeler) –
+  unter exakt denselben Gates.
+
+**Passung:** vollständig sprachunabhängig formulierbar (Schwellen aus Dev
+abgeleitet, Masken- und Manifest-Verträge existieren); kein UDPipe-Einfluss auf
+Training oder Schwellenwahl; Test-Splits bleiben unberührt.
+
 ### 2. MiniLMv2-artige Attention-Distillation (statt nur Logits)
 
 **Idee:** Aktuell wird nur die *Ausgabe* (Logits) destilliert. MiniLM destilliert
@@ -178,6 +289,21 @@ Kandidat vorgesehen ist.
 Verteilungen mischen). **Risiko:** niedrig. **Passung:** nutzt bereits geplante
 Artefakte; nur übernehmen, wenn die Ablation einen Gewinn gegenüber dem besten
 Einzel-Teacher zeigt.
+
+**Einordnung Distillations-Kaskade (large → base → xsmall):** Die ursprünglich
+angedachte Teacher-Assistant-Kette wird nach aktueller Forschungslage **nicht
+empfohlen**. Die TAKD-Evidenz ist gemischt (Fehler-Akkumulation über die
+Stufen, hohe Trainingskosten), und die *Distillation Scaling Laws* (2025)
+zeigen, dass die optimale Teacher-Größe ungefähr linear mit der
+Studentengröße wächst – ein sehr großer Teacher hilft einem 17M-Studenten per
+Logit-Distillation kaum (Capacity-Gap). Der wertvolle Kern bleibt erhalten,
+aber umformuliert: Beim Silber-Labeling zählt nur die **Label-Qualität**, denn
+Labels sind Daten – die Capacity-Gap-Beschränkung gilt dort nicht. `large`
+wird daher, falls der architektur-gematchte Base-Teacher den Student nicht
+klar schlägt, direkt als **Silber-Labeler** eingesetzt (einmaliger
+Offline-Lauf, keine Auswirkung auf das ausgelieferte Artefakt), optional mit
+Base als Agreement-Partner (siehe 1b) – nicht als Zwischenstufe einer
+Distillationskette.
 
 ### 5. Konsistenz- und Struktursignale für Morphologie
 
@@ -526,10 +652,11 @@ um überhaupt zu entscheiden, ob sich 14/17 lohnen.
 
 ## Empfohlene Reihenfolge zum Bewerten
 
-1. **Silber-Daten-Distillation (1)** – wahrscheinlich größter nächster
-   Genauigkeitssprung, nachdem DKD erfolgreich ausgewählt wurde;
+1. **Silber-Daten-Distillation (1, Policy in 1b)** – wahrscheinlich größter
+   nächster Genauigkeitssprung, nachdem DKD erfolgreich ausgewählt wurde;
    weil reine Logit-Distillation auf dem kleinen Gold-Set nachweislich ausgereizt
-   ist.
+   ist. Feste Vorstufen: architektur-gematchter Base-Teacher, dann
+   Teacher-Kalibrierung, dann Pilot mit Dosis-Wirkungs-Kurve.
 2. **Embedding quantisieren + Vokabular-Beschneidung (6 + 7)** – größter
    Größensprung, zahlt aufs 100-MiB-Ziel ein, ohne den Backbone umzubauen.
 3. **MatQuant/QAT-Quantisierung (8)** – Größe und Geschwindigkeit zugleich.
@@ -568,6 +695,12 @@ bevor Modell und Kalibrierung fixiert sind.
 - Conformal Prediction for NLP: A Survey (TACL 2024); Abstention-/CAP-Arbeiten
   (2025) – garantierte Unsicherheit.
 - BabyLM-Reihe – Distillation kann Vortraining auf denselben Daten schlagen.
+- Born-Again Networks (2018), Noisy Student (2020) – Student kann Teacher
+  übertreffen; iteriertes Pseudo-Labeling mit Filterung.
+- Distillation Scaling Laws (2025) – optimale Teacher-Größe wächst ~linear mit
+  der Studentengröße; Beleg gegen große Kaskaden-Teacher bei Logit-Distillation.
+- TAKD / Teacher-Assistant-KD (2020) und Folgearbeiten – gemischte Evidenz für
+  Zwischenstufen-Kaskaden.
 - ModernBERT (2024), NeoBERT (2025), DeBERTaV3 – modernisierte Encoder (nur als
   Fallback-Vorlage relevant, kein Ersatz für norwegisches Vortraining).
 - CANINE, ByT5, Charformer, CharBERT sowie H-Net++, Byte Latent Transformer (BLT)
