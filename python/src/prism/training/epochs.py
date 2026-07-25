@@ -68,6 +68,7 @@ class SupervisedEpochMetrics:
 class SupervisedEvaluationMetrics:
     losses: SupervisedEpochMetrics
     upos_accuracy: float
+    morphology_bundle_exact_accuracy: float | None
     morphology_accuracies: tuple[float, ...]
     morphology_annotated_accuracies: tuple[
         float | None,
@@ -487,6 +488,9 @@ def evaluate_supervised_token_task_epoch(
     return SupervisedEvaluationMetrics(
         losses=losses,
         upos_accuracy=overall_metrics.upos_accuracy,
+        morphology_bundle_exact_accuracy=(
+            overall_metrics.morphology_bundle_exact_accuracy
+        ),
         morphology_accuracies=overall_metrics.morphology_accuracies,
         morphology_annotated_accuracies=(
             overall_metrics.morphology_annotated_accuracies

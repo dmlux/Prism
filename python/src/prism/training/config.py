@@ -1,9 +1,27 @@
 from dataclasses import dataclass
+from enum import Enum
 import math
 
 from prism.modeling.morphology_bundle_reranker import (
     MorphologyBundleLossGradientScope,
 )
+
+
+class CheckpointSelectionMetric(Enum):
+    """Development signal that selects the best training epoch.
+
+    ``DEVELOPMENT_LOSS`` is the historical default: the epoch with the lowest
+    combined development loss wins. ``DEVELOPMENT_TASK_ACCURACY`` selects on
+    the mean of the discrete development decisions instead: UPOS accuracy,
+    lemma-rule accuracy, and exact complete-morphology-bundle accuracy. The
+    discrete policy exists for the teacher/labeler role, where late epochs
+    often keep improving discrete decisions while growing overconfidence
+    worsens the loss; a labeler is judged by its decisions, not by its
+    negative log-likelihood.
+    """
+
+    DEVELOPMENT_LOSS = "development-loss"
+    DEVELOPMENT_TASK_ACCURACY = "development-task-accuracy"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -22,6 +40,10 @@ class SupervisedTrainingConfig:
         MorphologyBundleLossGradientScope.FULL
     )
     early_stopping_patience: int | None = None
+    checkpoint_selection_metric: CheckpointSelectionMetric = (
+        CheckpointSelectionMetric.DEVELOPMENT_LOSS
+    )
+    secondary_checkpoint_selection_metric: CheckpointSelectionMetric | None = None
 
     def __post_init__(self) -> None:
         if self.epoch_count <= 0:
@@ -82,3 +104,11 @@ class SupervisedTrainingConfig:
             and self.early_stopping_patience <= 0
         ):
             raise ValueError("Early-stopping patience must be positive.")
+        if (
+            self.secondary_checkpoint_selection_metric
+            is self.checkpoint_selection_metric
+        ):
+            raise ValueError(
+                "Secondary checkpoint selection metric must differ from the "
+                "primary metric."
+            )

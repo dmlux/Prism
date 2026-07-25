@@ -45,6 +45,7 @@ from prism.schema.serialization import (
 )
 from prism.training import (
     TOKEN_TASK_CHECKPOINT_FORMAT_VERSION,
+    CheckpointSelectionMetric,
     DistilledEpochMetrics,
     SupervisedEpochMetrics,
     SupervisedEvaluationMetrics,
@@ -96,6 +97,8 @@ class BaselineTrainingArguments:
     morphology_bundle_loss_weight: float
     morphology_bundle_loss_gradient_scope: MorphologyBundleLossGradientScope
     early_stopping_patience: int | None
+    checkpoint_selection_metric: CheckpointSelectionMetric
+    secondary_checkpoint_selection_metric: CheckpointSelectionMetric | None
 
 
 def parse_training_arguments(
@@ -271,6 +274,30 @@ def parse_training_arguments(
             "improvement; 0 disables early stopping."
         ),
     )
+    parser.add_argument(
+        "--checkpoint-selection-metric",
+        choices=tuple(metric.value for metric in CheckpointSelectionMetric),
+        default=CheckpointSelectionMetric.DEVELOPMENT_LOSS.value,
+        help=(
+            "Development signal that selects the best epoch. development-loss "
+            "is the historical default; development-task-accuracy selects on "
+            "the mean of UPOS, lemma-rule, and exact morphology-bundle "
+            "accuracy and exists for the teacher/labeler role, where late "
+            "epochs improve discrete decisions while overconfidence worsens "
+            "the loss."
+        ),
+    )
+    parser.add_argument(
+        "--secondary-checkpoint-selection-metric",
+        choices=tuple(metric.value for metric in CheckpointSelectionMetric),
+        default=None,
+        help=(
+            "Optional second selection metric tracked in the same run. Its "
+            "best epoch is written next to the primary checkpoint as "
+            "best-<metric>.pt for a controlled selection-policy ablation. It "
+            "never affects early stopping or the primary checkpoint."
+        ),
+    )
 
     parsed_arguments = parser.parse_args(arguments)
 
@@ -330,6 +357,14 @@ def parse_training_arguments(
         parser.error("--epoch-count must be greater than zero")
     if parsed_arguments.early_stopping_patience < 0:
         parser.error("--early-stopping-patience must be non-negative")
+    if (
+        parsed_arguments.secondary_checkpoint_selection_metric
+        == parsed_arguments.checkpoint_selection_metric
+    ):
+        parser.error(
+            "--secondary-checkpoint-selection-metric must differ from "
+            "--checkpoint-selection-metric"
+        )
     resolved_bundle_loss_weight = parsed_arguments.morphology_bundle_loss_weight
     if (
         not math.isfinite(resolved_bundle_loss_weight)
@@ -423,6 +458,16 @@ def parse_training_arguments(
             None
             if parsed_arguments.early_stopping_patience == 0
             else parsed_arguments.early_stopping_patience
+        ),
+        checkpoint_selection_metric=CheckpointSelectionMetric(
+            parsed_arguments.checkpoint_selection_metric
+        ),
+        secondary_checkpoint_selection_metric=(
+            None
+            if parsed_arguments.secondary_checkpoint_selection_metric is None
+            else CheckpointSelectionMetric(
+                parsed_arguments.secondary_checkpoint_selection_metric
+            )
         ),
     )
 
@@ -599,6 +644,15 @@ def main() -> None:
             else arguments.early_stopping_patience
         ),
     )
+    print(
+        "Checkpoint selection metric:",
+        arguments.checkpoint_selection_metric.value,
+    )
+    if arguments.secondary_checkpoint_selection_metric is not None:
+        print(
+            "Secondary checkpoint selection metric:",
+            arguments.secondary_checkpoint_selection_metric.value,
+        )
     print("Training sentences:", len(training_tokens))
     print(
         "Development sentences:",
@@ -656,6 +710,10 @@ def main() -> None:
             arguments.morphology_bundle_loss_gradient_scope
         ),
         early_stopping_patience=arguments.early_stopping_patience,
+        checkpoint_selection_metric=arguments.checkpoint_selection_metric,
+        secondary_checkpoint_selection_metric=(
+            arguments.secondary_checkpoint_selection_metric
+        ),
     )
 
     torch.manual_seed(config.random_seed)
@@ -848,11 +906,13 @@ def main() -> None:
             "Development total loss",
             "Development UPOS accuracy",
             "Development lemma-rule accuracy",
+            "Development bundle exact accuracy",
         ]
         scalar_metric_values = [
             metrics.losses.total_loss,
             metrics.upos_accuracy,
             metrics.lemma_rule_accuracy,
+            metrics.morphology_bundle_exact_accuracy,
         ]
         if metrics.losses.morphology_bundle_coverage is not None:
             scalar_metric_names.extend(
@@ -884,17 +944,21 @@ def main() -> None:
 
         return metrics
 
-    def save_new_best(
+    def save_best_checkpoint(
         epoch: SupervisedTrainingEpochResult,
+        *,
+        target_path: Path,
+        selected_by: CheckpointSelectionMetric,
     ) -> None:
         model_state_dict = {
             name: tensor.detach().cpu() for name, tensor in model.state_dict().items()
         }
-        temporary_path = checkpoint_path.with_suffix(".tmp")
+        temporary_path = target_path.with_suffix(".tmp")
 
         torch.save(
             {
                 "checkpoint_format_version": TOKEN_TASK_CHECKPOINT_FORMAT_VERSION,
+                "checkpoint_selected_by": selected_by.value,
                 "epoch_index": epoch.epoch_index,
                 "language_tag": arguments.language_tag,
                 "treebank_release": arguments.treebank_release,
@@ -960,6 +1024,14 @@ def main() -> None:
                     "morphology_bundle_loss_gradient_scope": (
                         config.morphology_bundle_loss_gradient_scope.value
                     ),
+                    "checkpoint_selection_metric": (
+                        config.checkpoint_selection_metric.value
+                    ),
+                    "secondary_checkpoint_selection_metric": (
+                        None
+                        if config.secondary_checkpoint_selection_metric is None
+                        else config.secondary_checkpoint_selection_metric.value
+                    ),
                 },
                 "morphology_weights": (
                     None
@@ -976,19 +1048,41 @@ def main() -> None:
             },
             temporary_path,
         )
-        temporary_path.replace(checkpoint_path)
+        temporary_path.replace(target_path)
 
         print(
-            "Saved new best checkpoint from epoch",
+            f"Saved new best ({selected_by.value}) checkpoint from epoch",
             epoch.epoch_index + 1,
         )
+
+    secondary_metric = config.secondary_checkpoint_selection_metric
+    secondary_checkpoint_path = (
+        None
+        if secondary_metric is None
+        else checkpoint_path.with_name(f"best-{secondary_metric.value}.pt")
+    )
 
     run_result = run_supervised_training_epochs(
         epoch_count=config.epoch_count,
         train_epoch=train_epoch,
         evaluate_epoch=evaluate_epoch,
-        on_new_best=save_new_best,
+        on_new_best=lambda epoch: save_best_checkpoint(
+            epoch,
+            target_path=checkpoint_path,
+            selected_by=config.checkpoint_selection_metric,
+        ),
         early_stopping_patience=config.early_stopping_patience,
+        checkpoint_selection_metric=config.checkpoint_selection_metric,
+        secondary_selection_metric=secondary_metric,
+        on_new_secondary_best=(
+            None
+            if secondary_metric is None or secondary_checkpoint_path is None
+            else lambda epoch: save_best_checkpoint(
+                epoch,
+                target_path=secondary_checkpoint_path,
+                selected_by=secondary_metric,
+            )
+        ),
     )
 
     print()
@@ -997,6 +1091,16 @@ def main() -> None:
         run_result.best_epoch_index + 1,
     )
     print("Checkpoint:", checkpoint_path)
+    if (
+        secondary_metric is not None
+        and secondary_checkpoint_path is not None
+        and run_result.secondary_best_epoch_index is not None
+    ):
+        print(
+            f"Secondary best epoch ({secondary_metric.value}):",
+            run_result.secondary_best_epoch_index + 1,
+        )
+        print("Secondary checkpoint:", secondary_checkpoint_path)
     if run_result.stopped_early:
         print(
             "Early stopping:",

@@ -164,6 +164,52 @@ Labeling- und Filter-Vertrag (sprachneutral, typisiert):
   Kalibrierungs- und Schwellen-Policy – wie im bestehenden
   `prepare_silver_corpus`-Vertrag.
 
+Trainingsobjektiv: Silber ersetzt die Distillation nicht, Silber *trägt* sie.
+Zwei Achsen sind zu trennen – die Datenquelle (Gold vs. Silber) und die
+Zielart (harte Labels vs. weiche Verteilungen):
+
+| | Harte Ziele (nur Gewinner-Label) | Weiche Ziele (Verteilungen) |
+| --- | --- | --- |
+| Gold-Daten | normales supervised Training | aktuelles DKD (Teacher-Logits auf Gold) |
+| Silber-Daten | Pseudo-Labeling / Self-Training | **Offline-Distillation – der große Hebel** |
+
+Der neue Student trainiert deshalb kombiniert, pro Satz mit dem passenden
+Signal:
+
+- **Gold-Sätze:** supervised Loss + DKD gegen Teacher-Logits – unverändert
+  wie im ausgewählten Student.
+- **Silber-Sätze:** KD-Loss gegen **gecachte** Teacher-Verteilungen mit
+  Konfidenz-Maskierung pro Task (die bestehenden Loss-Masken tragen das).
+
+Das Labeling-Artefakt speichert **weiche Top-k-Ziele plus Konfidenzen**, denn
+volle Logits sind unmöglich (allein der 1.059-Wege-Lemma-Kopf wäre ~380 GB
+für den Vollkorpus): UPOS vollständig (17 Werte, FP16, ~34 B/Token),
+Morphologie vollständig (~69 reale Werte, ~140 B/Token), Lemma Top-8
+(~48 B/Token) – zusammen ~220 B/Token, also ~19 GB für den Vollkorpus und
+~2 GB für den 10M-Pilot. Harte Labels (= Top-1) sind daraus als Ablation
+gratis ableitbar. Offline-Caching statt Live-Teacher ist zwingend: Bei
+12-Epochen-Schedules müsste ein Live-Teacher die Silber-Tokens pro Epoche
+neu durchrechnen; der Cache amortisiert sich über alle Epochen und alle
+späteren Ablationen und folgt dem bestehenden Manifest-Muster.
+
+**Größen-Guardrail (explizit):** Der Label-Cache und die Silber-Korpora sind
+reine Offline-Trainingsartefakte auf der Entwicklungsmaschine – wie
+Teacher-Checkpoints und `data/processed/`. Nichts davon wird ausgeliefert.
+Silber-Training ändert die Werte der Studenten-Gewichte, nicht ihre Anzahl:
+Der ausgelieferte Student bleibt bei seinen ~70 MB; das dokumentierte
+100-MiB-Release-Gate bleibt unberührt.
+
+Vordeklarierte Objective-Ablationen (gegen die aktuelle Referenz):
+
+1. Gold + DKD – der ausgewählte Student als fixe Referenz;
+2. Gold + Silber-hart – einfachste Variante ohne Verteilungen;
+3. Gold + Silber-weich – Distillation nur über Silber;
+4. Gold + DKD + Silber-weich – Vollkombination.
+
+Erwartung (zu messen, nicht anzunehmen): Sobald der Student zweistellige
+Millionen Silber-Tokens sieht, dürfte der marginale Beitrag des Gold-DKD
+klein werden; ist Ablation 3 ≈ 4, hat Silber das Gold-DKD faktisch abgelöst.
+
 Gold/Silber-Mischung mit Nynorsk-Schutz:
 
 - Gold bleibt in jeder Epoche vollständig enthalten; die NBdigital-Quelle ist
@@ -647,6 +693,48 @@ Option (b) auf dem bestehenden Motor prüfen.
 **Aufwand:** niedrig (b) bis hoch (c). **Risiko:** niedrig (b). **Passung:**
 Option (b) ist ein günstiges, sofort messbares Experiment und die Voraussetzung,
 um überhaupt zu entscheiden, ob sich 14/17 lohnen.
+
+---
+
+## G. Anwendungsnähe (LexKeep-Verteilung)
+
+### 19. Rare/OOV-Offensive (nachgelagert, nach dem Silber-Training)
+
+**Kontext:** In der Zielanwendung (LexKeep, echte Buchkapitel) begegnet das
+Modell laufend Wörtern, die in den ~490k Gold-Tokens nie vorkamen. Die
+Development-Slices zeigen das Muster schon heute: Rare+OOV sind ~16 % der
+Tokens, verursachen aber ~40–50 % der falschen Bundles. Was auf dem
+Dev-Split „Randfall" ist, ist in der Anwendung Alltag.
+
+**Warum erst nach dem Silber-Training:** Silber ist selbst der größte
+OOV-Hebel — nach 37–87 Mio. gesehenen Tokens verschiebt sich, was „OOV"
+überhaupt bedeutet. Erst danach zeigt die Rare/OOV-Messung die *echte*
+Restlücke, und erst dann lohnt gezielte Optimierung. Vorher wäre es
+Optimierung gegen ein Ziel, das der nächste Schritt ohnehin verschiebt.
+
+**Bausteine (zu bewerten, wenn es so weit ist):**
+
+1. **Rare/OOV als Selektions-/Gate-Gewicht** statt nur als Report: z.B.
+   vordeklarierte Mindestgewinne auf den OOV-Slices als Abnahmekriterium
+   für jede weitere Architekturänderung (die Guardrails existieren schon,
+   werden aber bisher nachrangig gewichtet).
+2. **OOV-Lemma-Pfad:** Der dokumentierte Rest-Schmerzpunkt (OOV-Lemma
+   end-to-end ~92–94 %); Kandidaten sind der geplante Lemma-Near-Miss-
+   Reranker und als Fallback der Zeichen-Transducer (Idee 15b).
+3. **Konformale Abstention gerade für OOV** (Idee 12): Wo das Modell auf
+   unbekannten Wörtern unsicher ist, ist „unsicher" die ehrlichere und für
+   Lernsoftware wertvollere Antwort als eine falsche Analyse. Mondrian-
+   Konditionierung kann explizit auf Frequenz-Slices konditionieren.
+4. **Domänen-Fixture:** Die Dev-Splits sind Zeitungs-/Parlamentstext; die
+   Anwendung ist Literatur. Die NBdigital-Buchquelle ist domänennah — eine
+   kleine, einmalig von Hand geprüfte Buchkapitel-Stichprobe als
+   zusätzliches Qualitäts-Fixture würde die Anwendungsverteilung sichtbar
+   machen (teuer, daher explizit zu beschließen).
+
+**Aufwand:** niedrig (1, 3) bis mittel-hoch (4). **Risiko:** niedrig.
+**Passung:** direkt auf den Anwendungsfall; die gesamte Rare/OOV-
+Instrumentierung (Slices, exakte Slice-UFeats, Fehler-Attribution) existiert
+bereits.
 
 ---
 

@@ -51,6 +51,7 @@ def test_count_token_task_predictions_ignores_padding() -> None:
     assert counts.upos_correct_count.item() == 1
 
     assert counts.morphology_correct_counts[0].item() == 1
+    assert counts.morphology_bundle_correct_count.item() == 1
     assert counts.morphology_annotated_counts[0].item() == 1
     assert counts.morphology_annotated_correct_counts[0].item() == 1
 

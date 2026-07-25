@@ -21,6 +21,7 @@ from prism.schema import MorphologySchema
 class TokenTaskEvaluationCounts:
     token_count: Tensor
     upos_correct_count: Tensor
+    morphology_bundle_correct_count: Tensor
     morphology_correct_counts: tuple[Tensor, ...]
     morphology_annotated_counts: tuple[Tensor, ...]
     morphology_annotated_correct_counts: tuple[Tensor, ...]
@@ -38,6 +39,7 @@ class TokenTaskEvaluationMetrics:
     lemma_target_count: int
     lemma_annotation_count: int
     upos_accuracy: float
+    morphology_bundle_exact_accuracy: float
     morphology_correct_counts: tuple[int, ...]
     morphology_accuracies: tuple[float, ...]
     morphology_annotated_accuracies: tuple[float | None, ...]
@@ -109,6 +111,9 @@ def count_token_task_predictions(
     morphology_true_positive_counts: list[Tensor] = []
     morphology_false_positive_counts: list[Tensor] = []
     morphology_false_negative_counts: list[Tensor] = []
+    # A token's complete morphology bundle is exact only when every feature
+    # decision is correct; this mirrors the official UFeats definition.
+    morphology_bundle_correct = token_mask.clone()
 
     for feature_predictions, feature_targets in zip(
         predictions.morphology_predictions,
@@ -136,6 +141,7 @@ def count_token_task_predictions(
         morphology_correct_counts.append((correct & token_mask).sum())
         morphology_annotated_counts.append(annotated_mask.sum())
         morphology_annotated_correct_counts.append((correct & annotated_mask).sum())
+        morphology_bundle_correct &= correct
 
     lemma_rule_correct_count = (
         (predictions.lemma_rule_ids == targets.lemma_rule_ids) & lemma_mask
@@ -144,6 +150,7 @@ def count_token_task_predictions(
     return TokenTaskEvaluationCounts(
         token_count=token_mask.sum(),
         upos_correct_count=upos_correct_count,
+        morphology_bundle_correct_count=morphology_bundle_correct.sum(),
         morphology_correct_counts=tuple(morphology_correct_counts),
         morphology_annotated_counts=tuple(morphology_annotated_counts),
         morphology_annotated_correct_counts=tuple(morphology_annotated_correct_counts),
@@ -162,6 +169,7 @@ class TokenTaskEvaluationAccumulator:
     morphology_schema: MorphologySchema
     token_count: Tensor = field(init=False)
     upos_correct_count: Tensor = field(init=False)
+    morphology_bundle_correct_count: Tensor = field(init=False)
     lemma_target_count: Tensor = field(init=False)
     lemma_annotation_count: Tensor = field(init=False)
     lemma_rule_correct_count: Tensor = field(init=False)
@@ -177,6 +185,11 @@ class TokenTaskEvaluationAccumulator:
     def __post_init__(self) -> None:
         self.token_count = torch.zeros((), dtype=torch.long, device=self.device)
         self.upos_correct_count = torch.zeros(
+            (),
+            dtype=torch.long,
+            device=self.device,
+        )
+        self.morphology_bundle_correct_count = torch.zeros(
             (),
             dtype=torch.long,
             device=self.device,
@@ -241,6 +254,7 @@ class TokenTaskEvaluationAccumulator:
 
         self.token_count += counts.token_count
         self.upos_correct_count += counts.upos_correct_count
+        self.morphology_bundle_correct_count += counts.morphology_bundle_correct_count
         self.lemma_target_count += counts.lemma_target_count
         self.lemma_annotation_count += counts.lemma_annotation_count
         self.lemma_rule_correct_count += counts.lemma_rule_correct_count
@@ -316,6 +330,9 @@ class TokenTaskEvaluationAccumulator:
             lemma_target_count=lemma_target_count,
             lemma_annotation_count=lemma_annotation_count,
             upos_accuracy=(self.upos_correct_count / self.token_count).item(),
+            morphology_bundle_exact_accuracy=(
+                self.morphology_bundle_correct_count / self.token_count
+            ).item(),
             morphology_correct_counts=tuple(
                 int(correct_count.item())
                 for correct_count in self.morphology_correct_counts

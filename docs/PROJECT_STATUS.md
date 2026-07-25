@@ -1849,15 +1849,14 @@ inventory. Both written standards now have comparable CC0 silver volumes
 policy does not have to rely on Bokmål-only silver text. No pseudo-labels
 have been generated from either source yet.
 
-A compatible public-domain Nynorsk source is now identified but not yet
-downloaded or prepared: Språkbanken resource
-[`oai:nb.no:sbr-60`](https://www.nb.no/sprakbanken/en/resource-catalogue/oai-nb-no-sbr-60/)
-contains 50,000 OCR-derived municipal documents and approximately 127 million
-words, of which about 88.5 million are classified as Nynorsk; the corpus is
-CC0 and every text carries a language classification. It is the preferred
-running-text companion to the prepared Bokmål source. It requires a separate
-JSON source adapter, the same UD-overlap and deduplication gates, and explicit
-filtering to its Nynorsk-classified pages before it may enter a silver pilot.
+The source behind that prepared corpus is Språkbanken resource
+[`oai:nb.no:sbr-60`](https://www.nb.no/sprakbanken/en/resource-catalogue/oai-nb-no-sbr-60/):
+50,000 OCR-derived municipal documents and approximately 127 million words,
+of which about 88.5 million are classified as Nynorsk; the corpus is CC0 and
+every page carries a language classification. Its JSON source adapter, the
+shared UD-overlap and deduplication gates, and the explicit filtering to
+Nynorsk-classified pages are implemented and produced the validated artifact
+above.
 
 Two other resources remain separate from that running-text contract:
 Språkbanken's mixed-language
@@ -1871,6 +1870,166 @@ possible later lexical Gender/OOV supervision source, not interchangeable
 with Teacher-labeled silver sentences. Norsk ordbank Nynorsk is not classified
 as public domain here: its catalogue license is CC BY and therefore needs a
 separate provenance and redistribution decision before use.
+
+### Architecture-matched Base Teacher gate
+
+The architecture-matched Base Teacher completed training in approximately
+2 hours 12 minutes. Loss selection chose epoch 3; patience 4 stopped the run
+after epoch 7. The checkpoint is
+`runs/no-teacher-base-character-cnn-bundle32-direct-loss-morphology-gradient-prehead-shared-mlp-w010-e12-weighted/best.pt`.
+Canonical evaluation with the fixed full logit correction records, per
+written standard (Bokmål/Nynorsk): 99.1311%/98.8288% UPOS, 96.5383%/94.8512%
+UFeats, and 98.8067%/98.6624% Lemmas.
+
+The predeclared labeler gate is **not passed**. On Nynorsk the new Teacher
+clearly beats the selected Student (+0.16 UPOS, +0.77 UFeats, +0.11 Lemmas
+points) and the corrected historical control. On Bokmål it loses to its own
+compact Student on UFeats (96.5383% versus 96.6372%) and Lemmas (98.8067%
+versus 98.9304%), and to the historical control on UPOS and Lemmas. A labeler
+that trails the Student on the primary Bokmål quality metric cannot serve as
+its Bokmål pseudo-label source.
+
+The training curve identifies the likely cause rather than a capacity limit:
+after the loss-selected epoch 3, discrete Development quality kept improving
+through epoch 7 (UPOS 98.99% to 99.08%, lemma-rule 98.82% to 99.07%, Gender
+annotated 90.53% to 92.97%) while only the loss worsened, which measures
+growing overconfidence rather than worse decisions. Loss-based checkpoint
+selection therefore discards the strongest discrete teacher epochs, exactly
+as previously observed for both historical Base Teachers.
+
+The accepted next step is a predeclared selection-policy ablation instead of
+an immediate NorBERT4-large run. The typed
+`CheckpointSelectionMetric` now offers `development-loss` (unchanged default)
+and `development-task-accuracy`, the mean of UPOS accuracy, lemma-rule
+accuracy, and the newly implemented exact complete-morphology-bundle accuracy
+over all Development tokens. The bundle-exact metric mirrors the official
+UFeats definition and is computed inside the normal evaluation accumulators;
+training prints it every epoch. The resolved metric is stored in checkpoint
+`training_config`, the CLI exposes it as `--checkpoint-selection-metric`, and
+early stopping counts epochs without improvement on the selected metric. The
+discrete policy is justified for the teacher/labeler role only: a labeler is
+judged by its decisions, temperature calibration later repairs overconfidence
+without changing argmax decisions, and the shipped Student keeps loss
+selection unless a separate controlled ablation ever argues otherwise. The
+Base rerun with discrete selection must pass the same two-standard gate;
+NorBERT4-large as labeler remains authorized if it fails again.
+
+The discrete-selection Base rerun is complete and **passes the labeler gate
+decisively**. With `--checkpoint-selection-metric development-task-accuracy`,
+every epoch produced a new best; epoch 12 was selected after approximately
+3 hours 45 minutes at
+`runs/no-teacher-base-character-cnn-bundle32-direct-loss-morphology-gradient-prehead-shared-mlp-task-acc-e12-weighted/best.pt`.
+Development bundle-exact accuracy rose monotonically from 89.93% to 96.73%;
+the previously loss-selected epoch 3 corresponds to 94.36%, so loss selection
+had discarded 2.37 points of discrete morphology quality in the identical
+training trajectory. UPOS and lemma-rule accuracy also peaked at epoch 12,
+confirming that the discrete gain is not traded against the other tasks.
+
+Canonical evaluation with the fixed full logit correction records
+(Bokmål/Nynorsk): 99.3126%/98.9248% UPOS, 98.1440%/95.5904% UFeats, and
+99.2466%/98.9056% Lemmas. Against the selected Student this is +0.34/+0.26
+UPOS, +1.51/+1.51 UFeats, and +0.32/+0.35 Lemmas points — every cell of the
+two-standard gate passes. Against the loss-selected sibling checkpoint the
+discrete selection alone contributes +1.61/+0.74 UFeats points. Against
+reproduced UDPipe 2.17, the Teacher now leads every canonical Bokmål metric
+(+0.36 UPOS, +0.07 UFeats, +0.27 Lemmas) and leads Nynorsk UPOS and Lemmas
+(+0.35/+0.08) with canonical UFeats effectively tied at -0.07 points before
+the separately audited Nynorsk treebank output policy. Rare/OOV slices also
+clear the Student by wide margins (Bokmål OOV lemma end-to-end 95.16% versus
+the Student's 93.69%).
+
+This checkpoint is therefore accepted as the silver labeler source, and a
+NorBERT4-large run is no longer required for that role. The remaining
+prerequisites before pseudo-labeling stay unchanged: per-task temperature
+calibration of this Teacher on Development, then the offline
+provenance-carrying label artifact with per-task confidences and the
+two-teacher agreement control.
+
+### Teacher temperature calibration
+
+Per-task-head temperature scaling is implemented as a language-independent
+mechanism (`prism.training.calibration`) with a Norwegian CLI
+(`prism.languages.norwegian.calibrate_baseline`). The fit is a deterministic
+two-stage grid search over the log-temperature minimizing the development
+negative log-likelihood of exactly the training objective per head:
+Cross-Entropy for UPOS, lemma rules, and exclusive morphology features,
+Binary Cross-Entropy over the real value logits of multi-valued features.
+Calibration consumes the corrected logits, so the artifact is only valid for
+its recorded correction strength. Temperatures never change argmax
+decisions; a focused test asserts this invariance. The versioned
+`TaskTemperatureCalibration` JSON artifact records all twenty temperatures,
+checkpoint provenance, language tags, correction strength, and per-head
+NLL/ECE reports before and after.
+
+The accepted labeler is calibrated on the combined Bokmål and Nynorsk
+development splits with correction strength 1.0; the artifact is
+`calibration-corrected.json` beside the checkpoint. Every head was
+overconfident, exactly as the discrete selection predicted: temperatures
+range from 1.55 (`Case`) to 3.06 (`Foreign`), with UPOS at 2.48, lemma rules
+at 1.91, and `Gender` at 2.63. Calibration roughly halves every head's NLL
+(UPOS 0.0920 to 0.0460; Gender 0.0844 to 0.0443) and improves Expected
+Calibration Error by up to an order of magnitude (UPOS 0.0076 to 0.0011;
+Gender 0.0097 to 0.0008). The only nominal regression is `Polarity` ECE at
+the 1e-5 noise floor. Confidence-filtered silver labeling can therefore
+derive its per-task thresholds from calibrated probabilities; the remaining
+prerequisite is the offline label artifact itself.
+
+### Silver label artifact
+
+The offline labeling path is implemented. The language-independent
+`prism.training.silver_labeling` module owns the typed contracts
+(`SilverSentenceLabels`, sharded `torch.save` storage, and a JSON
+`SilverLabelManifest`) and the generation loop; the Norwegian CLI is
+`prism.languages.norwegian.label_silver_corpus`. Checkpoint loading for
+evaluation-style commands is now shared through
+`prism.languages.norwegian.checkpoint_loading`, which the calibration and
+labeling CLIs both use.
+
+The artifact deliberately stores **raw calibrated predictions instead of
+filtered labels**: per token the complete calibrated UPOS distribution, the
+complete calibrated distribution of every morphology feature, and the top-8
+lemma-rule distribution in float16, plus the decoded predictions of an
+optional second agreement Teacher. Confidence thresholds, two-teacher
+agreement, and sentence-discard policies are applied later at training time,
+so selection-policy ablations never require relabeling. The manifest records
+the source corpus path and SHA-256, the embedded corpus manifest, both
+Teacher checkpoint SHA-256 values, the embedded calibration artifact, the
+correction strengths, the token budget, counts, and per-shard checksums. A
+deterministic pilot subset is selected as the corpus-order prefix until the
+token budget is crossed; the crossing sentence is included.
+
+The command validates that the calibration artifact references exactly the
+requested checkpoint and correction strength, and that an agreement Teacher
+shares the labeler's task schema. Focused tests cover shard and manifest
+round trips with checksum verification, count validation, partial-agreement
+rejection, budget semantics, and CLI pairing rules.
+
+A 3,000-token smoke run on the Nynorsk corpus with the accepted labeler and
+the Bundle-32 Base Teacher as agreement control completed end to end: 146
+sentences, 3,019 tokens, verified checksums, probability rows summing to
+one, calibrated mean UPOS confidence 0.9876, two-teacher UPOS agreement
+99.44%, lemma top-1 agreement 98.84%, and 99.43% of the lemma probability
+mass inside the stored top-8. Storage is approximately 757 bytes per token
+(0.76 GB per million tokens); per-record tensor overhead dominates short
+sentences, so batch-level tensor packing is a noted optimization if the
+complete 87M-token corpus is ever labeled. The historical character-CNN
+Teacher directory was removed in an earlier cleanup, so the separately
+trained Bundle-32 Base Teacher is the designated agreement control. No
+training has consumed silver labels yet; the next steps are the 1M-token
+pilot labeling runs for both written standards and the gold+silver training
+integration.
+
+That future Student ablation is prepared through an optional dual-best
+mechanism: `--secondary-checkpoint-selection-metric` tracks a second metric
+in the same deterministic run and writes its best epoch next to the primary
+checkpoint as `best-<metric>.pt`, with `checkpoint_selected_by` recorded in
+both checkpoints. The secondary metric never influences early stopping or
+the primary checkpoint, so historical behavior is unchanged when the option
+is omitted. The predeclared Student comparison — loss-selected versus
+task-accuracy-selected from one silver-training run, judged on the full
+canonical gate including the later calibration metrics — can therefore run
+without additional training cost. Both selection candidates share the run's
+early-stopping boundary, which follows the primary metric.
 
 ## Frozen morphology-head probe
 

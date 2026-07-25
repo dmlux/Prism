@@ -10,6 +10,8 @@ from prism.modeling import (
     TokenPoolingStrategy,
     TokenTaskHeadArchitecture,
 )
+from prism.training import CheckpointSelectionMetric
+
 from prism.languages.norwegian.train_baseline import (
     parse_training_arguments,
 )
@@ -350,3 +352,48 @@ def test_parse_training_arguments_accepts_decoupled_distillation() -> None:
 def test_parse_training_arguments_rejects_non_positive_epoch_count() -> None:
     with pytest.raises(SystemExit):
         parse_training_arguments(("--epoch-count", "0"))
+
+
+def test_parse_training_arguments_resolves_checkpoint_selection_metric() -> None:
+    default_arguments = parse_training_arguments(())
+    discrete_arguments = parse_training_arguments(
+        ("--checkpoint-selection-metric", "development-task-accuracy")
+    )
+
+    assert (
+        default_arguments.checkpoint_selection_metric
+        is CheckpointSelectionMetric.DEVELOPMENT_LOSS
+    )
+    assert (
+        discrete_arguments.checkpoint_selection_metric
+        is CheckpointSelectionMetric.DEVELOPMENT_TASK_ACCURACY
+    )
+
+    with pytest.raises(SystemExit):
+        parse_training_arguments(("--checkpoint-selection-metric", "gender-only"))
+
+
+def test_parse_training_arguments_resolves_secondary_selection_metric() -> None:
+    default_arguments = parse_training_arguments(())
+    dual_arguments = parse_training_arguments(
+        (
+            "--secondary-checkpoint-selection-metric",
+            "development-task-accuracy",
+        )
+    )
+
+    assert default_arguments.secondary_checkpoint_selection_metric is None
+    assert (
+        dual_arguments.secondary_checkpoint_selection_metric
+        is CheckpointSelectionMetric.DEVELOPMENT_TASK_ACCURACY
+    )
+
+    with pytest.raises(SystemExit):
+        parse_training_arguments(
+            (
+                "--checkpoint-selection-metric",
+                "development-task-accuracy",
+                "--secondary-checkpoint-selection-metric",
+                "development-task-accuracy",
+            )
+        )
