@@ -182,6 +182,37 @@ def _budgeted_sentences(
         yield sentence
 
 
+_PROGRESS_SENTENCE_INTERVAL = 1000
+
+
+def _report_labeling_progress(
+    records: Iterator[SilverSentenceLabels],
+    *,
+    maximum_token_budget: int | None,
+) -> Iterator[SilverSentenceLabels]:
+    sentence_count = 0
+    token_count = 0
+    for record in records:
+        sentence_count += 1
+        token_count += record.token_count
+        if sentence_count % _PROGRESS_SENTENCE_INTERVAL == 0:
+            if maximum_token_budget is None:
+                print(
+                    f"Labeling: {sentence_count} sentences,",
+                    f"{token_count} tokens",
+                    flush=True,
+                )
+            else:
+                percent = min(100.0 * token_count / maximum_token_budget, 100.0)
+                print(
+                    f"Labeling: {sentence_count} sentences,",
+                    f"{token_count}/{maximum_token_budget} tokens",
+                    f"({percent:.1f}%)",
+                    flush=True,
+                )
+        yield record
+
+
 def main() -> None:
     arguments = parse_labeling_arguments()
 
@@ -251,7 +282,7 @@ def main() -> None:
     )
 
     device = torch.device(arguments.device)
-    records = generate_silver_labels(
+    labeled_records = generate_silver_labels(
         labeler=labeler.model,
         tokenizer=labeler.tokenizer,
         morphology_schema=labeler.schema.morphology,
@@ -268,6 +299,10 @@ def main() -> None:
         maximum_character_count=labeler.maximum_character_count,
         agreement_model=None if agreement is None else agreement.model,
         agreement_correction=agreement_correction,
+    )
+    records = _report_labeling_progress(
+        labeled_records,
+        maximum_token_budget=arguments.maximum_token_budget,
     )
 
     shard_references: list[SilverLabelShardReference] = []
