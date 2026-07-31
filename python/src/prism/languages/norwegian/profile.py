@@ -4,6 +4,7 @@ from pathlib import Path
 from prism.data.treebanks import UniversalDependenciesTreebankSpec
 from prism.languages.norwegian.backbones import (
     NORBERT4_BASE_BACKBONE,
+    NORBERT4_LARGE_BACKBONE,
     NORBERT4_XSMALL_BACKBONE,
 )
 from prism.languages.profile import LanguageProfileSpec
@@ -57,6 +58,7 @@ NORWEGIAN_BOKMAAL_PROFILE = LanguageProfileSpec(
     display_name="Norwegian Bokmål",
     student_backbone=NORBERT4_XSMALL_BACKBONE,
     teacher_backbone=NORBERT4_BASE_BACKBONE,
+    alternate_teacher_backbones=(NORBERT4_LARGE_BACKBONE,),
     gold_treebank=NORWEGIAN_BOKMAAL_TREEBANK,
 )
 
@@ -65,6 +67,7 @@ NORWEGIAN_NYNORSK_PROFILE = LanguageProfileSpec(
     display_name="Norwegian Nynorsk",
     student_backbone=NORBERT4_XSMALL_BACKBONE,
     teacher_backbone=NORBERT4_BASE_BACKBONE,
+    alternate_teacher_backbones=(NORBERT4_LARGE_BACKBONE,),
     gold_treebank=NORWEGIAN_NYNORSK_TREEBANK,
 )
 

@@ -71,9 +71,11 @@ def test_load_distillation_teacher_restores_frozen_model(
         lambda **_: fake_teacher,
     )
 
+    from prism.languages.norwegian import NORWEGIAN_BOKMAAL_PROFILE
+
     loaded_teacher = train_baseline._load_distillation_teacher(
         checkpoint_path=checkpoint_path,
-        backbone_spec=NORBERT4_BASE_BACKBONE,
+        profile=NORWEGIAN_BOKMAAL_PROFILE,
         schema=schema,
         requested_language_tag="nb",
         requested_treebank_release="current",

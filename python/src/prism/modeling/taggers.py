@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 
 from prism.modeling.alignment import TokenPoolingStrategy, align_subwords_to_tokens
@@ -43,11 +44,16 @@ class TokenTagger(nn.Module):
         )
         self.character_encoder = character_encoder
 
-    def encode_task_hidden_states(
+    def encode_pooled_token_states(
         self,
         batch: TokenizedBatch,
-        character_batch: CharacterTokenBatch | None = None,
-    ) -> TokenTaskHiddenStates:
+    ) -> "torch.Tensor":
+        """Word-aligned backbone representations before any task head.
+
+        This boundary is shared by every tagger size and tokenizer, so it is
+        the comparison point for token-relation distillation.
+        """
+
         subword_batch = contextualize_subwords(
             model=self.backbone,
             batch=batch,
@@ -58,21 +64,55 @@ class TokenTagger(nn.Module):
             tokenized_batch=batch,
             pooling_strategy=self.pooling_strategy,
         )
+        return token_batch.hidden_states
 
-        character_hidden_states = None
+    def _character_hidden_states(
+        self,
+        batch: TokenizedBatch,
+        character_batch: CharacterTokenBatch | None,
+    ) -> "torch.Tensor | None":
         if self.character_encoder is not None:
             if character_batch is None:
                 raise ValueError("Character-aware tagger requires character inputs.")
             if character_batch.token_mask.shape != batch.token_mask.shape:
                 raise ValueError("Character and tokenizer token dimensions must match.")
-            character_hidden_states = self.character_encoder(character_batch)
-        elif character_batch is not None:
+            return self.character_encoder(character_batch)
+        if character_batch is not None:
             raise ValueError("Character inputs require a character-aware tagger.")
+        return None
 
+    def encode_task_hidden_states(
+        self,
+        batch: TokenizedBatch,
+        character_batch: CharacterTokenBatch | None = None,
+    ) -> TokenTaskHiddenStates:
         return self.heads.encode_hidden_states(
-            token_batch.hidden_states,
-            character_hidden_states=character_hidden_states,
+            self.encode_pooled_token_states(batch),
+            character_hidden_states=self._character_hidden_states(
+                batch,
+                character_batch,
+            ),
         )
+
+    def forward_with_pooled_states(
+        self,
+        batch: TokenizedBatch,
+        character_batch: CharacterTokenBatch | None = None,
+    ) -> "tuple[torch.Tensor, TokenTaskLogits]":
+        """Classify while also returning the pooled backbone states.
+
+        Token-relation distillation needs both in one backbone pass.
+        """
+
+        pooled_states = self.encode_pooled_token_states(batch)
+        task_hidden_states = self.heads.encode_hidden_states(
+            pooled_states,
+            character_hidden_states=self._character_hidden_states(
+                batch,
+                character_batch,
+            ),
+        )
+        return pooled_states, self.heads.classify_hidden_states(task_hidden_states)
 
     def forward(
         self,

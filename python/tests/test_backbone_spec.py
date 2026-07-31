@@ -41,3 +41,52 @@ def test_language_profile_selects_backbone_by_model_role() -> None:
     assert (
         NORWEGIAN_BOKMAAL_PROFILE.backbone_for_role("teacher") is NORBERT4_BASE_BACKBONE
     )
+
+
+def test_norbert4_large_teacher_backbone_is_reproducibly_pinned() -> None:
+    from prism.languages.norwegian import NORBERT4_LARGE_BACKBONE
+
+    assert NORBERT4_LARGE_BACKBONE.model_id == "ltg/norbert4-large"
+    assert NORBERT4_LARGE_BACKBONE.revision == (
+        "49475ca0e59cc5db6ef2c762384b2a916ca8ead0"
+    )
+    assert NORBERT4_LARGE_BACKBONE.trust_remote_code is True
+
+
+def test_language_profile_resolves_backbone_by_model_id() -> None:
+    import pytest
+
+    from prism.languages.norwegian import NORBERT4_LARGE_BACKBONE
+
+    assert (
+        NORWEGIAN_BOKMAAL_PROFILE.backbone_for_model_id(
+            "ltg/norbert4-base",
+            role="teacher",
+        )
+        is NORBERT4_BASE_BACKBONE
+    )
+    assert (
+        NORWEGIAN_BOKMAAL_PROFILE.backbone_for_model_id(
+            "ltg/norbert4-large",
+            role="teacher",
+        )
+        is NORBERT4_LARGE_BACKBONE
+    )
+    assert (
+        NORWEGIAN_BOKMAAL_PROFILE.backbone_for_model_id(
+            "ltg/norbert4-xsmall",
+            role="student",
+        )
+        is NORBERT4_XSMALL_BACKBONE
+    )
+    # The large variant is a teacher-only alternative.
+    with pytest.raises(ValueError, match="not a known student backbone"):
+        NORWEGIAN_BOKMAAL_PROFILE.backbone_for_model_id(
+            "ltg/norbert4-large",
+            role="student",
+        )
+    # The default role accessor keeps returning base for teachers.
+    assert (
+        NORWEGIAN_BOKMAAL_PROFILE.backbone_for_role("teacher")
+        is NORBERT4_BASE_BACKBONE
+    )

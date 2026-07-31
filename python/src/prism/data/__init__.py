@@ -38,6 +38,16 @@ from prism.data.sakspapir import (
     SAKSPAPIR_SOURCE_URL,
     iter_sakspapir_silver_sentences,
 )
+from prism.data.wikipedia import (
+    WIKIPEDIA_LICENSE_ID,
+    WIKIPEDIA_LICENSE_URL,
+    WIKIPEDIA_NNO_CORPUS_ID,
+    WIKIPEDIA_NNO_LANGUAGE_TAG,
+    WIKIPEDIA_NNO_SOURCE_URL,
+    WIKITEXT_EXTRACTION_VERSION,
+    iter_wikipedia_silver_sentences,
+    wikitext_plain_paragraphs,
+)
 from prism.data.segmentation import (
     SENTENCE_EXTRACTION_POLICY_VERSION,
     SentenceExtractionPolicy,
@@ -84,6 +94,14 @@ __all__ = [
     "SAKSPAPIR_PAGE_LANGUAGE_CODE",
     "SAKSPAPIR_SOURCE_URL",
     "iter_sakspapir_silver_sentences",
+    "WIKIPEDIA_LICENSE_ID",
+    "WIKIPEDIA_LICENSE_URL",
+    "WIKIPEDIA_NNO_CORPUS_ID",
+    "WIKIPEDIA_NNO_LANGUAGE_TAG",
+    "WIKIPEDIA_NNO_SOURCE_URL",
+    "WIKITEXT_EXTRACTION_VERSION",
+    "iter_wikipedia_silver_sentences",
+    "wikitext_plain_paragraphs",
     "SENTENCE_EXTRACTION_POLICY_VERSION",
     "SentenceExtractionPolicy",
     "extract_pretokenized_sentences",

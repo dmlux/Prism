@@ -1,3 +1,4 @@
+import pytest
 import torch
 from torch import nn
 
@@ -5,6 +6,7 @@ from prism.data import TokenTaskTargetBatch
 from prism.modeling import CharacterTokenBatch, TokenizedBatch, TokenTaskLogits
 from prism.schema import MorphologyFeatureSchema, MorphologySchema
 from prism.training import (
+    RelationDistillationPolicy,
     SupervisedTokenTaskBatch,
     TokenTaskDistillationPolicy,
     TokenTaskLossWeights,
@@ -71,6 +73,148 @@ class CharacterAwareTinyDistillationModel(TinyDistillationModel):
     ) -> TokenTaskLogits:
         self.received_character_inputs = True
         return super().forward(batch)
+
+
+class RelationAwareTinyStudent(TinyDistillationModel):
+    def __init__(self, token_count: int = 2, hidden_size: int = 4) -> None:
+        super().__init__()
+        self.pooled = nn.Parameter(torch.randn(token_count, hidden_size))
+
+    def forward_with_pooled_states(
+        self,
+        batch: TokenizedBatch,
+    ) -> tuple[torch.Tensor, TokenTaskLogits]:
+        pooled = self.pooled.expand(batch.batch_size, -1, -1)
+        return pooled, super().forward(batch)
+
+
+class TinyRelationTeacher(nn.Module):
+    def __init__(self, hidden_states: torch.Tensor) -> None:
+        super().__init__()
+        self.hidden_states = nn.Parameter(hidden_states)
+
+    def encode_pooled_token_states(
+        self,
+        batch: TokenizedBatch,
+    ) -> torch.Tensor:
+        return self.hidden_states
+
+
+def _two_token_batch() -> SupervisedTokenTaskBatch:
+    return SupervisedTokenTaskBatch(
+        model_inputs=TokenizedBatch(
+            input_ids=torch.tensor([[1, 2]]),
+            attention_mask=torch.tensor([[True, True]]),
+            first_subword_indices=torch.tensor([[0, 1]]),
+            subword_end_indices=torch.tensor([[1, 2]]),
+            token_mask=torch.tensor([[True, True]]),
+        ),
+        targets=TokenTaskTargetBatch(
+            upos_ids=torch.tensor([[1, 0]]),
+            morphology_targets=(torch.tensor([[[False, True], [True, False]]]),),
+            lemma_rule_ids=torch.tensor([[1, 0]]),
+            lemma_rule_mask=torch.tensor([[True, True]]),
+            token_mask=torch.tensor([[True, True]]),
+        ),
+    )
+
+
+def test_distilled_training_step_reports_relation_loss() -> None:
+    torch.manual_seed(3)
+    student = RelationAwareTinyStudent()
+    teacher = TinyDistillationModel()
+    relation_teacher = TinyRelationTeacher(torch.randn(1, 2, 8))
+    batch = _two_token_batch()
+    optimizer = torch.optim.SGD(student.parameters(), lr=0.1)
+
+    pooled_before = student.pooled.detach().clone()
+    losses = train_distilled_token_task_step(
+        student=student,
+        teacher=teacher,
+        batch=batch,
+        optimizer=optimizer,
+        max_gradient_norm=1.0,
+        distillation_policy=TokenTaskDistillationPolicy.uniform(
+            temperature=1.0,
+            weight=0.1,
+        ),
+        morphology_schema=CATEGORICAL_MORPHOLOGY_SCHEMA,
+        relation_teacher=relation_teacher,
+        relation_policy=RelationDistillationPolicy(
+            weight=1.0,
+            relation_head_count=2,
+        ),
+    )
+
+    assert losses.relation_loss is not None
+    assert torch.isfinite(losses.relation_loss)
+    assert not torch.equal(student.pooled.detach(), pooled_before)
+    assert relation_teacher.hidden_states.grad is None
+    assert not relation_teacher.hidden_states.requires_grad
+
+
+def test_distilled_training_step_without_relation_teacher_reports_none() -> None:
+    student = TinyDistillationModel()
+    teacher = TinyDistillationModel()
+    batch = _two_token_batch()
+    optimizer = torch.optim.SGD(student.parameters(), lr=0.0)
+
+    losses = train_distilled_token_task_step(
+        student=student,
+        teacher=teacher,
+        batch=batch,
+        optimizer=optimizer,
+        max_gradient_norm=1.0,
+        distillation_policy=TokenTaskDistillationPolicy.uniform(
+            temperature=1.0,
+            weight=0.1,
+        ),
+        morphology_schema=CATEGORICAL_MORPHOLOGY_SCHEMA,
+    )
+
+    assert losses.relation_loss is None
+
+
+def test_distilled_training_step_validates_relation_configuration() -> None:
+    student = RelationAwareTinyStudent()
+    teacher = TinyDistillationModel()
+    batch = _two_token_batch()
+    optimizer = torch.optim.SGD(student.parameters(), lr=0.0)
+
+    with pytest.raises(ValueError, match="teacher and its policy"):
+        train_distilled_token_task_step(
+            student=student,
+            teacher=teacher,
+            batch=batch,
+            optimizer=optimizer,
+            max_gradient_norm=1.0,
+            distillation_policy=TokenTaskDistillationPolicy.uniform(
+                temperature=1.0,
+                weight=0.1,
+            ),
+            morphology_schema=CATEGORICAL_MORPHOLOGY_SCHEMA,
+            relation_teacher=TinyRelationTeacher(torch.randn(1, 2, 8)),
+        )
+
+    plain_student = TinyDistillationModel()
+    with pytest.raises(TypeError, match="forward_with_pooled_states"):
+        train_distilled_token_task_step(
+            student=plain_student,
+            teacher=teacher,
+            batch=batch,
+            optimizer=torch.optim.SGD(plain_student.parameters(), lr=0.0),
+            max_gradient_norm=1.0,
+            distillation_policy=TokenTaskDistillationPolicy.uniform(
+                temperature=1.0,
+                weight=0.1,
+            ),
+            morphology_schema=CATEGORICAL_MORPHOLOGY_SCHEMA,
+            relation_teacher=TinyRelationTeacher(torch.randn(1, 2, 8)),
+            relation_policy=RelationDistillationPolicy(
+                weight=1.0,
+                relation_head_count=2,
+            ),
+        )
 
 
 def test_distilled_training_step_only_updates_student() -> None:

@@ -16,8 +16,9 @@ from prism.evaluation.reporting import (
     format_morphology_accuracy_rows,
     format_scalar_metric_rows,
 )
-from prism.languages import ModelRole
+from prism.languages import LanguageProfileSpec, ModelRole
 from prism.languages.norwegian import (
+    NORBERT4_LARGE_BACKBONE,
     NORWEGIAN_WRITTEN_STANDARD_PROFILES,
     norwegian_model_supports_language_tag,
     norwegian_training_profiles_for_language_tag,
@@ -27,7 +28,6 @@ from prism.modeling import (
     MorphologyBundleLossGradientScope,
     MorphologyBundleScorerArchitecture,
     MorphologyPreHeadArchitecture,
-    PretrainedBackboneSpec,
     TokenPoolingStrategy,
     TokenTagger,
     TokenTaskHeadArchitecture,
@@ -47,6 +47,13 @@ from prism.training import (
     TOKEN_TASK_CHECKPOINT_FORMAT_VERSION,
     CheckpointSelectionMetric,
     DistilledEpochMetrics,
+    MixedEpochMetrics,
+    RelationDistillationPolicy,
+    SilverFilterPolicy,
+    build_silver_sentence_batches,
+    iter_silver_token_task_batches,
+    load_silver_training_sentences,
+    train_mixed_token_task_epoch,
     SupervisedEpochMetrics,
     SupervisedEvaluationMetrics,
     SupervisedTokenTaskBatch,
@@ -84,8 +91,11 @@ class BaselineTrainingArguments:
     morphology_weight_cap: float | None
     language_tag: str
     model_role: ModelRole
+    teacher_backbone_variant: str
     teacher_checkpoint_path: Path | None
     distillation_policy: TokenTaskDistillationPolicy
+    relation_teacher_checkpoint_path: Path | None
+    relation_distillation_policy: RelationDistillationPolicy | None
     token_pooling_strategy: TokenPoolingStrategy
     token_task_head_architecture: TokenTaskHeadArchitecture
     morphology_pre_head_architecture: MorphologyPreHeadArchitecture
@@ -99,6 +109,12 @@ class BaselineTrainingArguments:
     early_stopping_patience: int | None
     checkpoint_selection_metric: CheckpointSelectionMetric
     secondary_checkpoint_selection_metric: CheckpointSelectionMetric | None
+    silver_corpus_paths: tuple[Path, ...]
+    silver_labels_directories: tuple[Path, ...]
+    silver_loss_weight: float
+    silver_minimum_confidence: float
+    silver_maximum_masked_ratio: float
+    silver_require_agreement: bool
 
 
 def parse_training_arguments(
@@ -118,6 +134,15 @@ def parse_training_arguments(
         default="current",
     )
     parser.add_argument(
+        "--teacher-backbone",
+        choices=("base", "large"),
+        default="base",
+        help=(
+            "Backbone variant for --model-role teacher runs; base is the "
+            "historical default, large selects the pinned norbert4-large."
+        ),
+    )
+    parser.add_argument(
         "--model-role",
         choices=("student", "teacher"),
         default="student",
@@ -133,6 +158,28 @@ def parse_training_arguments(
         type=Path,
         default=None,
         dest="teacher_checkpoint_path",
+    )
+    parser.add_argument(
+        "--relation-teacher-checkpoint",
+        type=Path,
+        default=None,
+        dest="relation_teacher_checkpoint_path",
+        help=(
+            "Frozen teacher checkpoint whose token-relation structure the "
+            "student imitates on gold batches (MiniLMv2-style)."
+        ),
+    )
+    parser.add_argument(
+        "--relation-distillation-weight",
+        type=float,
+        default=1.0,
+        help="Weight of the token-relation KL loss on gold batches.",
+    )
+    parser.add_argument(
+        "--relation-head-count",
+        type=int,
+        default=8,
+        help="Relation heads the pooled states are split into.",
     )
     parser.add_argument(
         "--distillation-temperature",
@@ -298,6 +345,51 @@ def parse_training_arguments(
             "never affects early stopping or the primary checkpoint."
         ),
     )
+    parser.add_argument(
+        "--silver-corpus",
+        type=Path,
+        action="append",
+        default=None,
+        dest="silver_corpus_paths",
+        help=(
+            "Prepared silver corpus JSONL; repeat together with a matching "
+            "--silver-labels directory per source."
+        ),
+    )
+    parser.add_argument(
+        "--silver-labels",
+        type=Path,
+        action="append",
+        default=None,
+        dest="silver_labels_directories",
+        help="Label-artifact directory containing labels-manifest.json.",
+    )
+    parser.add_argument(
+        "--silver-loss-weight",
+        type=float,
+        default=0.5,
+        help="Weight of the soft-target KD loss on silver batches.",
+    )
+    parser.add_argument(
+        "--silver-minimum-confidence",
+        type=float,
+        default=0.0,
+        help=(
+            "Optional calibrated-confidence floor per task; 0 disables it "
+            "(the predeclared v1 policy is agreement-only)."
+        ),
+    )
+    parser.add_argument(
+        "--silver-maximum-masked-ratio",
+        type=float,
+        default=0.3,
+        help="Discard silver sentences with more masked tokens than this.",
+    )
+    parser.add_argument(
+        "--silver-disable-agreement-filter",
+        action="store_true",
+        help="Ablation switch: keep silver tokens without teacher agreement.",
+    )
 
     parsed_arguments = parser.parse_args(arguments)
 
@@ -365,6 +457,22 @@ def parse_training_arguments(
             "--secondary-checkpoint-selection-metric must differ from "
             "--checkpoint-selection-metric"
         )
+    silver_corpus_paths = tuple(parsed_arguments.silver_corpus_paths or ())
+    silver_labels_directories = tuple(
+        parsed_arguments.silver_labels_directories or ()
+    )
+    if len(silver_corpus_paths) != len(silver_labels_directories):
+        parser.error(
+            "--silver-corpus and --silver-labels must be given in matching pairs"
+        )
+    if not math.isfinite(parsed_arguments.silver_loss_weight) or (
+        silver_corpus_paths and parsed_arguments.silver_loss_weight <= 0.0
+    ):
+        parser.error("--silver-loss-weight must be finite and positive")
+    if not 0.0 <= parsed_arguments.silver_minimum_confidence < 1.0:
+        parser.error("--silver-minimum-confidence must be in [0, 1)")
+    if not 0.0 <= parsed_arguments.silver_maximum_masked_ratio <= 1.0:
+        parser.error("--silver-maximum-masked-ratio must be in [0, 1]")
     resolved_bundle_loss_weight = parsed_arguments.morphology_bundle_loss_weight
     if (
         not math.isfinite(resolved_bundle_loss_weight)
@@ -411,6 +519,29 @@ def parse_training_arguments(
         and parsed_arguments.model_role != "student"
     ):
         parser.error("--teacher-checkpoint can only be used while training a student")
+    if parsed_arguments.relation_teacher_checkpoint_path is not None:
+        if parsed_arguments.model_role != "student":
+            parser.error(
+                "--relation-teacher-checkpoint can only be used while "
+                "training a student"
+            )
+        if parsed_arguments.teacher_checkpoint_path is None:
+            parser.error(
+                "--relation-teacher-checkpoint requires a gold distillation "
+                "--teacher-checkpoint"
+            )
+        if not parsed_arguments.silver_corpus_paths:
+            parser.error(
+                "--relation-teacher-checkpoint currently requires silver "
+                "mixed training"
+            )
+    if (
+        parsed_arguments.teacher_backbone != "base"
+        and parsed_arguments.model_role != "teacher"
+    ):
+        parser.error(
+            "--teacher-backbone only applies to --model-role teacher runs"
+        )
 
     return BaselineTrainingArguments(
         language_tag=parsed_arguments.language_tag,
@@ -420,6 +551,7 @@ def parse_training_arguments(
             ModelRole,
             parsed_arguments.model_role,
         ),
+        teacher_backbone_variant=parsed_arguments.teacher_backbone,
         teacher_checkpoint_path=parsed_arguments.teacher_checkpoint_path,
         distillation_policy=TokenTaskDistillationPolicy(
             upos_temperature=resolved_temperatures["upos"],
@@ -431,6 +563,17 @@ def parse_training_arguments(
             categorical_objective=parsed_arguments.categorical_distillation_objective,
             target_class_weight=parsed_arguments.dkd_target_class_weight,
             non_target_class_weight=(parsed_arguments.dkd_non_target_class_weight),
+        ),
+        relation_teacher_checkpoint_path=(
+            parsed_arguments.relation_teacher_checkpoint_path
+        ),
+        relation_distillation_policy=(
+            None
+            if parsed_arguments.relation_teacher_checkpoint_path is None
+            else RelationDistillationPolicy(
+                weight=parsed_arguments.relation_distillation_weight,
+                relation_head_count=parsed_arguments.relation_head_count,
+            )
         ),
         token_pooling_strategy=TokenPoolingStrategy(parsed_arguments.token_pooling),
         token_task_head_architecture=TokenTaskHeadArchitecture(
@@ -469,6 +612,14 @@ def parse_training_arguments(
                 parsed_arguments.secondary_checkpoint_selection_metric
             )
         ),
+        silver_corpus_paths=silver_corpus_paths,
+        silver_labels_directories=silver_labels_directories,
+        silver_loss_weight=parsed_arguments.silver_loss_weight,
+        silver_minimum_confidence=parsed_arguments.silver_minimum_confidence,
+        silver_maximum_masked_ratio=parsed_arguments.silver_maximum_masked_ratio,
+        silver_require_agreement=(
+            not parsed_arguments.silver_disable_agreement_filter
+        ),
     )
 
 
@@ -491,7 +642,7 @@ def _report_progress(
 def _load_distillation_teacher(
     *,
     checkpoint_path: Path | None,
-    backbone_spec: PretrainedBackboneSpec,
+    profile: LanguageProfileSpec,
     schema: TokenTaskSchema,
     requested_language_tag: str,
     requested_treebank_release: str,
@@ -535,9 +686,10 @@ def _load_distillation_teacher(
             "Teacher checkpoint schema does not match the student training schema."
         )
 
-    if checkpoint.get("backbone_model_id") != backbone_spec.model_id:
-        raise ValueError("Teacher checkpoint backbone model does not match.")
-
+    backbone_spec = profile.backbone_for_model_id(
+        checkpoint.get("backbone_model_id", ""),
+        role="teacher",
+    )
     if checkpoint.get("backbone_revision") != backbone_spec.revision:
         raise ValueError("Teacher checkpoint backbone revision does not match.")
 
@@ -741,7 +893,13 @@ def main() -> None:
     if loss_weights is not None:
         loss_weights = loss_weights.to(device)
 
-    backbone_spec = training_profiles[0].backbone_for_role(arguments.model_role)
+    if arguments.model_role == "teacher" and arguments.teacher_backbone_variant == (
+        "large"
+    ):
+        backbone_spec = NORBERT4_LARGE_BACKBONE
+        print("Teacher backbone variant: large")
+    else:
+        backbone_spec = training_profiles[0].backbone_for_role(arguments.model_role)
     tokenizer = load_backbone_tokenizer(backbone_spec)
     model = build_pretrained_token_tagger(
         backbone_spec=backbone_spec,
@@ -762,12 +920,29 @@ def main() -> None:
 
     teacher = _load_distillation_teacher(
         checkpoint_path=arguments.teacher_checkpoint_path,
-        backbone_spec=training_profiles[0].teacher_backbone,
+        profile=training_profiles[0],
         schema=schema,
         requested_language_tag=arguments.language_tag,
         requested_treebank_release=arguments.treebank_release,
         student_character_vocabulary=character_vocabulary,
     )
+    relation_teacher = _load_distillation_teacher(
+        checkpoint_path=arguments.relation_teacher_checkpoint_path,
+        profile=training_profiles[0],
+        schema=schema,
+        requested_language_tag=arguments.language_tag,
+        requested_treebank_release=arguments.treebank_release,
+        student_character_vocabulary=character_vocabulary,
+    )
+    if relation_teacher is not None:
+        relation_policy = arguments.relation_distillation_policy
+        assert relation_policy is not None
+        print(
+            "Relation distillation: "
+            f"teacher={arguments.relation_teacher_checkpoint_path}, "
+            f"weight={relation_policy.weight:g}, "
+            f"relation heads={relation_policy.relation_head_count}"
+        )
 
     if teacher is not None:
         policy = arguments.distillation_policy
@@ -795,6 +970,49 @@ def main() -> None:
         len(training_corpus.sentences) + config.batch_size - 1
     ) // config.batch_size
 
+    silver_sentences: tuple = ()
+    if arguments.silver_corpus_paths:
+        silver_filter_policy = SilverFilterPolicy(
+            require_agreement=arguments.silver_require_agreement,
+            minimum_confidence=arguments.silver_minimum_confidence,
+            maximum_masked_token_ratio=arguments.silver_maximum_masked_ratio,
+        )
+        print(
+            "Silver filter policy:",
+            f"agreement={'on' if arguments.silver_require_agreement else 'off'},",
+            f"minimum confidence={arguments.silver_minimum_confidence:g},",
+            f"maximum masked ratio={arguments.silver_maximum_masked_ratio:g}",
+        )
+        for corpus_path, labels_directory in zip(
+            arguments.silver_corpus_paths,
+            arguments.silver_labels_directories,
+            strict=True,
+        ):
+            loaded_sentences, load_report = load_silver_training_sentences(
+                corpus_path=corpus_path,
+                labels_directory=labels_directory,
+                morphology_schema=schema.morphology,
+                policy=silver_filter_policy,
+            )
+            silver_sentences += loaded_sentences
+            print(
+                f"Silver source {corpus_path}:",
+                f"{load_report.retained_sentence_count}/"
+                f"{load_report.sentence_count} sentences retained,",
+                f"{load_report.retained_token_count} tokens,",
+                "masked "
+                f"upos={load_report.upos_masked_ratio * 100:.2f}% "
+                f"morphology={load_report.morphology_masked_ratio * 100:.2f}% "
+                f"lemma={load_report.lemma_masked_ratio * 100:.2f}%",
+            )
+        print("Silver loss weight:", arguments.silver_loss_weight)
+
+    silver_batch_count = (
+        0
+        if not silver_sentences
+        else (len(silver_sentences) + config.batch_size - 1) // config.batch_size
+    )
+
     development_sentence_batches = tuple(
         development_corpus.sentences[start : start + config.batch_size]
         for start in range(
@@ -813,7 +1031,9 @@ def main() -> None:
     )
     scheduler = build_linear_warmup_decay_scheduler(
         optimizer=optimizer,
-        total_step_count=(training_batch_count * config.epoch_count),
+        total_step_count=(
+            (training_batch_count + silver_batch_count) * config.epoch_count
+        ),
         warmup_ratio=config.warmup_ratio,
     )
 
@@ -825,7 +1045,7 @@ def main() -> None:
 
     def train_epoch(
         epoch_index: int,
-    ) -> SupervisedEpochMetrics | DistilledEpochMetrics:
+    ) -> SupervisedEpochMetrics | DistilledEpochMetrics | MixedEpochMetrics:
         sentence_batches = build_supervised_sentence_batches(
             sentences=training_corpus.sentences,
             batch_size=config.batch_size,
@@ -849,6 +1069,62 @@ def main() -> None:
             label="Training",
             total=len(sentence_batches),
         )
+
+        if silver_sentences:
+            silver_sentence_batches = build_silver_sentence_batches(
+                sentences=silver_sentences,
+                batch_size=config.batch_size,
+                random_seed=config.random_seed,
+                epoch_index=epoch_index,
+            )
+            silver_batches = _report_progress(
+                iter_silver_token_task_batches(
+                    tokenizer=tokenizer,
+                    sentence_batches=silver_sentence_batches,
+                    character_vocabulary=character_vocabulary,
+                    maximum_character_count=CHARACTER_MAXIMUM_COUNT,
+                ),
+                label="Silver",
+                total=len(silver_sentence_batches),
+            )
+            mixed_metrics = train_mixed_token_task_epoch(
+                student=model,
+                teacher=teacher,
+                gold_batches=batches,
+                silver_batches=silver_batches,
+                gold_batch_count=len(sentence_batches),
+                silver_batch_count=len(silver_sentence_batches),
+                order_seed=config.random_seed * 100003 + epoch_index,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                device=device,
+                max_gradient_norm=config.max_gradient_norm,
+                morphology_schema=schema.morphology,
+                silver_loss_weight=arguments.silver_loss_weight,
+                distillation_policy=(
+                    None if teacher is None else arguments.distillation_policy
+                ),
+                loss_weights=loss_weights,
+                morphology_bundle_loss_policy=morphology_bundle_loss_policy,
+                relation_teacher=relation_teacher,
+                relation_policy=(
+                    None
+                    if relation_teacher is None
+                    else arguments.relation_distillation_policy
+                ),
+            )
+            print(
+                "Silver KD losses:",
+                f"upos={mixed_metrics.silver_upos_loss:.6f},",
+                f"morphology={mixed_metrics.silver_morphology_loss:.6f},",
+                f"lemma={mixed_metrics.silver_lemma_rule_loss:.6f}",
+            )
+            if mixed_metrics.relation_loss is not None:
+                print(
+                    "Relation distillation loss:",
+                    f"{mixed_metrics.relation_loss:.6f}",
+                )
+            return mixed_metrics
 
         if teacher is None:
             return train_supervised_token_task_epoch(
@@ -1000,6 +1276,19 @@ def main() -> None:
                     if arguments.teacher_checkpoint_path is None
                     else str(arguments.teacher_checkpoint_path)
                 ),
+                "relation_distillation": (
+                    None
+                    if arguments.relation_distillation_policy is None
+                    else {
+                        "teacher_checkpoint_path": str(
+                            arguments.relation_teacher_checkpoint_path
+                        ),
+                        "weight": arguments.relation_distillation_policy.weight,
+                        "relation_head_count": (
+                            arguments.relation_distillation_policy.relation_head_count
+                        ),
+                    }
+                ),
                 "teacher_backbone_model_id": (
                     None
                     if teacher is None
@@ -1033,6 +1322,28 @@ def main() -> None:
                         else config.secondary_checkpoint_selection_metric.value
                     ),
                 },
+                "silver_training": (
+                    None
+                    if not arguments.silver_corpus_paths
+                    else {
+                        "corpus_paths": tuple(
+                            str(path) for path in arguments.silver_corpus_paths
+                        ),
+                        "labels_directories": tuple(
+                            str(path)
+                            for path in arguments.silver_labels_directories
+                        ),
+                        "loss_weight": arguments.silver_loss_weight,
+                        "minimum_confidence": (
+                            arguments.silver_minimum_confidence
+                        ),
+                        "maximum_masked_ratio": (
+                            arguments.silver_maximum_masked_ratio
+                        ),
+                        "require_agreement": arguments.silver_require_agreement,
+                        "retained_sentence_count": len(silver_sentences),
+                    }
+                ),
                 "morphology_weights": (
                     None
                     if loss_weights is None

@@ -349,6 +349,69 @@ def test_parse_training_arguments_accepts_decoupled_distillation() -> None:
     )
 
 
+def test_parse_training_arguments_resolves_relation_distillation() -> None:
+    from prism.training import RelationDistillationPolicy
+
+    default_arguments = parse_training_arguments(())
+    assert default_arguments.relation_teacher_checkpoint_path is None
+    assert default_arguments.relation_distillation_policy is None
+
+    relation_arguments = parse_training_arguments(
+        (
+            "--teacher-checkpoint",
+            "runs/no-teacher-base/best.pt",
+            "--relation-teacher-checkpoint",
+            "runs/no-teacher-large/best.pt",
+            "--relation-distillation-weight",
+            "0.5",
+            "--relation-head-count",
+            "4",
+            "--silver-corpus",
+            "data/processed/sakspapir-nno/pretokenized.jsonl",
+            "--silver-labels",
+            "data/processed/sakspapir-nno/labels-pilot-5m-large",
+        )
+    )
+    assert relation_arguments.relation_teacher_checkpoint_path == Path(
+        "runs/no-teacher-large/best.pt"
+    )
+    assert relation_arguments.relation_distillation_policy == (
+        RelationDistillationPolicy(weight=0.5, relation_head_count=4)
+    )
+
+    with pytest.raises(SystemExit):
+        parse_training_arguments(
+            (
+                "--model-role",
+                "teacher",
+                "--relation-teacher-checkpoint",
+                "runs/no-teacher-large/best.pt",
+            )
+        )
+
+    with pytest.raises(SystemExit):
+        parse_training_arguments(
+            (
+                "--relation-teacher-checkpoint",
+                "runs/no-teacher-large/best.pt",
+                "--silver-corpus",
+                "data/processed/sakspapir-nno/pretokenized.jsonl",
+                "--silver-labels",
+                "data/processed/sakspapir-nno/labels-pilot-5m-large",
+            )
+        )
+
+    with pytest.raises(SystemExit):
+        parse_training_arguments(
+            (
+                "--teacher-checkpoint",
+                "runs/no-teacher-base/best.pt",
+                "--relation-teacher-checkpoint",
+                "runs/no-teacher-large/best.pt",
+            )
+        )
+
+
 def test_parse_training_arguments_rejects_non_positive_epoch_count() -> None:
     with pytest.raises(SystemExit):
         parse_training_arguments(("--epoch-count", "0"))
@@ -396,4 +459,19 @@ def test_parse_training_arguments_resolves_secondary_selection_metric() -> None:
                 "--secondary-checkpoint-selection-metric",
                 "development-task-accuracy",
             )
+        )
+
+
+def test_parse_training_arguments_resolves_teacher_backbone_variant() -> None:
+    default_arguments = parse_training_arguments(("--model-role", "teacher"))
+    large_arguments = parse_training_arguments(
+        ("--model-role", "teacher", "--teacher-backbone", "large")
+    )
+
+    assert default_arguments.teacher_backbone_variant == "base"
+    assert large_arguments.teacher_backbone_variant == "large"
+
+    with pytest.raises(SystemExit):
+        parse_training_arguments(
+            ("--model-role", "student", "--teacher-backbone", "large")
         )

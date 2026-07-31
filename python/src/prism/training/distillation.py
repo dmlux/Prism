@@ -18,6 +18,7 @@ class CombinedTokenTaskLosses:
     supervised_losses: TokenTaskLosses
     distillation_losses: TokenTaskLosses
     total_loss: torch.Tensor
+    relation_loss: torch.Tensor | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

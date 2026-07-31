@@ -19,9 +19,16 @@ from prism.data import (
     SAKSPAPIR_PAGE_LANGUAGE_CODE,
     SAKSPAPIR_SOURCE_URL,
     SENTENCE_EXTRACTION_POLICY_VERSION,
+    WIKIPEDIA_LICENSE_ID,
+    WIKIPEDIA_LICENSE_URL,
+    WIKIPEDIA_NNO_CORPUS_ID,
+    WIKIPEDIA_NNO_LANGUAGE_TAG,
+    WIKIPEDIA_NNO_SOURCE_URL,
+    WIKITEXT_EXTRACTION_VERSION,
     PretokenizedSentence,
     iter_nbdigital_silver_sentences,
     iter_sakspapir_silver_sentences,
+    iter_wikipedia_silver_sentences,
     sentence_fingerprint,
     sha256_file,
     write_pretokenized_silver_corpus,
@@ -39,10 +46,12 @@ from prism.languages.norwegian.silver_extraction import (
 
 NBDIGITAL_SOURCE = "nbdigital-nob"
 SAKSPAPIR_SOURCE = "sakspapir-nno"
+WIKIPEDIA_SOURCE = "wikipedia-nno"
 _DEFAULT_MINIMUM_OCR_CONFIDENCE = 0.95
 _DEFAULT_OUTPUT_DIRECTORIES = {
     NBDIGITAL_SOURCE: Path("data/processed/nbdigital-nob-free"),
     SAKSPAPIR_SOURCE: Path("data/processed/sakspapir-nno"),
+    WIKIPEDIA_SOURCE: Path("data/processed/wikipedia-nno"),
 }
 
 
@@ -98,12 +107,13 @@ def parse_preparation_arguments(
 ) -> SilverCorpusPreparationArguments:
     parser = argparse.ArgumentParser(
         description=(
-            "Prepare a CC0 Norwegian silver corpus for teacher labeling."
+            "Prepare a permissively licensed Norwegian silver corpus "
+            "for teacher labeling."
         ),
     )
     parser.add_argument(
         "--source",
-        choices=(NBDIGITAL_SOURCE, SAKSPAPIR_SOURCE),
+        choices=(NBDIGITAL_SOURCE, SAKSPAPIR_SOURCE, WIKIPEDIA_SOURCE),
         default=NBDIGITAL_SOURCE,
     )
     parser.add_argument("--archive", type=Path, required=True)
@@ -184,6 +194,27 @@ def main() -> None:
             **shared_policy,
             "minimum_ocr_confidence": arguments.minimum_ocr_confidence,
             "sentence_boundary_source": "oslo-bergen-tagger-<<<",
+        }
+    elif arguments.source == WIKIPEDIA_SOURCE:
+        sentences = iter_wikipedia_silver_sentences(
+            archive_path=arguments.archive_path,
+            extraction_policy=norwegian_sentence_extraction_policy(
+                maximum_token_count=arguments.maximum_token_count,
+            ),
+            excluded_sentence_fingerprints=excluded_fingerprints,
+        )
+        corpus_id = WIKIPEDIA_NNO_CORPUS_ID
+        language_tag = WIKIPEDIA_NNO_LANGUAGE_TAG
+        source_url = WIKIPEDIA_NNO_SOURCE_URL
+        license_id = WIKIPEDIA_LICENSE_ID
+        license_url = WIKIPEDIA_LICENSE_URL
+        extraction_policy = {
+            **shared_policy,
+            "markup_removal": WIKITEXT_EXTRACTION_VERSION,
+            "sentence_boundary_source": SENTENCE_EXTRACTION_POLICY_VERSION,
+            "minimum_token_count": NORWEGIAN_MINIMUM_SILVER_TOKEN_COUNT,
+            "minimum_letter_token_ratio": NORWEGIAN_MINIMUM_LETTER_TOKEN_RATIO,
+            "abbreviation_tokens": tuple(sorted(NORWEGIAN_SILVER_ABBREVIATIONS)),
         }
     else:
         sentences = iter_sakspapir_silver_sentences(

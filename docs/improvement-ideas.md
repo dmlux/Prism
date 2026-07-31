@@ -230,6 +230,35 @@ Gold/Silber-Mischung mit Nynorsk-Schutz:
   Nynorsk, aber überwiegend in **veralteter Orthographie** (Landsmål/frühe
   Reformen) – als Trainingsquelle für modernes Nynorsk riskant.
 
+Register- und Domänen-Mix (vordeklariert für die 5M/10M-Stufe):
+
+- **Bekannte Schieflage der Quellen:** Sakspapirer sind ein enges
+  Verwaltungsregister (deklarativ, passiv- und nominalstillastig, drittes
+  Person, Präsens) – Alltags-/Literaturvokabular, Dialog, Fragen, Imperative
+  und Erzähl-Präteritum sind unterrepräsentiert. Die NBdigital-*Bücher*
+  liefern das erzählende Gegengewicht für Bokmål (mit eigener Schieflage:
+  gemeinfrei = überwiegend vor ~1960). Die Flexions-*Systematik* ist
+  register-robust; die Lücke ist primär **lexikalische Breite** (z.B. Genus
+  von Alltagsnomen) und register-spezifische Konstruktionen (`Mood=Imp`,
+  Dialog-Pronomen).
+- **Entscheidungsregel für die Dosis-Treppe:** Bleiben die Nynorsk-Gewinne
+  des Piloten hinter den Bokmål-Gewinnen zurück (Verdacht: Register statt
+  Menge), wird für die 5M/10M-Stufe **nicht einfach mehr Sakspapir-Text
+  nachgelegt**, sondern eine zweite, thematisch breite Nynorsk-Quelle
+  ergänzt und der Domänen-Mix als expliziter, dokumentierter Parameter der
+  Mischung geführt.
+- **Kandidat: Nynorsk-Wikipedia (CC BY-SA).** Enzyklopädisch statt amtlich,
+  modern orthographiert, thematisch breit – trifft genau die lexikalischen
+  Genus-Lücken. Lizenz-Einordnung: **kein Neuland**, die UD-Gold-Treebanks
+  sind bereits CC BY-SA; eine CC-BY-SA-*Trainings*quelle ist also dieselbe
+  Lizenzkategorie wie die bestehenden Gold-Daten und braucht nur denselben
+  dokumentierten Provenienz-Eintrag (das Modell distribuiert den Text
+  nicht). Die CC0-Präferenz bleibt für neue Quellen bestehen, ist aber kein
+  Ausschlusskriterium mehr, wo CC0 die Register-Lücke nicht decken kann.
+- **Messinstrument:** Die Dev-Splits messen Zeitungs-Register; ob das Modell
+  *Literatur* kann, zeigt erst das Buchkapitel-Fixture aus Idee 19.4. Es wird
+  mit dieser Entscheidungsregel verbindlich verknüpft.
+
 Pilot mit Dosis-Wirkungs-Kurve statt Vollkorpus:
 
 - Deterministische Teilmengen von z.B. **1M → 5M → 10M Tokens** (dokumentierte

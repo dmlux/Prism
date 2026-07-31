@@ -5,11 +5,14 @@ from dataclasses import dataclass
 from prism.training.config import CheckpointSelectionMetric
 from prism.training.epochs import (
     DistilledEpochMetrics,
+    MixedEpochMetrics,
     SupervisedEpochMetrics,
     SupervisedEvaluationMetrics,
 )
 
-type TrainingEpochMetrics = SupervisedEpochMetrics | DistilledEpochMetrics
+type TrainingEpochMetrics = (
+    SupervisedEpochMetrics | DistilledEpochMetrics | MixedEpochMetrics
+)
 
 
 def _selection_score(

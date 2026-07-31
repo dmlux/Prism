@@ -49,6 +49,40 @@ def test_parse_sakspapir_preparation_arguments() -> None:
     assert arguments.maximum_token_count == 128
 
 
+def test_parse_wikipedia_preparation_arguments() -> None:
+    arguments = parse_preparation_arguments(
+        (
+            "--source",
+            "wikipedia-nno",
+            "--archive",
+            "data/raw/nnwiki-latest-pages-articles.xml.bz2",
+        )
+    )
+
+    assert arguments.source == "wikipedia-nno"
+    assert arguments.output_path == Path(
+        "data/processed/wikipedia-nno/pretokenized.jsonl"
+    )
+    assert arguments.manifest_path == Path(
+        "data/processed/wikipedia-nno/manifest.json"
+    )
+    assert arguments.minimum_ocr_confidence is None
+
+
+def test_wikipedia_rejects_ocr_confidence_option() -> None:
+    with pytest.raises(SystemExit):
+        parse_preparation_arguments(
+            (
+                "--source",
+                "wikipedia-nno",
+                "--archive",
+                "data/raw/nnwiki-latest-pages-articles.xml.bz2",
+                "--minimum-ocr-confidence",
+                "0.9",
+            )
+        )
+
+
 def test_sakspapir_rejects_ocr_confidence_option() -> None:
     with pytest.raises(SystemExit):
         parse_preparation_arguments(

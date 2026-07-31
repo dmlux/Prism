@@ -118,9 +118,10 @@ def load_norwegian_token_tagger(
     if checkpoint["schema"] != serialize_token_task_schema(schema):
         raise ValueError("Checkpoint schema does not match the pinned training data.")
 
-    backbone_spec = schema_profiles[0].backbone_for_role(model_role)
-    if checkpoint["backbone_model_id"] != backbone_spec.model_id:
-        raise ValueError("Checkpoint backbone model does not match.")
+    backbone_spec = schema_profiles[0].backbone_for_model_id(
+        checkpoint["backbone_model_id"],
+        role=model_role,
+    )
     if checkpoint["backbone_revision"] != backbone_spec.revision:
         raise ValueError("Checkpoint backbone revision does not match.")
 

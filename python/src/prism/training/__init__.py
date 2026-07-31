@@ -64,11 +64,32 @@ from prism.training.distillation import (
 )
 from prism.training.epochs import (
     DistilledEpochMetrics,
+    MixedEpochMetrics,
     SupervisedEpochMetrics,
     SupervisedEvaluationMetrics,
     evaluate_supervised_token_task_epoch,
     train_distilled_token_task_epoch,
+    train_mixed_token_task_epoch,
     train_supervised_token_task_epoch,
+)
+from prism.training.relation_distillation import (
+    RelationDistillationPolicy,
+    compute_token_relation_loss,
+)
+from prism.training.silver_batches import (
+    SilverFilterPolicy,
+    SilverLoadReport,
+    SilverTokenTaskBatch,
+    SilverTrainingSentence,
+    build_silver_sentence_batches,
+    build_silver_token_task_batch,
+    iter_silver_token_task_batches,
+    load_silver_training_sentences,
+)
+from prism.training.silver_training import (
+    SilverKdLosses,
+    compute_silver_kd_loss,
+    train_silver_kd_step,
 )
 from prism.training.losses import (
     MorphologyBundleLossPolicy,
@@ -162,7 +183,22 @@ __all__ = [
     "TokenTaskDistillationPolicy",
     "combine_token_task_losses",
     "DistilledEpochMetrics",
+    "MixedEpochMetrics",
     "train_distilled_token_task_epoch",
+    "train_mixed_token_task_epoch",
+    "RelationDistillationPolicy",
+    "compute_token_relation_loss",
+    "SilverFilterPolicy",
+    "SilverLoadReport",
+    "SilverTokenTaskBatch",
+    "SilverTrainingSentence",
+    "build_silver_sentence_batches",
+    "build_silver_token_task_batch",
+    "iter_silver_token_task_batches",
+    "load_silver_training_sentences",
+    "SilverKdLosses",
+    "compute_silver_kd_loss",
+    "train_silver_kd_step",
     "TOKEN_TASK_CHECKPOINT_FORMAT_VERSION",
     "backbone_layer_aggregation_strategy_from_checkpoint",
     "token_pooling_strategy_from_checkpoint",

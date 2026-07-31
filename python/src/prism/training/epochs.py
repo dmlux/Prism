@@ -1,5 +1,6 @@
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import torch
 from torch import nn
@@ -28,11 +29,15 @@ from prism.training.losses import (
     TokenTaskLossWeights,
 )
 from prism.training.distillation import TokenTaskDistillationPolicy
+from prism.training.relation_distillation import RelationDistillationPolicy
 from prism.training.steps import (
     evaluate_supervised_token_task_step,
     train_distilled_token_task_step,
     train_supervised_token_task_step,
 )
+
+if TYPE_CHECKING:
+    from prism.training.silver_batches import SilverTokenTaskBatch
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -111,6 +116,28 @@ class DistilledEpochMetrics:
     supervised_metrics: SupervisedEpochMetrics
     distillation_metrics: SupervisedEpochMetrics
     combined_loss: float
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MixedEpochMetrics:
+    """Gold plus silver training signals of one interleaved epoch."""
+
+    gold_metrics: "SupervisedEpochMetrics | DistilledEpochMetrics"
+    silver_batch_count: int
+    silver_token_count: int
+    silver_loss_weight: float
+    silver_upos_loss: float
+    silver_morphology_loss: float
+    silver_lemma_rule_loss: float
+    relation_loss: float | None = None
+
+    @property
+    def silver_total_loss(self) -> float:
+        return (
+            self.silver_upos_loss
+            + self.silver_morphology_loss
+            + self.silver_lemma_rule_loss
+        )
 
 
 @dataclass(slots=True, kw_only=True)
@@ -359,6 +386,208 @@ def train_distilled_token_task_epoch(
             * distillation_metrics.morphology_loss
             + distillation_policy.lemma_rule_weight
             * distillation_metrics.lemma_rule_loss
+        ),
+    )
+
+
+def train_mixed_token_task_epoch(
+    *,
+    student: nn.Module,
+    teacher: nn.Module | None,
+    gold_batches: Iterable[SupervisedTokenTaskBatch],
+    silver_batches: Iterable["SilverTokenTaskBatch"],
+    gold_batch_count: int,
+    silver_batch_count: int,
+    order_seed: int,
+    optimizer: Optimizer,
+    scheduler: LRScheduler,
+    device: torch.device,
+    max_gradient_norm: float,
+    morphology_schema: MorphologySchema,
+    silver_loss_weight: float,
+    distillation_policy: TokenTaskDistillationPolicy | None = None,
+    loss_weights: TokenTaskLossWeights | None = None,
+    morphology_bundle_loss_policy: MorphologyBundleLossPolicy | None = None,
+    relation_teacher: nn.Module | None = None,
+    relation_policy: "RelationDistillationPolicy | None" = None,
+) -> MixedEpochMetrics:
+    """Interleave gold and silver batches deterministically in one epoch.
+
+    Gold batches keep their existing supervised (and optional teacher
+    distillation) objective; silver batches contribute the soft-target KD
+    loss. The interleaving order is a seeded permutation, so gold and silver
+    signals alternate instead of one regime dominating the end of the epoch.
+    """
+
+    from prism.training.silver_training import train_silver_kd_step
+
+    if gold_batch_count <= 0 or silver_batch_count <= 0:
+        raise ValueError("Mixed epochs require gold and silver batches.")
+    if (teacher is None) != (distillation_policy is None):
+        raise ValueError(
+            "Gold distillation requires both the teacher and its policy."
+        )
+    if (relation_teacher is None) != (relation_policy is None):
+        raise ValueError(
+            "Relation distillation requires both the teacher and its policy."
+        )
+    if relation_teacher is not None and teacher is None:
+        raise ValueError(
+            "Relation distillation extends the gold distillation step and "
+            "therefore requires the gold distillation teacher."
+        )
+
+    student.to(device)
+    if teacher is not None:
+        teacher.to(device)
+    if relation_teacher is not None:
+        relation_teacher.to(device)
+
+    generator = torch.Generator()
+    generator.manual_seed(order_seed)
+    order = torch.cat(
+        (
+            torch.zeros(gold_batch_count, dtype=torch.long),
+            torch.ones(silver_batch_count, dtype=torch.long),
+        )
+    )
+    order = order[torch.randperm(len(order), generator=generator)]
+
+    gold_iterator = iter(gold_batches)
+    silver_iterator = iter(silver_batches)
+    supervised_accumulator = _EpochLossAccumulator(device=device)
+    distillation_accumulator = (
+        None if teacher is None else _EpochLossAccumulator(device=device)
+    )
+    silver_upos_loss_sum = torch.zeros((), device=device)
+    silver_morphology_loss_sum = torch.zeros((), device=device)
+    silver_lemma_loss_sum = torch.zeros((), device=device)
+    silver_upos_tokens = 0
+    silver_morphology_tokens = 0
+    silver_lemma_tokens = 0
+    silver_token_count = 0
+    relation_loss_sum = torch.zeros((), device=device)
+    relation_batch_count = 0
+
+    for kind in order.tolist():
+        if kind == 0:
+            gold_batch = next(gold_iterator).to(device)
+            if teacher is None:
+                losses = train_supervised_token_task_step(
+                    model=student,
+                    batch=gold_batch,
+                    optimizer=optimizer,
+                    max_gradient_norm=max_gradient_norm,
+                    morphology_schema=morphology_schema,
+                    loss_weights=loss_weights,
+                    morphology_bundle_loss_policy=morphology_bundle_loss_policy,
+                )
+                supervised_accumulator.add(batch=gold_batch, losses=losses)
+            else:
+                assert distillation_policy is not None
+                assert distillation_accumulator is not None
+                distilled_losses = train_distilled_token_task_step(
+                    student=student,
+                    teacher=teacher,
+                    batch=gold_batch,
+                    optimizer=optimizer,
+                    max_gradient_norm=max_gradient_norm,
+                    distillation_policy=distillation_policy,
+                    morphology_schema=morphology_schema,
+                    loss_weights=loss_weights,
+                    morphology_bundle_loss_policy=morphology_bundle_loss_policy,
+                    relation_teacher=relation_teacher,
+                    relation_policy=relation_policy,
+                )
+                supervised_accumulator.add(
+                    batch=gold_batch,
+                    losses=distilled_losses.supervised_losses,
+                )
+                distillation_accumulator.add(
+                    batch=gold_batch,
+                    losses=distilled_losses.distillation_losses,
+                )
+                if distilled_losses.relation_loss is not None:
+                    relation_loss_sum += distilled_losses.relation_loss
+                    relation_batch_count += 1
+        else:
+            silver_batch = next(silver_iterator).to(device)
+            silver_losses = train_silver_kd_step(
+                model=student,
+                batch=silver_batch,
+                optimizer=optimizer,
+                max_gradient_norm=max_gradient_norm,
+                morphology_schema=morphology_schema,
+                silver_loss_weight=silver_loss_weight,
+            )
+            silver_upos_loss_sum += (
+                silver_losses.upos_loss.detach()
+                * silver_losses.upos_token_count
+            )
+            silver_morphology_loss_sum += (
+                silver_losses.morphology_loss.detach()
+                * silver_losses.morphology_token_count
+            )
+            silver_lemma_loss_sum += (
+                silver_losses.lemma_rule_loss.detach()
+                * silver_losses.lemma_token_count
+            )
+            silver_upos_tokens += silver_losses.upos_token_count
+            silver_morphology_tokens += silver_losses.morphology_token_count
+            silver_lemma_tokens += silver_losses.lemma_token_count
+            silver_token_count += int(
+                silver_batch.model_inputs.token_mask.sum().item()
+            )
+        scheduler.step()
+
+    supervised_metrics = supervised_accumulator.finish(
+        empty_epoch_message="Mixed epoch must contain gold batches.",
+    )
+    gold_metrics: SupervisedEpochMetrics | DistilledEpochMetrics
+    if distillation_accumulator is None:
+        gold_metrics = supervised_metrics
+    else:
+        assert distillation_policy is not None
+        distillation_metrics = distillation_accumulator.finish(
+            empty_epoch_message="Mixed epoch must contain gold batches.",
+        )
+        gold_metrics = DistilledEpochMetrics(
+            supervised_metrics=supervised_metrics,
+            distillation_metrics=distillation_metrics,
+            combined_loss=(
+                supervised_metrics.total_loss
+                + distillation_policy.upos_weight * distillation_metrics.upos_loss
+                + distillation_policy.morphology_weight
+                * distillation_metrics.morphology_loss
+                + distillation_policy.lemma_rule_weight
+                * distillation_metrics.lemma_rule_loss
+            ),
+        )
+
+    return MixedEpochMetrics(
+        gold_metrics=gold_metrics,
+        silver_batch_count=silver_batch_count,
+        silver_token_count=silver_token_count,
+        silver_loss_weight=silver_loss_weight,
+        silver_upos_loss=(
+            0.0
+            if silver_upos_tokens == 0
+            else float(silver_upos_loss_sum.item()) / silver_upos_tokens
+        ),
+        silver_morphology_loss=(
+            0.0
+            if silver_morphology_tokens == 0
+            else float(silver_morphology_loss_sum.item()) / silver_morphology_tokens
+        ),
+        silver_lemma_rule_loss=(
+            0.0
+            if silver_lemma_tokens == 0
+            else float(silver_lemma_loss_sum.item()) / silver_lemma_tokens
+        ),
+        relation_loss=(
+            None
+            if relation_batch_count == 0
+            else float(relation_loss_sum.item()) / relation_batch_count
         ),
     )
 
