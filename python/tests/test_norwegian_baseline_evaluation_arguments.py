@@ -5,6 +5,14 @@ from prism.languages.norwegian.evaluate_baseline import (
 )
 
 
+def test_parse_evaluation_arguments_resolves_split() -> None:
+    default_arguments = parse_evaluation_arguments(())
+    test_arguments = parse_evaluation_arguments(("--split", "test"))
+
+    assert default_arguments.evaluation_split == "development"
+    assert test_arguments.evaluation_split == "test"
+
+
 def test_parse_evaluation_arguments_accepts_language_profile() -> None:
     arguments = parse_evaluation_arguments(
         (

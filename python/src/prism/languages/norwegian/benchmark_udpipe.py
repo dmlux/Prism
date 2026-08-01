@@ -87,13 +87,18 @@ def main() -> None:
     arguments = parse_udpipe_benchmark_arguments()
     gold_text = arguments.gold_path.read_text(encoding="utf-8")
 
+    service_seconds: float | None = None
     if arguments.reuse_prediction:
         prediction_text = arguments.prediction_path.read_text(encoding="utf-8")
     else:
+        import time
+
+        started = time.perf_counter()
         prediction_text = UdpipeRestClient().tag_gold_tokenized_conllu(
             model=arguments.model,
             conllu=gold_text,
         )
+        service_seconds = time.perf_counter() - started
         arguments.prediction_path.parent.mkdir(parents=True, exist_ok=True)
         arguments.prediction_path.write_text(prediction_text, encoding="utf-8")
 
@@ -110,6 +115,17 @@ def main() -> None:
         values=(metrics.upos.f1, metrics.ufeats.f1, metrics.lemmas.f1),
     ):
         print(row)
+
+    if service_seconds is not None:
+        # Round-trip through the remote LINDAT service, including network and
+        # server queueing — an upper bound, not a local model-speed number.
+        token_count = sum(
+            1
+            for line in gold_text.splitlines()
+            if line and not line.startswith("#") and "-" not in line.split("\t", 1)[0]
+        )
+        print()
+        print(f"Service round-trip: {service_seconds:.2f} s for {token_count} tokens")
 
     arguments.analysis_path.parent.mkdir(parents=True, exist_ok=True)
     arguments.analysis_path.write_text(

@@ -73,7 +73,9 @@ class BaselineEvaluationArguments:
     analysis_path: Path
     language_tag: str
     device: str
+    precision: str
     treebank_release: str
+    evaluation_split: str
     morphology_logit_correction_strength: float
     ud_morphology_policy: str
     disable_morphology_bundle_reranker: bool
@@ -135,6 +137,17 @@ def parse_evaluation_arguments(
         dest="checkpoint_path",
     )
     parser.add_argument(
+        "--split",
+        choices=("development", "test"),
+        default="development",
+        dest="evaluation_split",
+        help=(
+            "Gold split to evaluate. The test split is reserved for the "
+            "one-shot final benchmark of an already frozen configuration; "
+            "never use it for selection or tuning."
+        ),
+    )
+    parser.add_argument(
         "--analysis",
         type=Path,
         default=Path("runs/nb-student-baseline/development-analysis-logit-zero.json"),
@@ -144,6 +157,16 @@ def parse_evaluation_arguments(
         "--device",
         choices=("cpu", "mps"),
         default="mps",
+    )
+    parser.add_argument(
+        "--precision",
+        choices=("fp32", "fp16", "fp16-backbone"),
+        default="fp32",
+        help=(
+            "Evaluate with weights and activations cast to this precision; "
+            "fp16 mirrors a fully halved export, fp16-backbone keeps the "
+            "task heads in fp32."
+        ),
     )
     parser.add_argument(
         "--morphology-logit-correction-strength",
@@ -254,7 +277,9 @@ def parse_evaluation_arguments(
         checkpoint_path=parsed_arguments.checkpoint_path,
         analysis_path=parsed_arguments.analysis_path,
         device=parsed_arguments.device,
+        precision=parsed_arguments.precision,
         treebank_release=parsed_arguments.treebank_release,
+        evaluation_split=parsed_arguments.evaluation_split,
         morphology_logit_correction_strength=(
             parsed_arguments.morphology_logit_correction_strength
         ),
@@ -357,7 +382,13 @@ def main() -> None:
         for sentence in read_sentences(schema_profile.gold_treebank.training_path)
     )
 
-    development_tokens = read_sentences(profile.gold_treebank.development_path)
+    if arguments.evaluation_split == "development":
+        evaluation_gold_path = profile.gold_treebank.development_path
+    else:
+        evaluation_gold_path = profile.gold_treebank.test_path
+        if evaluation_gold_path is None:
+            raise ValueError("The selected treebank does not expose a test split.")
+    development_tokens = read_sentences(evaluation_gold_path)
 
     schema = build_norwegian_schema(schema_training_tokens)
 
@@ -477,8 +508,8 @@ def main() -> None:
     layer_aggregation_strategy = backbone_layer_aggregation_strategy_from_checkpoint(
         checkpoint
     )
-    morphology_bundle_reranker_spec = (
-        morphology_bundle_reranker_spec_from_checkpoint(checkpoint)
+    morphology_bundle_reranker_spec = morphology_bundle_reranker_spec_from_checkpoint(
+        checkpoint
     )
     model = build_pretrained_token_tagger(
         backbone_spec=backbone_spec,
@@ -534,6 +565,10 @@ def main() -> None:
             "Morphology bundle scorer:",
             bundle_reranker.spec.scorer_architecture.value,
         )
+    if arguments.precision == "fp16":
+        model.half()
+    elif arguments.precision == "fp16-backbone":
+        model.backbone.half()
     metrics = evaluate_supervised_token_task_epoch(
         model=model,
         batches=iter_supervised_token_task_batches(
@@ -610,9 +645,7 @@ def main() -> None:
                 sentence_batches=development_sentence_batches,
                 character_vocabulary=character_vocabulary,
                 maximum_character_count=(
-                    32
-                    if maximum_character_count is None
-                    else maximum_character_count
+                    32 if maximum_character_count is None else maximum_character_count
                 ),
             ),
             device=torch.device(arguments.device),
@@ -865,9 +898,7 @@ def main() -> None:
             f"batches={len(task_interaction_audit.gradient_batch_indices)}",
         )
         for group in task_interaction_audit.gradient_groups:
-            print(
-                f"  {group.name} ({group.parameter_count:,} parameters)"
-            )
+            print(f"  {group.name} ({group.parameter_count:,} parameters)")
             for pair in group.task_pairs:
                 print(
                     f"    {pair.first_task:<10} vs {pair.second_task:<10} "
@@ -944,6 +975,7 @@ def main() -> None:
             {
                 "checkpoint": str(checkpoint_path),
                 "checkpoint_epoch_index": int(checkpoint["epoch_index"]),
+                "evaluation_split": arguments.evaluation_split,
                 "evaluation_policy": {
                     "morphology_logit_correction_strength": (
                         arguments.morphology_logit_correction_strength
