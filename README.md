@@ -144,6 +144,55 @@ application's responsibility (or a port of the versioned
 `prism-runtime-segmentation-v1` policy used by the Python API); applications
 that already have words can skip that layer entirely.
 
+## PrismKit (Swift)
+
+`swift/PrismKit` is the native Swift implementation of the complete
+pipeline. It ships its own word segmentation (the
+`prism-runtime-segmentation-v1` policy) and its own byte-level BPE subword
+tokenizer, both parity-tested against the Python reference, so no external
+tokenization framework is required — maximum performance at equal quality
+is the API's stated goal.
+
+```swift
+import PrismKit
+
+let tagger = try PrismTagger(
+    artifactURL: artifactDirectory,   // e.g. .../prism-no-0.2.0
+    device: .cpu                      // .automatic, .cpu, .gpu
+)
+let sentences = try tagger.tag(text: "Hun kjøpte tre gamle bøker.")
+// or: try tagger.tag(pretokenized: [["Hun", "kjøpte", "bøker", "."]])
+for token in sentences[0].tokens {
+    print(token.text, token.upos, token.lemma, token.uposConfidence)
+}
+```
+
+Integration notes:
+
+- **Opening in Xcode:** open `Prism.xcworkspace` at the repository root
+  (or `swift/Package.swift` directly) — Swift packages are native Xcode
+  projects, so no generated `.xcodeproj` is committed.
+- **Adding to an app:** depend on the package at `swift/` and on the
+  ExecuTorch products `executorch`, `backend_xnnpack`, and
+  `kernels_optimized` (branch `swiftpm-1.3.1`; the runtime version must
+  match the exporter that produced the artifact).
+- **Force-loading backends:** ExecuTorch backends register through static
+  initializers. App targets must add `-force_load` for the backend and
+  kernel archives in Xcode's *Other Linker Flags* (see the ExecuTorch iOS
+  documentation); the package's test target uses `-all_load` for the same
+  reason.
+- **Compute device:** `.cpu` (XNNPACK) works on every Mac including
+  Intel machines; `.gpu` requires an artifact containing a GPU-lowered
+  program and fails with a typed `deviceUnavailable` error otherwise;
+  `.automatic` picks the best available program.
+- **Multi-shape artifacts:** when the artifact ships several fixed-shape
+  programs, `PrismTagger` sorts sentences by length and runs every batch
+  on the smallest program it fits into — no configuration required.
+- **Artifact placement:** ship the artifact directory (program files plus
+  `vocabulary.json`, `labels.json`, `calibration.json`, `manifest.json`)
+  as app resources; `fixtures.json` is a development aid and does not
+  belong in the bundle.
+
 ## Requirements
 
 - macOS or another Python-compatible platform
