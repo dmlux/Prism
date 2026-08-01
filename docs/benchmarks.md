@@ -2590,3 +2590,71 @@ offline Teacher-label artifact and a controlled silver-data pilot. The
 temporary Top-64 training option, its focused parser test, and the completed
 expanded coverage-reporting surface were removed after this record was
 written; the production CLI again exposes only `0` and `32`.
+
+## Chapter end-to-end runtime comparison (artifact 0.2.1)
+
+Every binding tags the same local book-chapter fixture (247 sentences,
+3,783 tokens; untracked for copyright reasons) end to end: raw text in,
+tagged sentences with calibrated confidences out. Hardware: Apple M-series,
+CPU only. Values are the warm second run of a fresh process; cold runs
+(including lazy program loading) differ by well under 5%. The
+"one program" column uses a manifest copy exposing only the large
+8×160×96 program; "two programs" is the shipped artifact where batches
+additionally qualify for the small 8×48×32 program (automatic
+smallest-fit selection, identical predictions in both configurations).
+
+| Binding | Runtime | One program | Two programs |
+| --- | --- | ---: | ---: |
+| Python | eager PyTorch, dynamic shapes | 1.6 s | 1.6 s |
+| Swift (PrismKit) | ExecuTorch XNNPACK | 5.6 s | 2.9 s |
+| C++ | ExecuTorch XNNPACK | 8.2 s | 3.9 s |
+| Java (JNI over C++) | ExecuTorch XNNPACK | 8.2 s | 3.9 s |
+
+Readings:
+
+- **The second program pays for itself.** Fixed-shape padding dominates
+  the ExecuTorch cost; short-sentence batches on the 48×32 program cut
+  the chapter roughly in half. With program-data separation the second
+  shape costs only 0.7 MB of bundle size.
+- **Python eager is the throughput winner but not the deployment
+  answer.** Dynamic shapes waste no padding compute and PyTorch's CPU
+  kernels are heavily optimized — but the Python runtime requires the
+  full torch stack and the raw checkpoint, which is not the offline,
+  dependency-free story the native artifact exists for. It sets the
+  target the fixed-shape runtimes should approach (more bucket shapes,
+  threadpool tuning).
+- **Java equals C++.** The JNI bridge (byte-array in, one flat payload
+  out) is invisible next to inference.
+- **Swift outruns C++ by ~35%** on identical programs; the difference
+  sits in the ExecuTorch build/threadpool configuration, documented as
+  an open follow-up in `docs/PROJECT_STATUS.md`.
+
+Reproduction:
+
+```bash
+# Single-program manifest variant (hardlinks, filtered manifest)
+python - << 'PY'
+import json, os, shutil
+from pathlib import Path
+source, target = Path("models/prism-no-0.2.1"), Path("models/prism-no-0.2.1-single")
+if target.exists(): shutil.rmtree(target)
+target.mkdir(); (target / "LICENSES").mkdir()
+for entry in source.iterdir():
+    if entry.name not in ("manifest.json", "LICENSES"):
+        os.link(entry, target / entry.name)
+os.link(source / "LICENSES/README.md", target / "LICENSES/README.md")
+manifest = json.loads((source / "manifest.json").read_text())
+manifest["programs"] = [p for p in manifest["programs"] if p["file_name"] == "model-xnnpack.pte"]
+(target / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+PY
+
+# C++ (builds with the test suite)
+cpp/build/prism_chapter_benchmark models/prism-no-0.2.1 data/examples/hp7kap1.txt
+
+# Java
+java -Djava.library.path=cpp/build -cp "cpp/build/prism.jar:cpp/build/prism_java_test.jar" \
+  io.github.dmlux.prism.PrismChapterBenchmark models/prism-no-0.2.1 data/examples/hp7kap1.txt
+
+# Swift (release mode; PRISM_ARTIFACT overrides the artifact directory)
+cd swift && swift test -c release --filter ChapterBenchmarkTests
+```

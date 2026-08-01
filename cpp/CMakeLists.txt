@@ -87,6 +87,10 @@ if(PRISM_ENGINE)
     target_include_directories(prism_c PUBLIC include)
     target_link_libraries(prism_c PRIVATE prism_tagger)
     target_compile_options(prism_c PRIVATE -Wall -Wextra)
+
+    add_executable(prism_chapter_benchmark tools/chapter_benchmark.cpp)
+    target_link_libraries(prism_chapter_benchmark PRIVATE prism_tagger)
+    target_compile_options(prism_chapter_benchmark PRIVATE -Wall -Wextra)
 endif()
 
 # The Java binding: a thin JNI bridge over the C++ tagger plus the
@@ -109,7 +113,9 @@ if(PRISM_ENGINE AND PRISM_JAVA)
             "${CMAKE_CURRENT_SOURCE_DIR}/../java/src/main/java/io/github/dmlux/prism/*.java")
         add_jar(prism_java SOURCES ${PRISM_JAVA_SOURCES} OUTPUT_NAME prism)
         add_jar(prism_java_test
-            SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../java/src/test/java/io/github/dmlux/prism/PrismTaggerTest.java"
+            SOURCES
+                "${CMAKE_CURRENT_SOURCE_DIR}/../java/src/test/java/io/github/dmlux/prism/PrismTaggerTest.java"
+                "${CMAKE_CURRENT_SOURCE_DIR}/../java/src/test/java/io/github/dmlux/prism/PrismChapterBenchmark.java"
             INCLUDE_JARS prism_java
         )
     else()
@@ -149,6 +155,6 @@ if(TARGET prism_java_test)
             -Djava.library.path=$<TARGET_FILE_DIR:prism_jni>
             -cp "$<TARGET_PROPERTY:prism_java,JAR_FILE>:$<TARGET_PROPERTY:prism_java_test,JAR_FILE>"
             io.github.dmlux.prism.PrismTaggerTest
-            "${CMAKE_CURRENT_SOURCE_DIR}/../models/prism-no-0.2.0"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../models/prism-no-0.2.1"
     )
 endif()
