@@ -3148,3 +3148,22 @@ runtime remains a documented opt-in alternative reading the same file.
 14/14 Swift tests passing. Next: `tagPretokenized` (fixed-shape batch
 assembly, character IDs, ExecuTorch execution, argmax/threshold/lemma
 decoding), then `tagText`, then the performance pass.
+
+### PrismTagger (Swift end-to-end pipeline)
+
+`PrismTagger` completes the Swift API surface: `tag(text:)` runs the
+runtime segmentation (bounded by the program's fixed token count),
+`tag(pretokenized:)` accepts application words, and both assemble the
+fixed 8×160×96×32 batches natively — repeat-padded partial batches,
+subword padding with the manifest's padding ID, zero-padded alignment
+indices, and the character encoding with start/end/truncation markers
+and NFC lookup mirroring the Python contract. Batches beyond eight
+sentences loop transparently; over-long sentences are re-chunked to the
+program's capacity. Decoding stays mathematics-free: argmax over the
+calibrated probability outputs, the 0.5 threshold for multi-valued
+features, and `LemmaEditRule.apply`. End-to-end tests reproduce the
+Python reference decisions on raw text (UPOS, features, lemmas,
+confidence ranges) and across the multi-batch path. 16/16 Swift tests
+passing. Remaining for the Swift phase: the performance pass (scanner-
+based segmentation and buffer reuse are the known levers) and the
+README integration notes.
