@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "prism/engine.h"
 #include "prism/tagger.h"
 
 namespace {
@@ -89,6 +90,11 @@ struct prism_result {
 };
 
 extern "C" {
+
+int prism_set_thread_count(size_t thread_count)
+{
+    return prism::engine::SetThreadCount(thread_count) ? 1 : 0;
+}
 
 prism_tagger* prism_tagger_create(const char* artifact_directory)
 {

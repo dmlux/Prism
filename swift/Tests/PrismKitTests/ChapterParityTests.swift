@@ -38,7 +38,7 @@ final class ChapterParityTests: XCTestCase {
             "data/examples/hp7kap1-subword-parity.json"
         )
         let vocabularyURL = root.appendingPathComponent(
-            "models/prism-no-0.2.1/vocabulary.json"
+            "models/prism-no-0.2.2/vocabulary.json"
         )
         for url in [chapterURL, oracleURL, vocabularyURL] {
             try XCTSkipUnless(

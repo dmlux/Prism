@@ -65,7 +65,8 @@ if(PRISM_ENGINE)
     add_library(prism_engine src/engine.cpp)
     target_include_directories(prism_engine PUBLIC include)
     target_link_libraries(prism_engine
-        PRIVATE executorch extension_module_static extension_tensor extension_data_loader
+        PRIVATE executorch extension_module_static extension_tensor
+                extension_data_loader extension_threadpool
     )
     # Kernel and backend registration happens in static initializers, so the
     # final binary must keep every archive member.
@@ -155,6 +156,6 @@ if(TARGET prism_java_test)
             -Djava.library.path=$<TARGET_FILE_DIR:prism_jni>
             -cp "$<TARGET_PROPERTY:prism_java,JAR_FILE>:$<TARGET_PROPERTY:prism_java_test,JAR_FILE>"
             io.github.dmlux.prism.PrismTaggerTest
-            "${CMAKE_CURRENT_SOURCE_DIR}/../models/prism-no-0.2.1"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../models/prism-no-0.2.2"
     )
 endif()

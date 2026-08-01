@@ -5,8 +5,48 @@
 
 #include <executorch/extension/module/module.h>
 #include <executorch/extension/tensor/tensor.h>
+#include <executorch/extension/threadpool/threadpool.h>
 
 namespace prism::engine {
+
+namespace {
+
+bool g_thread_count_overridden = false;
+
+bool ResizeThreadpool(std::size_t thread_count)
+{
+    if (thread_count == 0) {
+        return false;
+    }
+    auto* threadpool = ::executorch::extension::threadpool::get_threadpool();
+    return threadpool != nullptr
+        && threadpool->_unsafe_reset_threadpool(
+            static_cast<std::uint32_t>(thread_count));
+}
+
+} // namespace
+
+std::size_t ThreadCount()
+{
+    auto* threadpool = ::executorch::extension::threadpool::get_threadpool();
+    return threadpool == nullptr ? 0 : threadpool->get_thread_count();
+}
+
+bool SetThreadCount(std::size_t thread_count)
+{
+    if (!ResizeThreadpool(thread_count)) {
+        return false;
+    }
+    g_thread_count_overridden = true;
+    return true;
+}
+
+void SetDefaultThreadCount(std::size_t thread_count)
+{
+    if (!g_thread_count_overridden && thread_count < ThreadCount()) {
+        ResizeThreadpool(thread_count);
+    }
+}
 
 using ::executorch::aten::ScalarType;
 using ::executorch::extension::Module;

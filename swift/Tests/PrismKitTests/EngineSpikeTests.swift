@@ -10,7 +10,7 @@ final class EngineSpikeTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("models/prism-no-0.2.1")
+            .appendingPathComponent("models/prism-no-0.2.2")
         try XCTSkipUnless(
             FileManager.default.fileExists(
                 atPath: artifactURL.appendingPathComponent("manifest.json").path

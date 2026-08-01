@@ -37,7 +37,7 @@ prism::engine::InputTensor InputFromJson(const nlohmann::json& payload)
 
 TEST(Engine, ExecutesFixtureBatchWithRecordedParity)
 {
-    const auto artifact = kRoot + "/models/prism-no-0.2.1";
+    const auto artifact = kRoot + "/models/prism-no-0.2.2";
     std::ifstream fixtures_file(artifact + "/fixtures.json");
     if (!fixtures_file) {
         GTEST_SKIP() << "Local artifact is not present.";

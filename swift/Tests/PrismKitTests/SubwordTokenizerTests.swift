@@ -27,7 +27,7 @@ final class SubwordTokenizerTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("models/prism-no-0.2.1/vocabulary.json")
+            .appendingPathComponent("models/prism-no-0.2.2/vocabulary.json")
         try XCTSkipUnless(
             FileManager.default.fileExists(atPath: vocabularyURL.path),
             "Local artifact is not present."

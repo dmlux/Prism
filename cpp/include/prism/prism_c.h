@@ -28,6 +28,11 @@ extern "C" {
 typedef struct prism_tagger prism_tagger;
 typedef struct prism_result prism_result;
 
+/* Overrides the CPU backend thread count for the whole process (the
+ * tagger otherwise installs a measured default). Call before creating
+ * taggers; returns 1 on success, 0 on failure. */
+int prism_set_thread_count(size_t thread_count);
+
 /* Loads the artifact (manifest, labels, vocabulary, programs) from the
  * given directory. Returns NULL and sets the thread's error on failure. */
 prism_tagger* prism_tagger_create(const char* artifact_directory);

@@ -50,6 +50,16 @@ public final class PrismTagger implements AutoCloseable {
         nativeLibraryLoaded = true;
     }
 
+    /**
+     * Overrides the CPU backend thread count for the whole process (the
+     * tagger otherwise installs a measured default). Call before
+     * {@link #load(Path)}; returns false when the pool cannot be resized.
+     */
+    public static boolean setThreadCount(int threadCount) {
+        ensureNativeLibrary();
+        return nativeSetThreadCount(threadCount);
+    }
+
     /** Opens the artifact directory (manifest, labels, vocabulary, programs). */
     public static PrismTagger load(Path artifactDirectory) {
         ensureNativeLibrary();
@@ -154,6 +164,8 @@ public final class PrismTagger implements AutoCloseable {
         }
         return List.copyOf(sentences);
     }
+
+    private static native boolean nativeSetThreadCount(int threadCount);
 
     private static native long nativeCreate(byte[] utf8Directory);
 

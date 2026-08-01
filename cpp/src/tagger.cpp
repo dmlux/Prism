@@ -68,7 +68,14 @@ struct Tagger::Implementation {
         for (const auto& character : artifact.labels().character_vocabulary) {
             character_ids.emplace(character, identifier++);
         }
+        // The runtime's own default parallelizes over every logical core,
+        // which measurably oversubscribes the small fixed-shape batches
+        // (24% slower on a 16-core machine). Six threads is the measured
+        // sweet spot; callers override via engine::SetThreadCount.
+        engine::SetDefaultThreadCount(kDefaultThreadCount);
     }
+
+    static constexpr std::size_t kDefaultThreadCount = 6;
 
     engine::Program& ProgramFor(const artifact::Program& program)
     {

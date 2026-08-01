@@ -93,7 +93,7 @@ class ArtifactExportArguments:
     overwrite: bool
     calibration_path: Path | None
     precision: str
-    small_shapes: tuple[int, int] | None
+    small_shapes: tuple[tuple[int, int], ...] | None
     external_data: bool
 
 
@@ -211,11 +211,13 @@ def parse_artifact_export_arguments(
         "--small-shapes",
         type=int,
         nargs=2,
+        action="append",
         metavar=("SUBWORDS", "TOKENS"),
         default=None,
         help=(
-            "Additionally lower a second program with these smaller fixed "
-            "shapes; runtimes pick the smallest program a batch fits into."
+            "Additionally lower a program with these smaller fixed shapes; "
+            "repeat for several programs. Runtimes pick the smallest "
+            "program a batch fits into."
         ),
     )
     parser.add_argument(
@@ -252,7 +254,12 @@ def parse_artifact_export_arguments(
         calibration_path=parsed.calibration_path,
         precision=parsed.precision,
         small_shapes=(
-            None if parsed.small_shapes is None else tuple(parsed.small_shapes)
+            None
+            if parsed.small_shapes is None
+            else tuple(
+                (subword_count, token_count)
+                for subword_count, token_count in parsed.small_shapes
+            )
         ),
         external_data=parsed.external_data,
     )
@@ -798,11 +805,11 @@ def main() -> None:
         for profile in profiles
     )
     small_program_entries: list[ModelProgramEntry] = []
-    if arguments.small_shapes is not None:
+    for small_subword_count, small_token_count in arguments.small_shapes or ():
         small_shapes = FixedExportShapes(
             batch_size=shapes.batch_size,
-            subword_count=arguments.small_shapes[0],
-            token_count=arguments.small_shapes[1],
+            subword_count=small_subword_count,
+            token_count=small_token_count,
             character_count=shapes.character_count,
         )
         print(

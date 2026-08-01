@@ -3359,3 +3359,26 @@ text never redistributed), and the `ltg/norbert4-xsmall` backbone
 one set of weights serves both written standards and that the artifact
 ships CPU (XNNPACK) programs as a measured decision, with the device
 API ready for future GPU-lowered programs.
+
+### Runtime optimization: thread cap and four-shape artifact 0.2.2
+
+Two measured levers close most of the gap to the eager-Python
+throughput target. (1) The ExecuTorch threadpool default spans every
+logical core because cpuinfo does not separate performance from
+efficiency cores on Apple Silicon; a sweep on the 16-core M4 Max showed
+6 threads beating the default by 24% on the small fixed-shape batches.
+`prism::engine` now exposes `ThreadCount`/`SetThreadCount` (plus
+`SetDefaultThreadCount`, which never overrides an explicit choice), the
+C ABI gains `prism_set_thread_count`, Java `PrismTagger.setThreadCount`,
+and the C++ tagger installs the measured default of 6. (2) Bucketing
+analysis on the chapter showed 150 of 247 sentences fit 8×24×16 while
+everything ran on 48×32 or larger; the exporter now accepts repeated
+`--small-shapes`, and artifact 0.2.2 ships four programs (24×16, 48×32,
+96×64, 160×96 — each +0.7 MB thanks to the shared model.ptd, bundle
+still ≈ 94 MB). Chapter results (warm): C++ 3.9 → 2.2 s, Java
+3.9 → 2.2 s, Swift 2.9 → 2.5 s (Swift cannot cap threads through the
+prebuilt frameworks yet — upstream follow-up). C++/Java now lead the
+native field; eager Python remains at 1.6 s as the dynamic-shape
+bound. All suites verified against 0.2.2: Python 302/302, Swift 17/17,
+C++/Java ctest 2/2; every added program passes the parity gate against
+the shared data file.

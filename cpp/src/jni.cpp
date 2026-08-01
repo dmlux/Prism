@@ -13,6 +13,7 @@
 
 #include <jni.h>
 
+#include "prism/engine.h"
 #include "prism/tagger.h"
 
 namespace {
@@ -201,6 +202,15 @@ prism::tagger::Tagger* TaggerFrom(jlong handle)
 } // namespace
 
 extern "C" {
+
+JNIEXPORT jboolean JNICALL Java_io_github_dmlux_prism_PrismTagger_nativeSetThreadCount(
+    JNIEnv*, jclass, jint thread_count)
+{
+    return thread_count > 0
+            && prism::engine::SetThreadCount(static_cast<std::size_t>(thread_count))
+        ? JNI_TRUE
+        : JNI_FALSE;
+}
 
 JNIEXPORT jlong JNICALL Java_io_github_dmlux_prism_PrismTagger_nativeCreate(
     JNIEnv* env, jclass, jbyteArray utf8_directory)

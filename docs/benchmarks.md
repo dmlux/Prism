@@ -2636,7 +2636,7 @@ Reproduction:
 python - << 'PY'
 import json, os, shutil
 from pathlib import Path
-source, target = Path("models/prism-no-0.2.1"), Path("models/prism-no-0.2.1-single")
+source, target = Path("models/prism-no-0.2.2"), Path("models/prism-no-0.2.2-single")
 if target.exists(): shutil.rmtree(target)
 target.mkdir(); (target / "LICENSES").mkdir()
 for entry in source.iterdir():
@@ -2649,12 +2649,38 @@ manifest["programs"] = [p for p in manifest["programs"] if p["file_name"] == "mo
 PY
 
 # C++ (builds with the test suite)
-cpp/build/prism_chapter_benchmark models/prism-no-0.2.1 data/examples/hp7kap1.txt
+cpp/build/prism_chapter_benchmark models/prism-no-0.2.2 data/examples/hp7kap1.txt
 
 # Java
 java -Djava.library.path=cpp/build -cp "cpp/build/prism.jar:cpp/build/prism_java_test.jar" \
-  io.github.dmlux.prism.PrismChapterBenchmark models/prism-no-0.2.1 data/examples/hp7kap1.txt
+  io.github.dmlux.prism.PrismChapterBenchmark models/prism-no-0.2.2 data/examples/hp7kap1.txt
 
 # Swift (release mode; PRISM_ARTIFACT overrides the artifact directory)
 cd swift && swift test -c release --filter ChapterBenchmarkTests
 ```
+
+### Optimized runtimes: thread cap and four shapes (artifact 0.2.2)
+
+Two measured optimizations follow up on the table above. First, the
+ExecuTorch default threadpool spans every logical core (cpuinfo does not
+separate performance from efficiency cores on Apple Silicon); on the
+small fixed-shape batches that oversubscribes — a sweep on a 16-core
+M4 Max shows 6 threads beating the 16-thread default by 24%. The C++
+tagger now installs this measured default (`prism::engine::SetThreadCount`,
+`prism_set_thread_count`, and `PrismTagger.setThreadCount` override it;
+the benchmark tool accepts `PRISM_THREADS`). Second, artifact 0.2.2 adds
+two more fixed shapes (8×24×16 and 8×96×64, +0.7 MB each thanks to the
+shared `model.ptd`): 150 of the chapter's 247 sentences fit 24×16, so
+batches stop paying 48×32 padding. Same chapter, same machine, warm:
+
+| Binding | 0.2.1 two shapes | + thread cap | 0.2.2 four shapes |
+| --- | ---: | ---: | ---: |
+| Swift (PrismKit) | 2.9 s | n/a (prebuilt default) | **2.5 s** |
+| C++ | 3.9 s | 2.9 s | **2.2 s** |
+| Java | 3.9 s | 2.9 s | **2.2 s** |
+
+C++ and Java now beat Swift (which cannot cap threads through the
+prebuilt frameworks yet) and close most of the gap to eager Python's
+1.6 s; the remainder is residual padding and fixed-shape dispatch.
+Predictions stay identical across all configurations (every added
+program passes the same parity gate against the shared data file).

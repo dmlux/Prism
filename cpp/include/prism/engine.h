@@ -14,6 +14,18 @@
 
 namespace prism::engine {
 
+// Number of threads the CPU backend parallelizes over (defaults to the
+// machine's performance-core count); 0 when the threadpool is unavailable.
+std::size_t ThreadCount();
+
+// Overrides the CPU backend thread count for the whole process. Call
+// before the first Forward; returns false when the pool cannot be resized.
+bool SetThreadCount(std::size_t thread_count);
+
+// Installs a default thread count without clobbering an explicit
+// SetThreadCount choice; higher layers use it for measured defaults.
+void SetDefaultThreadCount(std::size_t thread_count);
+
 struct TensorShape {
     std::vector<int> sizes;
 };

@@ -8,10 +8,12 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 
+#include <prism/engine.h>
 #include <prism/tagger.h>
 
 namespace {
@@ -49,7 +51,14 @@ int main(int argc, char** argv)
     const auto text = buffer.str();
 
     try {
+        // PRISM_THREADS overrides the CPU backend thread count for sweeps.
+        if (const char* threads = std::getenv("PRISM_THREADS")) {
+            prism::engine::SetThreadCount(
+                static_cast<std::size_t>(std::atoi(threads)));
+        }
+
         prism::tagger::Tagger tagger(argv[1]);
+        std::cout << "threads: " << prism::engine::ThreadCount() << "\n";
         std::size_t token_count = 0;
         const auto cold = MillisecondsFor(tagger, text, token_count);
         const auto warm = MillisecondsFor(tagger, text, token_count);

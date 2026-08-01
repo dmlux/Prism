@@ -100,7 +100,7 @@ The accepted roadmap and licensing decisions are in
 
 ## Using the exported model artifact
 
-An exported artifact directory (for example `models/prism-no-0.2.1`) is the
+An exported artifact directory (for example `models/prism-no-0.2.2`) is the
 complete integration contract for native runtimes:
 
 - `model-xnnpack.pte` — the lowered ExecuTorch program. The production
@@ -163,7 +163,7 @@ is the API's stated goal.
 import PrismKit
 
 let tagger = try PrismTagger(
-    artifactURL: artifactDirectory,   // e.g. .../prism-no-0.2.1
+    artifactURL: artifactDirectory,   // e.g. .../prism-no-0.2.2
     device: .cpu                      // .automatic, .cpu, .gpu
 )
 let sentences = try tagger.tag(text: "Hun kjøpte tre gamle bøker.")
@@ -212,7 +212,7 @@ against the same shared fixtures. Text is expected in Unicode NFC.
 ```cpp
 #include <prism>  // umbrella header; or the individual <prism/*.h> headers
 
-prism::tagger::Tagger tagger("models/prism-no-0.2.1");
+prism::tagger::Tagger tagger("models/prism-no-0.2.2");
 const auto sentences = tagger.TagText("Hun kjøpte tre gamle bøker.");
 for (const auto& token : sentences[0].tokens) {
     std::cout << token.text << " " << token.upos << " " << token.lemma
@@ -245,6 +245,10 @@ Integration notes:
 - **Multi-shape artifacts:** the tagger sorts sentences by length and
   runs every batch on the smallest fitting program — no configuration
   required.
+- **Threads:** the tagger installs a measured CPU thread-count default
+  (the runtime's own default oversubscribes small fixed-shape batches).
+  Override with `prism::engine::SetThreadCount`, `prism_set_thread_count`
+  (C), or `PrismTagger.setThreadCount` (Java) before loading.
 
 ## Java API
 
@@ -254,7 +258,7 @@ results out, so segmentation, tokenization, batching, and decoding run
 at native speed.
 
 ```java
-try (PrismTagger tagger = PrismTagger.load(Path.of("models/prism-no-0.2.1"))) {
+try (PrismTagger tagger = PrismTagger.load(Path.of("models/prism-no-0.2.2"))) {
     for (TaggedSentence sentence : tagger.tagText("Hun kjøpte tre gamle bøker.")) {
         for (TaggedToken token : sentence.tokens()) {
             System.out.println(token.text() + " " + token.upos() + " "
