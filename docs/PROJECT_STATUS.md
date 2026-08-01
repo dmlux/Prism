@@ -3227,3 +3227,23 @@ fixed separately: the swiftpm-1.3.1 frameworks were built with Swift
 5.10, the current swiftpm-1.4.0 snapshot compiles from its textual
 interface, and the 1.3.1-exported program runs unchanged on the 1.4
 runtime (verified by the engine tests and xcodebuild).
+
+### C++ ExecuTorch engine
+
+`prism::engine::Program` executes the shipped `.pte` programs from C++
+behind a PIMPL boundary, so ExecuTorch headers never leak into Prism's
+API — the shape the later C ABI needs. The runtime cannot be vendored
+as an amalgamation (the source tree with submodules spans hundreds of
+megabytes); instead it is pinned to the exporter's exact version
+(FetchContent, tag v1.3.1) behind `option(PRISM_ENGINE ON)`, so
+checkouts without network still build everything else. Source-build
+findings captured in CMake: the ExecuTorch preset chain requires
+`EXTENSION_NAMED_DATA_MAP`, the source directory must be named exactly
+`executorch`, torch headers resolve through the Python interpreter
+(the repository venv is wired as the default), and kernel/backend
+registration needs the whole-archive helper. The engine test executes a
+recorded fixture batch on `model-xnnpack.pte` and compares against the
+recorded expectations: **max |Δ| = 1.8e-06** — the same backend as the
+recording, so effectively exact. 10/10 GoogleTest tests passing.
+Remaining C++ roadmap: artifact/label parsing, the tagger with
+multi-shape bucketing, and the C ABI for the LexKeep core.

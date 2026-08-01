@@ -28,6 +28,47 @@ target_include_directories(prism_subword PUBLIC include)
 target_link_libraries(prism_subword PUBLIC prism_segmentation PRIVATE prism_vendor_json)
 target_compile_options(prism_subword PRIVATE -Wall -Wextra)
 
+# The ExecuTorch runtime cannot be vendored as an amalgamation (the source
+# tree with submodules spans hundreds of megabytes), so the engine pins it
+# to the exact exporter version via FetchContent and stays optional: a
+# checkout without network access still builds everything else.
+option(PRISM_ENGINE "Build the ExecuTorch engine" ON)
+if(PRISM_ENGINE)
+    include(FetchContent)
+    # ExecuTorch locates the torch headers through the Python interpreter;
+    # prefer the repository environment, which has the pinned torch install.
+    if(NOT DEFINED Python3_EXECUTABLE
+        AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../.venv/bin/python")
+        set(Python3_EXECUTABLE "${CMAKE_CURRENT_SOURCE_DIR}/../.venv/bin/python")
+    endif()
+    set(EXECUTORCH_BUILD_EXTENSION_MODULE ON CACHE BOOL "" FORCE)
+    set(EXECUTORCH_BUILD_EXTENSION_NAMED_DATA_MAP ON CACHE BOOL "" FORCE)
+    set(EXECUTORCH_BUILD_EXTENSION_DATA_LOADER ON CACHE BOOL "" FORCE)
+    set(EXECUTORCH_BUILD_EXTENSION_TENSOR ON CACHE BOOL "" FORCE)
+    set(EXECUTORCH_BUILD_EXTENSION_FLAT_TENSOR ON CACHE BOOL "" FORCE)
+    set(EXECUTORCH_BUILD_XNNPACK ON CACHE BOOL "" FORCE)
+    set(EXECUTORCH_BUILD_KERNELS_OPTIMIZED ON CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        executorch
+        GIT_REPOSITORY https://github.com/pytorch/executorch.git
+        GIT_TAG v1.3.1
+        GIT_SHALLOW TRUE
+        SOURCE_DIR "${CMAKE_CURRENT_BINARY_DIR}/_deps/executorch"
+    )
+    FetchContent_MakeAvailable(executorch)
+
+    add_library(prism_engine src/engine.cpp)
+    target_include_directories(prism_engine PUBLIC include)
+    target_link_libraries(prism_engine
+        PRIVATE executorch extension_module_static extension_tensor extension_data_loader
+    )
+    # Kernel and backend registration happens in static initializers, so the
+    # final binary must keep every archive member.
+    executorch_target_link_options_shared_lib(optimized_native_cpu_ops_lib)
+    executorch_target_link_options_shared_lib(xnnpack_backend)
+    target_link_libraries(prism_engine PRIVATE optimized_native_cpu_ops_lib xnnpack_backend)
+endif()
+
 enable_testing()
 
 # Tests receive the repository root for the local, untracked fixtures.
@@ -36,5 +77,9 @@ add_executable(prism_tests
     tests/subword_tests.cpp
 )
 target_link_libraries(prism_tests PRIVATE prism_segmentation prism_subword prism_vendor_json prism_vendor_gtest)
+if(PRISM_ENGINE)
+    target_sources(prism_tests PRIVATE tests/engine_tests.cpp)
+    target_link_libraries(prism_tests PRIVATE prism_engine)
+endif()
 target_compile_definitions(prism_tests PRIVATE PRISM_REPOSITORY_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
 add_test(NAME prism_tests COMMAND prism_tests)
