@@ -64,7 +64,10 @@ class TokenTagger(nn.Module):
             tokenized_batch=batch,
             pooling_strategy=self.pooling_strategy,
         )
-        return token_batch.hidden_states
+        # Mixed-precision deployments run the backbone in fp16 while the
+        # task heads stay fp32; the boundary cast is free when dtypes match.
+        heads_dtype = next(self.heads.parameters()).dtype
+        return token_batch.hidden_states.to(heads_dtype)
 
     def _character_hidden_states(
         self,
