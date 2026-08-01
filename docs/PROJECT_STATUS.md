@@ -3247,3 +3247,32 @@ recorded expectations: **max |Δ| = 1.8e-06** — the same backend as the
 recording, so effectively exact. 10/10 GoogleTest tests passing.
 Remaining C++ roadmap: artifact/label parsing, the tagger with
 multi-shape bucketing, and the C ABI for the LexKeep core.
+
+### C++ tagger and C ABI
+
+The C++ API is now complete end to end. `prism::artifact::Artifact`
+parses the manifest and the label schema (programs sorted by capacity,
+tokenizer contract, morphology features, codepoint-based lemma edit
+rules, character vocabulary); `prism::tagger::Tagger` mirrors the full
+runtime pipeline: runtime segmentation bound to the largest program's
+token capacity, native BPE encoding, character encoding with the
+reserved ids and middle truncation, length-sorted batching across the
+fixed-shape programs (smallest fitting program per batch, lazily loaded
+engines, repeat-padded partial batches), and decoding of the calibrated
+probabilities (argmax, NONE-first exclusive features, 0.5 threshold
+with minimum confidence for multi-valued features, lemma rules with
+token fallback). On top sits the C ABI (`prism/prism_c.h`): opaque
+`prism_tagger`/`prism_result` handles, thread-local `prism_last_error`,
+raw-text and pretokenized entry points, and accessors exposing only C
+types — tokens, UPOS, per-feature iteration plus a CoNLL-U style
+feature string, lemmas, and all calibrated confidences. This is the
+surface the LexKeep core (and the Windows/Linux variants) will link.
+Verification: the tagger reproduces the recorded reference decisions
+("Hun kjøpte tre gamle bøker den 17. mai." with lemmas and morphology),
+the C ABI test exercises every accessor including error paths, and the
+book chapter tags end to end in ~4.0 s (247 sentences / 3,783 tokens,
+matching the reference counts). 15/15 GoogleTest tests passing.
+Swift-specific wording was removed from the C++ documentation — the
+C++ binding stands on its own. Follow-up lever: the chapter runs ~35%
+slower than the Swift runtime on the same programs; worth profiling
+the XNNPACK threadpool configuration before optimizing own code.

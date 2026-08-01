@@ -609,6 +609,14 @@ SegmentationPolicy NorwegianPolicy(std::size_t maximum_token_count)
     };
 }
 
+std::vector<PretokenizedSentence> Chunk(
+    const PretokenizedSentence& sentence, std::size_t maximum_token_count)
+{
+    std::vector<PretokenizedSentence> chunks;
+    AppendChunks(chunks, sentence, maximum_token_count);
+    return chunks;
+}
+
 std::vector<PretokenizedSentence> Segment(std::string_view text, const SegmentationPolicy& policy)
 {
     const auto repaired = RestoreMissingSentenceSpaces(DecodeUtf8(text), text);

@@ -1,5 +1,5 @@
 // Executes the shipped program on a recorded fixture batch and verifies the
-// outputs against the fixtures — the C++ twin of the Swift engine spike.
+// outputs against the values the exporter recorded alongside the artifact.
 
 #include "prism/engine.h"
 

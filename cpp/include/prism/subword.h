@@ -1,9 +1,9 @@
 // Native byte-level BPE tokenizer executing the artifact's vocabulary.json.
 //
-// Mirrors the Python/Swift reference: the GPT-style split pre-tokenizer as
-// a hand-written scanner, the byte-level table, plain BPE with
-// ignore_merges, the <s> template, and the word-to-subword alignment the
-// model pooling consumes. Parity is enforced by the shared fixtures.
+// Implements the exporter's reference behaviour: the GPT-style split
+// pre-tokenizer as a hand-written scanner, the byte-level table, plain BPE
+// with ignore_merges, the <s> template, and the word-to-subword alignment
+// the model pooling consumes. Parity is enforced by the shared fixtures.
 //
 // Input is expected in Unicode NFC (the artifact's recorded normalization);
 // NFKC compatibility folding is not applied, which the parity fixtures

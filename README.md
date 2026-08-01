@@ -196,6 +196,47 @@ Integration notes:
   as app resources; `fixtures.json` is a development aid and does not
   belong in the bundle.
 
+## C++ API and C ABI
+
+`cpp/` is the native C++ implementation of the same pipeline — word
+segmentation, byte-level BPE, ExecuTorch execution, and decoding — built
+with hand-written scanners (no regex engine, no ICU) and parity-tested
+against the same shared fixtures. Text is expected in Unicode NFC.
+
+```cpp
+#include <prism/tagger.h>
+
+prism::tagger::Tagger tagger("models/prism-no-0.2.0");
+const auto sentences = tagger.TagText("Hun kjøpte tre gamle bøker.");
+for (const auto& token : sentences[0].tokens) {
+    std::cout << token.text << " " << token.upos << " " << token.lemma
+              << " " << token.upos_confidence << "\n";
+}
+```
+
+For applications whose core links plain C (or crosses a foreign function
+interface), `<prism/prism_c.h>` exposes the same functionality through a
+stable C ABI: opaque `prism_tagger`/`prism_result` handles, thread-local
+`prism_last_error()`, and accessors returning only C strings and scalars.
+
+Integration notes:
+
+- **Building:** `cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release`
+  then `cmake --build cpp/build`. Third-party code is vendored and
+  version-pinned under `cpp/vendor/`; only the ExecuTorch runtime is
+  fetched at configure time, pinned to the exporter's exact version.
+  `-DPRISM_ENGINE=OFF` builds segmentation and tokenization without
+  network access.
+- **Torch headers:** the ExecuTorch build resolves torch headers through
+  a Python interpreter; the repository virtual environment is wired as
+  the default (`Python3_EXECUTABLE` overrides it).
+- **Backend registration:** kernels and backends register through static
+  initializers; the CMake setup already applies the required whole-archive
+  linking to every consumer of `prism_tagger` and `prism_c`.
+- **Multi-shape artifacts:** the tagger sorts sentences by length and
+  runs every batch on the smallest fitting program — no configuration
+  required.
+
 ## Requirements
 
 - macOS or another Python-compatible platform
@@ -297,6 +338,12 @@ git diff --check
 
 ```text
 Prism/
+├── cpp/
+│   ├── CMakeLists.txt
+│   ├── include/prism/
+│   ├── src/
+│   ├── tests/
+│   └── vendor/
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   ├── PROJECT_STATUS.md
@@ -314,6 +361,11 @@ Prism/
 │   │   ├── schema/
 │   │   └── training/
 │   └── tests/
+├── swift/
+│   ├── Package.swift
+│   ├── Sources/PrismKit/
+│   └── Tests/PrismKitTests/
+├── Prism.xcworkspace/
 └── README.md
 ```
 

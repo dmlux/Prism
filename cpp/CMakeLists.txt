@@ -28,6 +28,11 @@ target_include_directories(prism_subword PUBLIC include)
 target_link_libraries(prism_subword PUBLIC prism_segmentation PRIVATE prism_vendor_json)
 target_compile_options(prism_subword PRIVATE -Wall -Wextra)
 
+add_library(prism_artifact src/artifact.cpp)
+target_include_directories(prism_artifact PUBLIC include)
+target_link_libraries(prism_artifact PRIVATE prism_vendor_json)
+target_compile_options(prism_artifact PRIVATE -Wall -Wextra)
+
 # The ExecuTorch runtime cannot be vendored as an amalgamation (the source
 # tree with submodules spans hundreds of megabytes), so the engine pins it
 # to the exact exporter version via FetchContent and stays optional: a
@@ -67,6 +72,21 @@ if(PRISM_ENGINE)
     executorch_target_link_options_shared_lib(optimized_native_cpu_ops_lib)
     executorch_target_link_options_shared_lib(xnnpack_backend)
     target_link_libraries(prism_engine PRIVATE optimized_native_cpu_ops_lib xnnpack_backend)
+
+    add_library(prism_tagger src/tagger.cpp)
+    target_include_directories(prism_tagger PUBLIC include)
+    target_link_libraries(prism_tagger
+        PUBLIC prism_artifact prism_segmentation
+        PRIVATE prism_subword prism_engine
+    )
+    target_compile_options(prism_tagger PRIVATE -Wall -Wextra)
+
+    # The plain-C embedding surface for applications whose core links C
+    # libraries only (see include/prism/prism_c.h).
+    add_library(prism_c src/prism_c.cpp)
+    target_include_directories(prism_c PUBLIC include)
+    target_link_libraries(prism_c PRIVATE prism_tagger)
+    target_compile_options(prism_c PRIVATE -Wall -Wextra)
 endif()
 
 enable_testing()
@@ -78,8 +98,8 @@ add_executable(prism_tests
 )
 target_link_libraries(prism_tests PRIVATE prism_segmentation prism_subword prism_vendor_json prism_vendor_gtest)
 if(PRISM_ENGINE)
-    target_sources(prism_tests PRIVATE tests/engine_tests.cpp)
-    target_link_libraries(prism_tests PRIVATE prism_engine)
+    target_sources(prism_tests PRIVATE tests/engine_tests.cpp tests/tagger_tests.cpp)
+    target_link_libraries(prism_tests PRIVATE prism_engine prism_tagger prism_c)
 endif()
 target_compile_definitions(prism_tests PRIVATE PRISM_REPOSITORY_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
 add_test(NAME prism_tests COMMAND prism_tests)

@@ -1,6 +1,6 @@
-// Mirrors python/tests/test_runtime_segmentation.py and the Swift suite so
-// all three implementations stay behaviourally identical, including the
-// book-chapter reference counts when the local fixture is present.
+// Exercises the shared segmentation fixtures so every implementation of
+// prism-runtime-segmentation-v1 stays behaviourally identical, including
+// the book-chapter reference counts when the local fixture is present.
 
 #include "prism/segmentation.h"
 

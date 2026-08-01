@@ -4,8 +4,8 @@
 // dropping user content: headings and fragments stay, over-long sentences
 // are chunked, and spaces lost after sentence punctuation are restored.
 // The implementation is a hand-written UTF-8 scanner — no regex engine and
-// no ICU dependency — matching the Python and Swift reference behaviour,
-// which the shared test fixtures enforce.
+// no ICU dependency — matching the reference behaviour of the training
+// pipeline, which the shared test fixtures enforce.
 //
 // Unicode scope: letter and digit classification covers Latin (including
 // all Norwegian characters), Greek, and Cyrillic ranges. Scripts outside
@@ -41,5 +41,11 @@ SegmentationPolicy NorwegianPolicy(std::size_t maximum_token_count = 128);
 
 // Segment raw UTF-8 text without discarding content.
 std::vector<PretokenizedSentence> Segment(std::string_view text, const SegmentationPolicy& policy);
+
+// Split an over-long sentence into chunks of at most maximum_token_count
+// tokens (Segment already applies this; callers with pretokenized input
+// use it to satisfy a program's fixed token capacity).
+std::vector<PretokenizedSentence> Chunk(
+    const PretokenizedSentence& sentence, std::size_t maximum_token_count);
 
 } // namespace prism::segmentation

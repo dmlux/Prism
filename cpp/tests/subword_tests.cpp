@@ -44,6 +44,9 @@ protected:
 
 TEST_F(SubwordTokenizerTest, MatchesReferenceCases)
 {
+    // The shared cross-implementation fixture lives inside the Swift test
+    // bundle because SwiftPM requires resources within the target directory;
+    // its content is implementation-neutral.
     std::ifstream parity_file(
         kRoot + "/swift/Tests/PrismKitTests/Resources/subword-parity.json");
     ASSERT_TRUE(parity_file) << "Shared parity fixture is missing.";
