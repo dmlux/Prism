@@ -89,17 +89,66 @@ if(PRISM_ENGINE)
     target_compile_options(prism_c PRIVATE -Wall -Wextra)
 endif()
 
+# The Java binding: a thin JNI bridge over the C++ tagger plus the
+# dependency-free Java layer in java/. The JAR is also buildable with
+# Maven (java/pom.xml) for Maven/Gradle consumers; this block is the
+# repository's canonical build and drives the test suite.
+option(PRISM_JAVA "Build the Java (JNI) binding" ON)
+if(PRISM_ENGINE AND PRISM_JAVA)
+    find_package(JNI)
+    find_package(Java 21 COMPONENTS Development)
+    if(JNI_FOUND AND Java_FOUND)
+        include(UseJava)
+
+        add_library(prism_jni SHARED src/jni.cpp)
+        target_include_directories(prism_jni PRIVATE ${JNI_INCLUDE_DIRS})
+        target_link_libraries(prism_jni PRIVATE prism_tagger)
+        target_compile_options(prism_jni PRIVATE -Wall -Wextra)
+
+        file(GLOB PRISM_JAVA_SOURCES
+            "${CMAKE_CURRENT_SOURCE_DIR}/../java/src/main/java/dev/prism/*.java")
+        add_jar(prism_java SOURCES ${PRISM_JAVA_SOURCES} OUTPUT_NAME prism)
+        add_jar(prism_java_test
+            SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../java/src/test/java/dev/prism/PrismTaggerTest.java"
+            INCLUDE_JARS prism_java
+        )
+    else()
+        message(STATUS "Prism: JNI or a Java 21 JDK is missing; skipping the Java binding.")
+    endif()
+endif()
+
+# Aggregate convenience target: link `prism`, then `#include <prism>`
+# pulls in the complete public API. The umbrella header is an extensionless
+# file, so it lives in its own include directory next to the per-module
+# headers (a file cannot share the name of the include/prism/ directory).
+add_library(prism INTERFACE)
+target_include_directories(prism INTERFACE include umbrella)
+target_link_libraries(prism INTERFACE prism_segmentation prism_subword prism_artifact)
+if(PRISM_ENGINE)
+    target_link_libraries(prism INTERFACE prism_engine prism_tagger prism_c)
+endif()
+
 enable_testing()
 
 # Tests receive the repository root for the local, untracked fixtures.
 add_executable(prism_tests
     tests/segmentation_tests.cpp
     tests/subword_tests.cpp
+    tests/umbrella_tests.cpp
 )
-target_link_libraries(prism_tests PRIVATE prism_segmentation prism_subword prism_vendor_json prism_vendor_gtest)
+target_link_libraries(prism_tests PRIVATE prism prism_vendor_json prism_vendor_gtest)
 if(PRISM_ENGINE)
     target_sources(prism_tests PRIVATE tests/engine_tests.cpp tests/tagger_tests.cpp)
-    target_link_libraries(prism_tests PRIVATE prism_engine prism_tagger prism_c)
 endif()
 target_compile_definitions(prism_tests PRIVATE PRISM_REPOSITORY_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
 add_test(NAME prism_tests COMMAND prism_tests)
+
+if(TARGET prism_java_test)
+    add_test(NAME prism_java_tests
+        COMMAND ${Java_JAVA_EXECUTABLE}
+            -Djava.library.path=$<TARGET_FILE_DIR:prism_jni>
+            -cp "$<TARGET_PROPERTY:prism_java,JAR_FILE>:$<TARGET_PROPERTY:prism_java_test,JAR_FILE>"
+            dev.prism.PrismTaggerTest
+            "${CMAKE_CURRENT_SOURCE_DIR}/../models/prism-no-0.2.0"
+    )
+endif()

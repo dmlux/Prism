@@ -67,4 +67,5 @@ temp/
 swift/.build/
 swift/.swiftpm/
 cpp/build/
+java/target/
 Prism.xcworkspace/xcuserdata/

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Maven build for the Prism Java API (dependency-free by design).
+
+  The JAR contains the Java layer only; the native library (prism_jni,
+  built from cpp/ with the PRISM_JAVA option) must be available on
+  java.library.path at runtime or loaded explicitly through
+  PrismTagger.loadNativeLibrary. Gradle projects can consume the
+  installed artifact from the local Maven repository (mvn install).
+
+  The repository's canonical build drives javac through CMake (cpp/), so
+  this POM exists purely for Maven/Gradle consumers.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>io.github.dmlux</groupId>
+  <artifactId>prism</artifactId>
+  <version>0.2.0</version>
+  <packaging>jar</packaging>
+
+  <name>Prism</name>
+  <description>Norwegian NLP (UPOS, morphology, lemmata) with calibrated confidences, running fully offline.</description>
+  <url>https://github.com/dmlux/Prism</url>
+
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <id>dmlux</id>
+      <name>Denis-Michael Lux</name>
+      <url>https://github.com/dmlux</url>
+    </developer>
+  </developers>
+
+  <scm>
+    <connection>scm:git:https://github.com/dmlux/Prism.git</connection>
+    <developerConnection>scm:git:git@github.com:dmlux/Prism.git</developerConnection>
+    <url>https://github.com/dmlux/Prism</url>
+  </scm>
+
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- The test directory holds a plain main-class program driven by the
+         CMake suite (it needs the native library and the model artifact),
+         not surefire tests. -->
+    <maven.test.skip>true</maven.test.skip>
+  </properties>
+</project>

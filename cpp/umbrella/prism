@@ -1,0 +1,13 @@
+// Umbrella header for the complete Prism C++ API: #include <prism>
+//
+// Convenience aggregate over every public header. Include the individual
+// <prism/*.h> headers instead when compile time matters more than comfort.
+
+#pragma once
+
+#include <prism/artifact.h>
+#include <prism/engine.h>
+#include <prism/prism_c.h>
+#include <prism/segmentation.h>
+#include <prism/subword.h>
+#include <prism/tagger.h>

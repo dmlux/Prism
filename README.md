@@ -204,7 +204,7 @@ with hand-written scanners (no regex engine, no ICU) and parity-tested
 against the same shared fixtures. Text is expected in Unicode NFC.
 
 ```cpp
-#include <prism/tagger.h>
+#include <prism>  // umbrella header; or the individual <prism/*.h> headers
 
 prism::tagger::Tagger tagger("models/prism-no-0.2.0");
 const auto sentences = tagger.TagText("Hun kjøpte tre gamle bøker.");
@@ -227,6 +227,9 @@ Integration notes:
   fetched at configure time, pinned to the exporter's exact version.
   `-DPRISM_ENGINE=OFF` builds segmentation and tokenization without
   network access.
+- **Linking:** the CMake target `prism` aggregates every library and
+  both include directories, so consumers write
+  `target_link_libraries(app PRIVATE prism)` and `#include <prism>`.
 - **Torch headers:** the ExecuTorch build resolves torch headers through
   a Python interpreter; the repository virtual environment is wired as
   the default (`Python3_EXECUTABLE` overrides it).
@@ -236,6 +239,39 @@ Integration notes:
 - **Multi-shape artifacts:** the tagger sorts sentences by length and
   runs every batch on the smallest fitting program — no configuration
   required.
+
+## Java API
+
+`java/` is a dependency-free Java 21 API (Kotlin-compatible out of the
+box) over the native Prism core: a thin JNI bridge marshals text in and
+results out, so segmentation, tokenization, batching, and decoding run
+at native speed.
+
+```java
+try (PrismTagger tagger = PrismTagger.load(Path.of("models/prism-no-0.2.0"))) {
+    for (TaggedSentence sentence : tagger.tagText("Hun kjøpte tre gamle bøker.")) {
+        for (TaggedToken token : sentence.tokens()) {
+            System.out.println(token.text() + " " + token.upos() + " "
+                + token.lemma() + " " + token.uposConfidence());
+        }
+    }
+}
+```
+
+Integration notes:
+
+- **Building:** the repository's canonical build produces `prism.jar` and
+  the native library `prism_jni` through CMake (see the C++ section; the
+  Java binding is on by default when a JDK 21 is found, `-DPRISM_JAVA=OFF`
+  disables it). Maven/Gradle consumers can alternatively build and
+  install the JAR with `java/pom.xml` (`mvn install`, coordinates
+  `io.github.dmlux:prism`).
+- **Native library:** the JAR contains the Java layer only. At runtime
+  the native library must be resolvable — either on `java.library.path`
+  (`-Djava.library.path=...`) or loaded explicitly with
+  `PrismTagger.loadNativeLibrary(path)` before the first `load`.
+- **Threading:** a `PrismTagger` instance is not thread-safe; results are
+  immutable and freely shareable.
 
 ## Requirements
 
@@ -343,12 +379,16 @@ Prism/
 │   ├── include/prism/
 │   ├── src/
 │   ├── tests/
+│   ├── umbrella/
 │   └── vendor/
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   ├── PROJECT_STATUS.md
 │   ├── benchmarks.md
 │   └── model-strategy.md
+├── java/
+│   ├── pom.xml
+│   └── src/main/java/dev/prism/
 ├── logos/
 ├── python/
 │   ├── pyproject.toml

@@ -3276,3 +3276,31 @@ Swift-specific wording was removed from the C++ documentation — the
 C++ binding stands on its own. Follow-up lever: the chapter runs ~35%
 slower than the Swift runtime on the same programs; worth profiling
 the XNNPACK threadpool configuration before optimizing own code.
+
+### Umbrella header and Java API — the platform set is complete
+
+Two additions round off the bindings. First, `#include <prism>` now
+pulls in the complete C++ API: an extensionless umbrella header in its
+own include directory (`cpp/umbrella/`, since a file cannot share the
+name of the `include/prism/` directory) plus an aggregate CMake
+INTERFACE target `prism`, so consumers link one target and get every
+library and both include paths. Second, `java/` adds a dependency-free
+Java 21 API (`dev.prism`: `PrismTagger` as `AutoCloseable`,
+`TaggedSentence`/`TaggedToken` records with features and calibrated
+confidences) over a JNI bridge (`cpp/src/jni.cpp`) onto the C++ tagger.
+Design decisions: text crosses the boundary as UTF-8 byte arrays and
+results return as one flat parallel-array payload per call (a single
+JNI transition regardless of sentence count); returned strings use
+`NewString` with a hand-written UTF-8→UTF-16 conversion because JNI's
+modified UTF-8 breaks for supplementary codepoints. The canonical build
+stays CMake-only (`PRISM_JAVA`, on by default when a JDK 21 and JNI are
+found; UseJava builds `prism.jar`), while `java/pom.xml` (standard
+Maven layout, zero dependencies, coordinates `io.github.dmlux:prism`)
+serves Maven/Gradle consumers — Maven itself is not installed locally,
+so the POM is unverified. The Java test is a plain `main` program (no
+JUnit dependency) run through ctest with `java.library.path` pointed at
+the build tree; it validates the recorded reference decisions, the
+multi-batch path, and the error path. ctest: 2/2 suites (16 GoogleTest
+tests + Java) passing. With Swift, C++/C, and Java/Kotlin the platform
+set from the roadmap is covered; packaging levers (natives inside the
+JAR per platform, published Maven artifact) remain deliberate follow-ups.
