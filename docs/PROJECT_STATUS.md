@@ -3129,3 +3129,22 @@ subword layer: PrismKit implements the BPE tokenizer natively
 fixture `input_ids` as the parity oracle; the Hugging Face tokenizer
 remains a documented opt-in alternative. Maximum performance at equal
 quality is the API's stated top goal for weak target devices.
+
+### Native BPE subword tokenizer (PrismKit)
+
+`SubwordTokenizer` executes the artifact's `vocabulary.json` definition
+natively: NFKC normalization, the GPT-style split pre-tokenizer, the
+byte-level table, plain BPE with `ignore_merges`, the `<s>` template,
+and the word-to-subword alignment (`first_subword_indices` /
+`subword_end_indices`) the pooling consumes. Parity is enforced at two
+scales: nine crafted cases recorded from the reference Hugging Face
+tokenizer (unicode headings, ordinals, guillemets, compounds, e-mail,
+URL, emoji) match IDs and alignment exactly, and the untracked
+book-chapter oracle requires all 247 sentences / 5,028 subword IDs of
+the combined Swift segmentation + BPE pipeline to equal the Python
+output — a joint test of both layers where any divergence surfaces as
+an ID mismatch. The full chapter tokenizes in ~13 ms. The Hugging Face
+runtime remains a documented opt-in alternative reading the same file.
+14/14 Swift tests passing. Next: `tagPretokenized` (fixed-shape batch
+assembly, character IDs, ExecuTorch execution, argmax/threshold/lemma
+decoding), then `tagText`, then the performance pass.

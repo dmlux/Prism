@@ -31,6 +31,7 @@ let package = Package(
                 "PrismKit",
                 .product(name: "backend_xnnpack_debug", package: "executorch"),
             ],
+            resources: [.process("Resources")],
             linkerSettings: [
                 .unsafeFlags(["-Xlinker", "-all_load"])
             ]

@@ -1,0 +1,433 @@
+{
+ "cases": [
+  {
+   "tokens": [
+    "Hun",
+    "kjøpte",
+    "bøker",
+    "."
+   ],
+   "has_space_before": [
+    false,
+    true,
+    true,
+    false
+   ],
+   "input_ids": [
+    1,
+    55,
+    317,
+    10507,
+    7402,
+    29
+   ],
+   "first_subword_indices": [
+    1,
+    3,
+    4,
+    5
+   ],
+   "subword_end_indices": [
+    3,
+    4,
+    5,
+    6
+   ]
+  },
+  {
+   "tokens": [
+    "KAPITTEL",
+    "ÉN",
+    ":",
+    "MØRKETS",
+    "HERRE"
+   ],
+   "has_space_before": [
+    false,
+    true,
+    false,
+    true,
+    true
+   ],
+   "input_ids": [
+    1,
+    58,
+    3022,
+    20226,
+    2139,
+    11353,
+    61,
+    41,
+    46484,
+    3969,
+    22962,
+    15465,
+    1699
+   ],
+   "first_subword_indices": [
+    1,
+    5,
+    7,
+    8,
+    11
+   ],
+   "subword_end_indices": [
+    5,
+    7,
+    8,
+    11,
+    13
+   ]
+  },
+  {
+   "tokens": [
+    "Vi",
+    "feirar",
+    "17.",
+    "mai",
+    "med",
+    "f.eks.",
+    "kake",
+    "."
+   ],
+   "has_space_before": [
+    false,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    false
+   ],
+   "input_ids": [
+    1,
+    7774,
+    13233,
+    281,
+    236,
+    32,
+    38,
+    29,
+    2261,
+    348,
+    282,
+    5161,
+    29,
+    21281,
+    29
+   ],
+   "first_subword_indices": [
+    1,
+    2,
+    4,
+    8,
+    9,
+    10,
+    13,
+    14
+   ],
+   "subword_end_indices": [
+    2,
+    4,
+    8,
+    9,
+    10,
+    13,
+    14,
+    15
+   ]
+  },
+  {
+   "tokens": [
+    "«",
+    "Godt",
+    "nytt",
+    "år",
+    "!",
+    "»",
+    "sa",
+    "hun",
+    "."
+   ],
+   "has_space_before": [
+    false,
+    false,
+    true,
+    true,
+    false,
+    false,
+    true,
+    true,
+    false
+   ],
+   "input_ids": [
+    1,
+    5640,
+    54,
+    23692,
+    1536,
+    556,
+    16,
+    808,
+    1279,
+    1247,
+    29
+   ],
+   "first_subword_indices": [
+    1,
+    2,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+   ],
+   "subword_end_indices": [
+    2,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11
+   ]
+  },
+  {
+   "tokens": [
+    "Barne-",
+    "og",
+    "ungdomsskulen",
+    "kostar",
+    "3,5",
+    "mill.",
+    "kr",
+    "i",
+    "2024/2025",
+    "."
+   ],
+   "has_space_before": [
+    false,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    false
+   ],
+   "input_ids": [
+    1,
+    8247,
+    371,
+    28,
+    308,
+    14191,
+    6381,
+    14238,
+    236,
+    34,
+    27,
+    36,
+    5065,
+    29,
+    687,
+    295,
+    236,
+    33,
+    31,
+    33,
+    35,
+    30,
+    33,
+    31,
+    33,
+    36,
+    29
+   ],
+   "first_subword_indices": [
+    1,
+    4,
+    5,
+    7,
+    8,
+    12,
+    14,
+    15,
+    16,
+    26
+   ],
+   "subword_end_indices": [
+    4,
+    5,
+    7,
+    8,
+    12,
+    14,
+    15,
+    16,
+    26,
+    27
+   ]
+  },
+  {
+   "tokens": [
+    "Skjærgårdsøyene",
+    "blomstret",
+    "—",
+    "fjordlandskapets",
+    "prakt",
+    "…"
+   ],
+   "has_space_before": [
+    false,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "input_ids": [
+    1,
+    66,
+    33976,
+    26779,
+    23884,
+    4537,
+    15044,
+    1521,
+    15192,
+    25238,
+    859,
+    3322,
+    2877
+   ],
+   "first_subword_indices": [
+    1,
+    5,
+    7,
+    8,
+    11,
+    12
+   ],
+   "subword_end_indices": [
+    5,
+    7,
+    8,
+    11,
+    12,
+    13
+   ]
+  },
+  {
+   "tokens": [
+    "e-post",
+    ":",
+    "test@nb.no",
+    "og",
+    "https://nb.no/side?id=1",
+    "."
+   ],
+   "has_space_before": [
+    false,
+    false,
+    true,
+    true,
+    true,
+    false
+   ],
+   "input_ids": [
+    1,
+    84,
+    2571,
+    41,
+    1829,
+    47,
+    4738,
+    1494,
+    308,
+    4361,
+    1443,
+    4738,
+    1494,
+    30,
+    3428,
+    47721,
+    44,
+    32,
+    29
+   ],
+   "first_subword_indices": [
+    1,
+    3,
+    4,
+    8,
+    9,
+    18
+   ],
+   "subword_end_indices": [
+    3,
+    4,
+    8,
+    9,
+    18,
+    19
+   ]
+  },
+  {
+   "tokens": [
+    "🎉",
+    "Grattis",
+    "!"
+   ],
+   "has_space_before": [
+    false,
+    true,
+    false
+   ],
+   "input_ids": [
+    1,
+    3688,
+    252,
+    247,
+    1789,
+    32888,
+    16
+   ],
+   "first_subword_indices": [
+    1,
+    4,
+    6
+   ],
+   "subword_end_indices": [
+    4,
+    6,
+    7
+   ]
+  },
+  {
+   "tokens": [
+    "a"
+   ],
+   "has_space_before": [
+    false
+   ],
+   "input_ids": [
+    1,
+    80
+   ],
+   "first_subword_indices": [
+    1
+   ],
+   "subword_end_indices": [
+    2
+   ]
+  }
+ ]
+}
