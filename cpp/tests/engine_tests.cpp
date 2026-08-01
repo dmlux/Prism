@@ -4,6 +4,7 @@
 #include "prism/engine.h"
 
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 
 #include <gtest/gtest.h>
@@ -36,7 +37,7 @@ prism::engine::InputTensor InputFromJson(const nlohmann::json& payload)
 
 TEST(Engine, ExecutesFixtureBatchWithRecordedParity)
 {
-    const auto artifact = kRoot + "/models/prism-no-0.2.0";
+    const auto artifact = kRoot + "/models/prism-no-0.2.1";
     std::ifstream fixtures_file(artifact + "/fixtures.json");
     if (!fixtures_file) {
         GTEST_SKIP() << "Local artifact is not present.";
@@ -49,7 +50,18 @@ TEST(Engine, ExecutesFixtureBatchWithRecordedParity)
         inputs.push_back(InputFromJson(payload));
     }
 
-    prism::engine::Program program(artifact + "/model-xnnpack.pte");
+    // Programs with separated data list their shared .ptd files in the
+    // manifest; they must be loaded alongside the program.
+    std::ifstream manifest_file(artifact + "/manifest.json");
+    ASSERT_TRUE(manifest_file);
+    const auto manifest = nlohmann::json::parse(manifest_file);
+    std::vector<std::filesystem::path> data_files;
+    for (const auto& data_file :
+        manifest.at("programs").at(0).value("data_files", nlohmann::json::array())) {
+        data_files.push_back(artifact + "/" + data_file.get<std::string>());
+    }
+
+    prism::engine::Program program(artifact + "/model-xnnpack.pte", data_files);
     const auto outputs = program.Forward(inputs);
 
     // The fixture records the lemma head as two top-k tensors, so it holds

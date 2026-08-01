@@ -26,6 +26,9 @@ struct Program {
     std::string backend;
     std::string precision;
     FixedShapes shapes;
+    // Shared .ptd files holding externally stored weights; empty when the
+    // program embeds its weights.
+    std::vector<std::string> data_files;
 };
 
 struct TokenizerContract {

@@ -160,6 +160,28 @@ class TensorSpec:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ModelDataFileEntry:
+    """One shared external tensor-data file (program-data separation)."""
+
+    file_name: str
+    sha256: str
+    size_bytes: int
+
+    def __post_init__(self) -> None:
+        _require_non_empty(self.file_name, "Model data file name")
+        _require_non_empty(self.sha256, "Model data file digest")
+        if self.size_bytes < 1:
+            raise ValueError("Model data file size must be positive.")
+
+    def to_json_dict(self) -> dict[str, object]:
+        return {
+            "file_name": self.file_name,
+            "sha256": self.sha256,
+            "size_bytes": self.size_bytes,
+        }
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ModelProgramEntry:
     """One lowered model program inside the artifact directory."""
 
@@ -173,6 +195,9 @@ class ModelProgramEntry:
     inputs: tuple[TensorSpec, ...]
     output_names: tuple[str, ...]
     parity_maximum_probability_difference: float
+    # External tensor-data files the program requires at load time; empty
+    # when the weights live inside the program file itself.
+    data_files: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _require_non_empty(self.file_name, "Model program file name")
@@ -210,6 +235,7 @@ class ModelProgramEntry:
             "parity_maximum_probability_difference": (
                 self.parity_maximum_probability_difference
             ),
+            "data_files": list(self.data_files),
         }
 
 
@@ -225,6 +251,8 @@ class ModelArtifactManifest:
     character_unicode_normalization: str
     tokenizer: TokenizerContract
     programs: tuple[ModelProgramEntry, ...]
+    # Shared external tensor-data files referenced by program data_files.
+    data_files: tuple[ModelDataFileEntry, ...] = ()
     checkpoint: CheckpointProvenance
     backbone: BackboneProvenance
     treebanks: tuple[TreebankProvenance, ...]
@@ -242,6 +270,13 @@ class ModelArtifactManifest:
             raise ValueError("Artifact must contain at least one model program.")
         if not self.treebanks:
             raise ValueError("Artifact treebank provenance must not be empty.")
+        recorded = {entry.file_name for entry in self.data_files}
+        for program in self.programs:
+            missing = set(program.data_files) - recorded
+            if missing:
+                raise ValueError(
+                    f"Program data files lack manifest entries: {sorted(missing)}."
+                )
 
     def to_json_dict(self) -> dict[str, object]:
         return {
@@ -256,6 +291,7 @@ class ModelArtifactManifest:
             "character_unicode_normalization": (self.character_unicode_normalization),
             "tokenizer": self.tokenizer.to_json_dict(),
             "programs": [program.to_json_dict() for program in self.programs],
+            "data_files": [entry.to_json_dict() for entry in self.data_files],
             "checkpoint": self.checkpoint.to_json_dict(),
             "backbone": self.backbone.to_json_dict(),
             "treebanks": [treebank.to_json_dict() for treebank in self.treebanks],

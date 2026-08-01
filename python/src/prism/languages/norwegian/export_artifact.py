@@ -32,6 +32,7 @@ from prism.exporting import (
     BackboneProvenance,
     FixedExportShapes,
     ModelArtifactManifest,
+    ModelDataFileEntry,
     ModelProgramEntry,
     ParityFixtureBatch,
     TensorSpec,
@@ -93,6 +94,7 @@ class ArtifactExportArguments:
     calibration_path: Path | None
     precision: str
     small_shapes: tuple[int, int] | None
+    external_data: bool
 
 
 def parse_artifact_export_arguments(
@@ -217,6 +219,15 @@ def parse_artifact_export_arguments(
         ),
     )
     parser.add_argument(
+        "--external-data",
+        action="store_true",
+        help=(
+            "Store the model weights once in a shared model.ptd file instead "
+            "of duplicating them inside every fixed-shape program; runtimes "
+            "load the data file alongside each program."
+        ),
+    )
+    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Replace an existing artifact directory of the same version.",
@@ -243,6 +254,7 @@ def parse_artifact_export_arguments(
         small_shapes=(
             None if parsed.small_shapes is None else tuple(parsed.small_shapes)
         ),
+        external_data=parsed.external_data,
     )
 
 
@@ -664,17 +676,30 @@ def main() -> None:
         )
 
     example_inputs = tuple(tensor for _, tensor in fixtures[0].input_tensors)
+    external_data_name = "model" if arguments.external_data else None
+    data_path: Path | None = None
+    program_data_files: tuple[str, ...] = ()
     print("Lowering to ExecuTorch XNNPACK ...")
-    program_bytes = lower_to_executorch_xnnpack(
+    lowered = lower_to_executorch_xnnpack(
         adapter=adapter,
         example_inputs=example_inputs,
+        external_data_name=external_data_name,
     )
+    program_bytes = lowered.program_bytes
     program_file_name = "model-xnnpack.pte"
     (artifact_directory / program_file_name).write_bytes(program_bytes)
     print(
         f"Wrote {program_file_name}:",
         f"{len(program_bytes) / (1 << 20):.1f} MiB",
     )
+    if external_data_name is not None:
+        lowered.write_data_files(artifact_directory)
+        data_path = artifact_directory / f"{external_data_name}.ptd"
+        program_data_files = (data_path.name,)
+        print(
+            f"Wrote {data_path.name}:",
+            f"{data_path.stat().st_size / (1 << 20):.1f} MiB",
+        )
 
     largest_difference = 0.0
     for fixture, eager_outputs in zip(
@@ -686,6 +711,7 @@ def main() -> None:
         runtime_outputs = run_executorch_program(
             program_bytes=program_bytes,
             inputs=tuple(tensor for _, tensor in fixture.input_tensors),
+            data_path=data_path,
         )
         difference = maximum_task_probability_difference(
             schema=tagger.schema,
@@ -803,19 +829,24 @@ def main() -> None:
                 output.detach().clone()
                 for output in adapter(*(tensor for _, tensor in small_inputs))
             )
-        small_bytes = lower_to_executorch_xnnpack(
+        small_lowered = lower_to_executorch_xnnpack(
             adapter=adapter,
             example_inputs=tuple(tensor for _, tensor in small_inputs),
+            external_data_name=external_data_name,
         )
+        small_bytes = small_lowered.program_bytes
         small_file_name = (
-            f"model-xnnpack-{small_shapes.subword_count}x"
-            f"{small_shapes.token_count}.pte"
+            f"model-xnnpack-{small_shapes.subword_count}x{small_shapes.token_count}.pte"
         )
         (artifact_directory / small_file_name).write_bytes(small_bytes)
         print(f"Wrote {small_file_name}: {len(small_bytes) / (1 << 20):.1f} MiB")
+        # The small program references the shared data file by content
+        # hashes; executing it against the main program's model.ptd is the
+        # gate proving the weights are byte-identical across shapes.
         small_runtime = run_executorch_program(
             program_bytes=small_bytes,
             inputs=tuple(tensor for _, tensor in small_inputs),
+            data_path=data_path,
         )
         calibrated = calibration is not None
         small_difference = maximum_task_probability_difference(
@@ -882,6 +913,7 @@ def main() -> None:
                 inputs=_tensor_specs(small_inputs),
                 output_names=_output_names(tagger, calibrated=calibrated),
                 parity_maximum_probability_difference=small_difference,
+                data_files=program_data_files,
             )
         )
 
@@ -917,8 +949,20 @@ def main() -> None:
                     calibrated=calibration is not None,
                 ),
                 parity_maximum_probability_difference=largest_difference,
+                data_files=program_data_files,
             ),
             *small_program_entries,
+        ),
+        data_files=(
+            ()
+            if data_path is None
+            else (
+                ModelDataFileEntry(
+                    file_name=data_path.name,
+                    sha256=sha256_of_file(data_path),
+                    size_bytes=data_path.stat().st_size,
+                ),
+            )
         ),
         checkpoint=CheckpointProvenance(
             run_name=arguments.checkpoint_path.parent.name,

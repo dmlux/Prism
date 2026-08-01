@@ -46,15 +46,40 @@ def test_lowered_program_matches_eager_outputs() -> None:
 
     with torch.no_grad():
         eager_outputs = adapter(*inputs)
-    program_bytes = lower_to_executorch_xnnpack(
+    lowered = lower_to_executorch_xnnpack(
         adapter=adapter,
         example_inputs=inputs,
     )
     runtime_outputs = run_executorch_program(
-        program_bytes=program_bytes,
+        program_bytes=lowered.program_bytes,
         inputs=inputs,
     )
 
+    assert maximum_absolute_difference(eager_outputs, runtime_outputs) < 1e-5
+
+
+def test_external_data_moves_delegate_weights_out_of_the_program(
+    tmp_path,
+) -> None:
+    adapter = TokenTaggerExportAdapter(model=TinyLinearTokenTagger())
+    inputs = _example_inputs()
+
+    with torch.no_grad():
+        eager_outputs = adapter(*inputs)
+    lowered = lower_to_executorch_xnnpack(
+        adapter=adapter,
+        example_inputs=inputs,
+        external_data_name="tiny-model",
+    )
+    lowered.write_data_files(tmp_path)
+    data_path = tmp_path / "tiny-model.ptd"
+
+    assert data_path.is_file()
+    runtime_outputs = run_executorch_program(
+        program_bytes=lowered.program_bytes,
+        inputs=inputs,
+        data_path=data_path,
+    )
     assert maximum_absolute_difference(eager_outputs, runtime_outputs) < 1e-5
 
 

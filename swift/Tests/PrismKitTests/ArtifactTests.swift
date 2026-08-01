@@ -47,8 +47,12 @@ final class ArtifactTests: XCTestCase {
                 "token_count": 96,
                 "character_count": 32
               },
-              "output_names": ["upos_probabilities"]
+              "output_names": ["upos_probabilities"],
+              "data_files": ["model.ptd"]
             }
+          ],
+          "data_files": [
+            {"file_name": "model.ptd", "sha256": "00", "size_bytes": 7}
           ],
           "calibration_file": "calibration.json"
         }
@@ -89,6 +93,8 @@ final class ArtifactTests: XCTestCase {
         XCTAssertEqual(artifact.manifest.artifactVersion, "0.2.0")
         XCTAssertEqual(artifact.manifest.tokenizer.paddingTokenId, 3)
         XCTAssertEqual(artifact.manifest.calibrationFile, "calibration.json")
+        XCTAssertEqual(artifact.manifest.programs[0].dataFiles, ["model.ptd"])
+        XCTAssertEqual(artifact.manifest.dataFiles?.first?.fileName, "model.ptd")
         XCTAssertEqual(artifact.labels.schema.upos.labels, ["ADJ", "NOUN"])
         XCTAssertEqual(artifact.labels.schema.morphology.features[0].name, "Gender")
         XCTAssertFalse(artifact.labels.schema.morphology.features[0].allowsMultipleValues)

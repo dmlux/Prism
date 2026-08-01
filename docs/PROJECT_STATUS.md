@@ -3304,3 +3304,33 @@ multi-batch path, and the error path. ctest: 2/2 suites (16 GoogleTest
 tests + Java) passing. With Swift, C++/C, and Java/Kotlin the platform
 set from the roadmap is covered; packaging levers (natives inside the
 JAR per platform, published Maven artifact) remain deliberate follow-ups.
+
+### Program-data separation: artifact 0.2.1
+
+The two-program artifact carried every weight twice (2 × 88 MB), which
+broke the 100 MB app-bundle premise — the constraint is shipping size,
+not runtime memory, and it compounds with every added language. Artifact
+`models/prism-no-0.2.1` fixes this with ExecuTorch program-data
+separation: the weights live exactly once in `model.ptd` (83.3 MiB) and
+both fixed-shape programs shrink to graph-only files of **0.7 MiB each**
+(shipping bundle with both shapes ≈ 92 MB, premise restored). Two export
+passes are required to cover every weight: the delegate pass tags
+constants consumed by the XNNPACK payload, and the backend-config
+callable tags what the delegate leaves in the program — most importantly
+the subword embedding, which alone dominated the program size (the first
+attempt externalized only 2.6 MiB because it used the delegate pass
+alone). Programs reference tensors by content hash, so the small program
+executing against the main program's data file is itself the gate that
+the weights are byte-identical across shapes. The manifest grows
+`data_files` per program plus a checksummed top-level `data_files`
+provenance list; the exporter gains `--external-data`. All runtimes load
+the listed data files alongside the program: Swift through
+`Module(filePath:dataFilePaths:)`, C++ through the module data-files
+constructor (surfaced in `prism::engine::Program` and resolved from the
+manifest by the tagger), Java via the C++ path, and the Python parity
+gates through the pybindings' `data_path`. Full verification against
+0.2.1: Python 302/302, Swift 17/17, C++/Java ctest 2/2 suites (16
+GoogleTest tests + the Java end-to-end run), chapter timings unchanged.
+For the many-language outlook the remaining levers stay documented:
+int8 XNNPACK quantization (~22 MB per language) and downloading language
+artifacts on demand instead of bundling them.

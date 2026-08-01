@@ -144,10 +144,16 @@ public final class PrismTagger {
         if let module = modules[program.fileName] {
             return module
         }
-        let module = Module(
-            filePath: artifact.directory
-                .appendingPathComponent(program.fileName).path
-        )
+        let programPath = artifact.directory
+            .appendingPathComponent(program.fileName).path
+        // Programs with separated data reference their weights in shared
+        // .ptd files; every listed file must be loaded alongside.
+        let dataFilePaths = (program.dataFiles ?? []).map {
+            artifact.directory.appendingPathComponent($0).path
+        }
+        let module = dataFilePaths.isEmpty
+            ? Module(filePath: programPath)
+            : Module(filePath: programPath, dataFilePaths: dataFilePaths)
         try module.load()
         modules[program.fileName] = module
         return module

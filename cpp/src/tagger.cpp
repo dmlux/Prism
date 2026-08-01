@@ -74,10 +74,16 @@ struct Tagger::Implementation {
     {
         auto found = programs.find(program.file_name);
         if (found == programs.end()) {
+            std::vector<std::filesystem::path> data_files;
+            data_files.reserve(program.data_files.size());
+            for (const auto& data_file : program.data_files) {
+                data_files.push_back(artifact.directory() / data_file);
+            }
             found = programs
                         .emplace(program.file_name,
                             std::make_unique<engine::Program>(
-                                artifact.directory() / program.file_name))
+                                artifact.directory() / program.file_name,
+                                data_files))
                         .first;
         }
         return *found->second;

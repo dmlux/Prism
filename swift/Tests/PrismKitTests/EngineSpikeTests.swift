@@ -10,7 +10,7 @@ final class EngineSpikeTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("models/prism-no-0.2.0")
+            .appendingPathComponent("models/prism-no-0.2.1")
         try XCTSkipUnless(
             FileManager.default.fileExists(
                 atPath: artifactURL.appendingPathComponent("manifest.json").path
@@ -20,9 +20,15 @@ final class EngineSpikeTests: XCTestCase {
 
         let artifact = try PrismArtifact(contentsOf: artifactURL)
         let program = try artifact.program(for: .cpu)
-        let module = Module(
-            filePath: artifactURL.appendingPathComponent(program.fileName).path
-        )
+        let dataFilePaths = (program.dataFiles ?? []).map {
+            artifactURL.appendingPathComponent($0).path
+        }
+        let module = dataFilePaths.isEmpty
+            ? Module(filePath: artifactURL.appendingPathComponent(program.fileName).path)
+            : Module(
+                filePath: artifactURL.appendingPathComponent(program.fileName).path,
+                dataFilePaths: dataFilePaths
+            )
         try module.load()
 
         struct FixtureInput: Decodable {

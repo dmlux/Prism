@@ -86,7 +86,16 @@ public struct ArtifactManifest: Decodable, Sendable {
     public let characterUnicodeNormalization: String
     public let tokenizer: TokenizerContract
     public let programs: [ArtifactProgram]
+    /// Shared external tensor-data files (program-data separation); absent
+    /// in artifacts whose programs embed their weights.
+    public let dataFiles: [ArtifactDataFile]?
     public let calibrationFile: String?
+}
+
+public struct ArtifactDataFile: Decodable, Sendable {
+    public let fileName: String
+    public let sha256: String
+    public let sizeBytes: Int
 }
 
 public struct TokenizerContract: Decodable, Sendable {
@@ -104,6 +113,9 @@ public struct ArtifactProgram: Decodable, Sendable {
     public let sizeBytes: Int
     public let shapes: FixedShapes
     public let outputNames: [String]
+    /// External tensor-data files required at load time; nil or empty when
+    /// the weights live inside the program file.
+    public let dataFiles: [String]?
 }
 
 public struct FixedShapes: Decodable, Sendable {

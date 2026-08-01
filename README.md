@@ -100,7 +100,7 @@ The accepted roadmap and licensing decisions are in
 
 ## Using the exported model artifact
 
-An exported artifact directory (for example `models/prism-no-0.2.0`) is the
+An exported artifact directory (for example `models/prism-no-0.2.1`) is the
 complete integration contract for native runtimes:
 
 - `model-xnnpack.pte` — the lowered ExecuTorch program. The production
@@ -110,6 +110,12 @@ complete integration contract for native runtimes:
   outputs, always float32). Consumers implement no decoding mathematics
   beyond argmax for exclusive heads and the 0.5 threshold for multi-valued
   morphology features.
+- `model.ptd` — the shared tensor-data file (program-data separation).
+  The model weights live here exactly once; every fixed-shape program
+  references them by content hash, so shipping several shapes costs the
+  weights only once. A program's manifest entry lists its required data
+  files under `data_files`; runtimes must load them alongside the program
+  (all ExecuTorch runtimes accept data paths next to the program path).
 - `vocabulary.json` — the complete Hugging Face fast-tokenizer definition
   (vocabulary, merges, normalization) of the subword tokenizer.
 - `labels.json` — the label schema: UPOS labels, morphology features and
@@ -157,7 +163,7 @@ is the API's stated goal.
 import PrismKit
 
 let tagger = try PrismTagger(
-    artifactURL: artifactDirectory,   // e.g. .../prism-no-0.2.0
+    artifactURL: artifactDirectory,   // e.g. .../prism-no-0.2.1
     device: .cpu                      // .automatic, .cpu, .gpu
 )
 let sentences = try tagger.tag(text: "Hun kjøpte tre gamle bøker.")
@@ -206,7 +212,7 @@ against the same shared fixtures. Text is expected in Unicode NFC.
 ```cpp
 #include <prism>  // umbrella header; or the individual <prism/*.h> headers
 
-prism::tagger::Tagger tagger("models/prism-no-0.2.0");
+prism::tagger::Tagger tagger("models/prism-no-0.2.1");
 const auto sentences = tagger.TagText("Hun kjøpte tre gamle bøker.");
 for (const auto& token : sentences[0].tokens) {
     std::cout << token.text << " " << token.upos << " " << token.lemma
@@ -248,7 +254,7 @@ results out, so segmentation, tokenization, batching, and decoding run
 at native speed.
 
 ```java
-try (PrismTagger tagger = PrismTagger.load(Path.of("models/prism-no-0.2.0"))) {
+try (PrismTagger tagger = PrismTagger.load(Path.of("models/prism-no-0.2.1"))) {
     for (TaggedSentence sentence : tagger.tagText("Hun kjøpte tre gamle bøker.")) {
         for (TaggedToken token : sentence.tokens()) {
             System.out.println(token.text() + " " + token.upos() + " "

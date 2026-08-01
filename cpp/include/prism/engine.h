@@ -35,8 +35,12 @@ struct OutputTensor {
 
 class Program {
 public:
-    // Throws std::runtime_error when loading fails.
-    explicit Program(const std::filesystem::path& program_path);
+    // Loads a program plus the shared .ptd files holding externally stored
+    // weights (empty for programs that embed their weights). Throws
+    // std::runtime_error when loading fails.
+    explicit Program(
+        const std::filesystem::path& program_path,
+        const std::vector<std::filesystem::path>& data_files = {});
     ~Program();
 
     Program(const Program&) = delete;

@@ -7,6 +7,7 @@ from prism.exporting import (
     CheckpointProvenance,
     FixedExportShapes,
     ModelArtifactManifest,
+    ModelDataFileEntry,
     ModelProgramEntry,
     ParityFixtureBatch,
     TensorSpec,
@@ -178,6 +179,73 @@ def test_manifest_rejects_empty_sections() -> None:
             quantization="none",
             calibration_file=None,
         )
+
+
+def test_manifest_requires_entries_for_program_data_files() -> None:
+    manifest = _manifest()
+    program = manifest.programs[0]
+    separated = ModelProgramEntry(
+        file_name=program.file_name,
+        format=program.format,
+        backend=program.backend,
+        precision=program.precision,
+        sha256=program.sha256,
+        size_bytes=program.size_bytes,
+        shapes=program.shapes,
+        inputs=program.inputs,
+        output_names=program.output_names,
+        parity_maximum_probability_difference=(
+            program.parity_maximum_probability_difference
+        ),
+        data_files=("model.ptd",),
+    )
+
+    with pytest.raises(ValueError, match="model.ptd"):
+        ModelArtifactManifest(
+            artifact_name=manifest.artifact_name,
+            artifact_version=manifest.artifact_version,
+            language_tags=manifest.language_tags,
+            tasks=manifest.tasks,
+            labels_file=manifest.labels_file,
+            vocabulary_file=manifest.vocabulary_file,
+            fixtures_file=manifest.fixtures_file,
+            character_unicode_normalization="NFC",
+            tokenizer=manifest.tokenizer,
+            programs=(separated,),
+            checkpoint=manifest.checkpoint,
+            backbone=manifest.backbone,
+            treebanks=manifest.treebanks,
+            quantization="none",
+            calibration_file=None,
+        )
+
+    complete = ModelArtifactManifest(
+        artifact_name=manifest.artifact_name,
+        artifact_version=manifest.artifact_version,
+        language_tags=manifest.language_tags,
+        tasks=manifest.tasks,
+        labels_file=manifest.labels_file,
+        vocabulary_file=manifest.vocabulary_file,
+        fixtures_file=manifest.fixtures_file,
+        character_unicode_normalization="NFC",
+        tokenizer=manifest.tokenizer,
+        programs=(separated,),
+        data_files=(
+            ModelDataFileEntry(
+                file_name="model.ptd",
+                sha256="ef" * 32,
+                size_bytes=2048,
+            ),
+        ),
+        checkpoint=manifest.checkpoint,
+        backbone=manifest.backbone,
+        treebanks=manifest.treebanks,
+        quantization="none",
+        calibration_file=None,
+    )
+    payload = complete.to_json_dict()
+    assert payload["programs"][0]["data_files"] == ["model.ptd"]
+    assert payload["data_files"][0]["file_name"] == "model.ptd"
 
 
 def test_labels_payload_serializes_schema_and_characters() -> None:

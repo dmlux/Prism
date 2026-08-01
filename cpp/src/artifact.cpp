@@ -70,6 +70,11 @@ Artifact::Artifact(const std::filesystem::path& directory)
         if (shapes.contains("character_count") && !shapes.at("character_count").is_null()) {
             program.shapes.character_count = shapes.at("character_count").get<int>();
         }
+        if (entry.contains("data_files")) {
+            for (const auto& data_file : entry.at("data_files")) {
+                program.data_files.push_back(data_file.get<std::string>());
+            }
+        }
         // The C++ engine executes on the CPU; other backends belong to
         // platform-specific runtimes and are skipped here.
         if (program.backend == "xnnpack") {

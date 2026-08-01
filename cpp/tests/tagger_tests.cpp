@@ -14,7 +14,7 @@
 namespace {
 
 const std::string kRoot = PRISM_REPOSITORY_ROOT;
-const std::string kArtifact = kRoot + "/models/prism-no-0.2.0";
+const std::string kArtifact = kRoot + "/models/prism-no-0.2.1";
 
 class TaggerTest : public ::testing::Test {
 protected:

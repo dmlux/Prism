@@ -13,9 +13,26 @@ using ::executorch::extension::Module;
 using ::executorch::extension::make_tensor_ptr;
 using ::executorch::runtime::EValue;
 
+namespace {
+
+std::vector<std::string> DataFileStrings(
+    const std::vector<std::filesystem::path>& data_files)
+{
+    std::vector<std::string> strings;
+    strings.reserve(data_files.size());
+    for (const auto& data_file : data_files) {
+        strings.push_back(data_file.string());
+    }
+    return strings;
+}
+
+} // namespace
+
 struct Program::Implementation {
-    explicit Implementation(const std::filesystem::path& program_path)
-        : module(program_path.string())
+    Implementation(
+        const std::filesystem::path& program_path,
+        const std::vector<std::filesystem::path>& data_files)
+        : module(program_path.string(), DataFileStrings(data_files))
     {
         const auto error = module.load();
         if (error != ::executorch::runtime::Error::Ok) {
@@ -27,8 +44,10 @@ struct Program::Implementation {
     Module module;
 };
 
-Program::Program(const std::filesystem::path& program_path)
-    : implementation_(std::make_unique<Implementation>(program_path))
+Program::Program(
+    const std::filesystem::path& program_path,
+    const std::vector<std::filesystem::path>& data_files)
+    : implementation_(std::make_unique<Implementation>(program_path, data_files))
 {
 }
 
