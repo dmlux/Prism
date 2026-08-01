@@ -62,3 +62,6 @@ logs/
 tmp/
 temp/
 
+
+# Swift package build directory
+swift/.build/

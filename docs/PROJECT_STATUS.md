@@ -3091,3 +3091,41 @@ Bundle-Scorer, der unmittelbar für die geplante Fusion relevante
 kompositionelle Scorer sowie die Evaluation-Audits. Alte Checkpoints der
 entfernten Forschungsarchitekturen werden nicht mehr geladen; der ausgewählte
 Produktionscheckpoint und sein Format-3-Vertrag bleiben unverändert.
+
+## PrismKit (Swift package, native phase)
+
+`swift/PrismKit` starts the native phase with the layers that carry the
+language contract: `RuntimeSegmentation` is the native port of
+`prism-runtime-segmentation-v1` (line merging, protected boundaries,
+missing-space repair, UD tokenization, chunking) with the Norwegian
+abbreviation policy, and `PrismArtifact` decodes the manifest and label
+schema including `LemmaEditRule.apply` with reference semantics.
+`ComputeDevice` (`automatic`/`cpu`/`gpu`) selects among the manifest's
+lowered programs — the artifact contract already carries one program per
+backend, so the user-facing device choice resolves at load time and
+unavailable devices surface a typed error (pre-Apple-Silicon Macs use the
+XNNPACK program). Cross-language parity is enforced twice: the Swift test
+suite mirrors the Python runtime-segmentation tests one to one, and the
+local book-chapter fixture must segment to exactly the Python reference
+counts (247 sentences, 3,783 tokens). 11/11 Swift tests passing. Next
+steps: the ExecuTorch engine layer (load `model-xnnpack.pte`, execute a
+fixture batch, parity against `fixtures.json`), subword tokenization via
+swift-transformers, then the C++ mirror over the same layers for the
+LexKeep core and Windows/Linux.
+
+### ExecuTorch engine spike (passed)
+
+PrismKit executes the shipped program natively: the `executorch` Swift
+package (branch `swiftpm-1.3.1`, matching the Python exporter version)
+loads `model-xnnpack.pte`, and a recorded fixture batch runs end to end
+with int64/bool input tensors. Two integration findings are captured in
+the package: static backends register through global initializers, so
+the final binary must force-load the archives (`-all_load` in the test
+target; Xcode consumers set `-force_load` per the ExecuTorch docs), and
+the outputs verify as calibrated probability distributions with the
+schema-derived label count. 12/12 Swift tests passing. Decision for the
+subword layer: PrismKit implements the BPE tokenizer natively
+(NFKC + split pre-tokenizer per `vocabulary.json`) with the recorded
+fixture `input_ids` as the parity oracle; the Hugging Face tokenizer
+remains a documented opt-in alternative. Maximum performance at equal
+quality is the API's stated top goal for weak target devices.
