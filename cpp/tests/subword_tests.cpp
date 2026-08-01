@@ -9,20 +9,14 @@
 #include <chrono>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 
+#include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
 namespace {
 
-int failures = 0;
-
-void Check(bool condition, const std::string& label)
-{
-    if (!condition) {
-        failures += 1;
-        std::cerr << "FAILED: " << label << "\n";
-    }
-}
+const std::string kRoot = PRISM_REPOSITORY_ROOT;
 
 template <typename T>
 std::vector<std::int64_t> Ids(const T& array)
@@ -34,22 +28,27 @@ std::vector<std::int64_t> Ids(const T& array)
     return result;
 }
 
-} // namespace
-
-int main(int argc, char** argv)
-{
-    const std::string root = argc > 1 ? argv[1] : "..";
-    const auto vocabulary_path = root + "/models/prism-no-0.2.0/vocabulary.json";
-    if (!std::ifstream(vocabulary_path)) {
-        std::cout << "SKIP subword tests: local artifact is not present\n";
-        return 0;
+class SubwordTokenizerTest : public ::testing::Test {
+protected:
+    void SetUp() override
+    {
+        const auto vocabulary_path = kRoot + "/models/prism-no-0.2.0/vocabulary.json";
+        if (!std::ifstream(vocabulary_path)) {
+            GTEST_SKIP() << "Local artifact is not present.";
+        }
+        tokenizer_ = std::make_unique<prism::subword::Tokenizer>(vocabulary_path);
     }
-    const prism::subword::Tokenizer tokenizer(vocabulary_path);
 
+    std::unique_ptr<prism::subword::Tokenizer> tokenizer_;
+};
+
+TEST_F(SubwordTokenizerTest, MatchesReferenceCases)
+{
     std::ifstream parity_file(
-        root + "/swift/Tests/PrismKitTests/Resources/subword-parity.json");
-    Check(static_cast<bool>(parity_file), "parity fixture present");
+        kRoot + "/swift/Tests/PrismKitTests/Resources/subword-parity.json");
+    ASSERT_TRUE(parity_file) << "Shared parity fixture is missing.";
     const auto parity = nlohmann::json::parse(parity_file);
+
     for (const auto& expected : parity.at("cases")) {
         prism::segmentation::PretokenizedSentence sentence;
         for (const auto& token : expected.at("tokens")) {
@@ -58,49 +57,39 @@ int main(int argc, char** argv)
         for (const auto& flag : expected.at("has_space_before")) {
             sentence.has_space_before.push_back(flag.get<bool>());
         }
-        const auto encoded = tokenizer.Encode(sentence);
-        Check(encoded.input_ids == Ids(expected.at("input_ids")),
-            "input_ids: " + sentence.tokens.front());
-        Check(encoded.first_subword_indices == Ids(expected.at("first_subword_indices")),
-            "first_subword_indices: " + sentence.tokens.front());
-        Check(encoded.subword_end_indices == Ids(expected.at("subword_end_indices")),
-            "subword_end_indices: " + sentence.tokens.front());
+        const auto encoded = tokenizer_->Encode(sentence);
+        EXPECT_EQ(encoded.input_ids, Ids(expected.at("input_ids")))
+            << "case starting with: " << sentence.tokens.front();
+        EXPECT_EQ(encoded.first_subword_indices, Ids(expected.at("first_subword_indices")))
+            << "case starting with: " << sentence.tokens.front();
+        EXPECT_EQ(encoded.subword_end_indices, Ids(expected.at("subword_end_indices")))
+            << "case starting with: " << sentence.tokens.front();
     }
-
-    std::ifstream chapter_file(root + "/data/examples/hp7kap1.txt", std::ios::binary);
-    std::ifstream oracle_file(root + "/data/examples/hp7kap1-subword-parity.json");
-    if (chapter_file && oracle_file) {
-        std::stringstream buffer;
-        buffer << chapter_file.rdbuf();
-        const auto oracle = nlohmann::json::parse(oracle_file);
-        const auto& expected_ids = oracle.at("sentence_input_ids");
-
-        const auto started = std::chrono::steady_clock::now();
-        const auto sentences = prism::segmentation::Segment(
-            buffer.str(), prism::segmentation::NorwegianPolicy());
-        std::size_t matches = 0;
-        for (std::size_t index = 0; index < sentences.size(); ++index) {
-            if (tokenizer.Encode(sentences[index]).input_ids == Ids(expected_ids[index])) {
-                matches += 1;
-            } else if (matches + 8 > index) { // report only first few
-                std::cerr << "chapter sentence " << index << " diverges\n";
-            }
-        }
-        const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now() - started);
-        Check(sentences.size() == expected_ids.size(), "chapter sentence count");
-        Check(matches == sentences.size(),
-            "chapter subword parity (" + std::to_string(matches) + "/"
-                + std::to_string(sentences.size()) + ")");
-        std::cout << "chapter segmentation + bpe: " << elapsed.count() / 1000.0 << " ms\n";
-    } else {
-        std::cout << "SKIP chapter subword parity: local fixture is not present\n";
-    }
-
-    if (failures == 0) {
-        std::cout << "all subword tests passed\n";
-        return 0;
-    }
-    std::cerr << failures << " check(s) failed\n";
-    return 1;
 }
+
+TEST_F(SubwordTokenizerTest, ChapterSubwordIdsMatchPythonReference)
+{
+    std::ifstream chapter_file(kRoot + "/data/examples/hp7kap1.txt", std::ios::binary);
+    std::ifstream oracle_file(kRoot + "/data/examples/hp7kap1-subword-parity.json");
+    if (!chapter_file || !oracle_file) {
+        GTEST_SKIP() << "Local chapter fixture is not present.";
+    }
+    std::stringstream buffer;
+    buffer << chapter_file.rdbuf();
+    const auto oracle = nlohmann::json::parse(oracle_file);
+    const auto& expected_ids = oracle.at("sentence_input_ids");
+
+    const auto started = std::chrono::steady_clock::now();
+    const auto sentences = prism::segmentation::Segment(
+        buffer.str(), prism::segmentation::NorwegianPolicy());
+    ASSERT_EQ(sentences.size(), expected_ids.size());
+    for (std::size_t index = 0; index < sentences.size(); ++index) {
+        EXPECT_EQ(tokenizer_->Encode(sentences[index]).input_ids, Ids(expected_ids[index]))
+            << "chapter sentence " << index;
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - started);
+    std::cout << "chapter segmentation + bpe: " << elapsed.count() / 1000.0 << " ms\n";
+}
+
+} // namespace
