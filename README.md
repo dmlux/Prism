@@ -174,8 +174,11 @@ Integration notes:
   projects, so no generated `.xcodeproj` is committed.
 - **Adding to an app:** depend on the package at `swift/` and on the
   ExecuTorch products `executorch`, `backend_xnnpack`, and
-  `kernels_optimized` (branch `swiftpm-1.3.1`; the runtime version must
-  match the exporter that produced the artifact).
+  `kernels_optimized`. Use a current `swiftpm-*` snapshot branch — the
+  prebuilt frameworks must be compiled with a Swift toolchain your Xcode
+  accepts — and keep the runtime at or above the exporter version that
+  produced the artifact (the program format is backward compatible; the
+  test suite's engine tests verify the pairing).
 - **Force-loading backends:** ExecuTorch backends register through static
   initializers. App targets must add `-force_load` for the backend and
   kernel archives in Xcode's *Other Linker Flags* (see the ExecuTorch iOS

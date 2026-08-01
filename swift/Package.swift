@@ -13,7 +13,7 @@ let package = Package(
     dependencies: [
         .package(
             url: "https://github.com/pytorch/executorch.git",
-            branch: "swiftpm-1.3.1"
+            branch: "swiftpm-1.4.0.20260731"
         )
     ],
     targets: [
