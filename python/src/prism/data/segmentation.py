@@ -78,9 +78,7 @@ class SentenceExtractionPolicy:
                 "Maximum token count must not be below the minimum token count."
             )
         if not 0.0 <= self.minimum_letter_token_ratio <= 1.0:
-            raise ValueError(
-                "Minimum letter-token ratio must be between zero and one."
-            )
+            raise ValueError("Minimum letter-token ratio must be between zero and one.")
 
 
 def _merge_wrapped_lines(text: str) -> Iterator[str]:
@@ -257,6 +255,67 @@ def _passes_quality_filters(
         if any(character.isalpha() for character in token)
     )
     return letter_token_count / token_count >= policy.minimum_letter_token_ratio
+
+
+RUNTIME_SEGMENTATION_POLICY_VERSION = "prism-runtime-segmentation-v1"
+
+# E-book extraction frequently loses the space after sentence punctuation
+# ("veien.Et sekund"). A lowercase letter, terminal punctuation, and an
+# immediately following uppercase or opening character never form one token
+# in Norwegian prose, so restoring the space is safe; abbreviation-protected
+# sentence boundaries are still consulted afterwards.
+_MISSING_SENTENCE_SPACE_PATTERN = re.compile(
+    r"(?<=[a-zæøå])([.!?…])(?=[A-ZÆØÅ" + re.escape(_OPENING_SENTENCE_CHARACTERS) + r"])"
+)
+
+
+def _restore_missing_sentence_spaces(text: str) -> str:
+    return _MISSING_SENTENCE_SPACE_PATTERN.sub(r"\1 ", text)
+
+
+def _chunk_sentence(
+    sentence: PretokenizedSentence,
+    maximum_token_count: int,
+) -> Iterator[PretokenizedSentence]:
+    if len(sentence.tokens) <= maximum_token_count:
+        yield sentence
+        return
+    for start in range(0, len(sentence.tokens), maximum_token_count):
+        tokens = sentence.tokens[start : start + maximum_token_count]
+        has_space_before = sentence.has_space_before[
+            start : start + maximum_token_count
+        ]
+        yield PretokenizedSentence(
+            tokens=tokens,
+            has_space_before=(False,) + has_space_before[1:],
+        )
+
+
+def segment_pretokenized_sentences(
+    text: str,
+    policy: SentenceExtractionPolicy,
+) -> Iterator[PretokenizedSentence]:
+    """Segment raw text for runtime tagging without discarding content.
+
+    This shares the line merging, protected sentence boundaries, and UD token
+    conventions with the silver extraction, but is recall-oriented: user text
+    is never dropped, so the quality filters do not apply, headings and
+    fragments come out as sentences, and sentences beyond the policy maximum
+    are chunked into windows instead of being discarded.
+    """
+
+    for paragraph in _merge_wrapped_lines(_restore_missing_sentence_spaces(text)):
+        for sentence_text in _split_paragraph_sentences(
+            paragraph,
+            policy.abbreviation_tokens,
+        ):
+            sentence = _tokenize_with_spacing(
+                sentence_text,
+                policy.abbreviation_tokens,
+            )
+            if sentence is None:
+                continue
+            yield from _chunk_sentence(sentence, policy.maximum_token_count)
 
 
 def extract_pretokenized_sentences(
