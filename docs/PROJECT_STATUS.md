@@ -3187,3 +3187,23 @@ disk; ExecuTorch program-data separation (one shared weight file,
 small per-shape programs) is the documented follow-up if disk size
 matters for distribution. Further bucket sizes remain available via
 repeated exports when profiling justifies them.
+
+## C++ phase (started)
+
+`cpp/` begins the C++ mirror of the native layers, styled after the
+LexKeep core it will integrate with (codepoint spans, table-based
+character classes, hand-written scanners — no regex engine, no ICU).
+`prism::segmentation` ports `prism-runtime-segmentation-v1` completely:
+UTF-8 decoding, missing-space repair, wrapped-line merging with
+dehyphenation, protected sentence boundaries, the UD token scanner
+(URL, e-mail, number, dotted-abbreviation, word, fallback — in the
+reference pattern's alternative order), period reattachment, spacing,
+and chunking. Letter classification covers Latin (all Norwegian
+characters), Greek, and Cyrillic; other scripts tokenize character-wise
+as documented. The test binary mirrors the Python and Swift suites and
+enforces the book-chapter reference counts: 247 sentences / 3,783
+tokens, segmented in **1.67 ms** (Swift: 5.4 ms, Python: 9 ms). CMake
+with ctest; all checks passing. Remaining C++ roadmap: the BPE subword
+tokenizer port with the shared parity fixtures, artifact/label parsing,
+the ExecuTorch C++ runtime engine, and the C ABI for the LexKeep core
+and the Windows/Linux variants.
