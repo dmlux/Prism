@@ -3285,7 +3285,7 @@ own include directory (`cpp/umbrella/`, since a file cannot share the
 name of the `include/prism/` directory) plus an aggregate CMake
 INTERFACE target `prism`, so consumers link one target and get every
 library and both include paths. Second, `java/` adds a dependency-free
-Java 21 API (`dev.prism`: `PrismTagger` as `AutoCloseable`,
+Java 21 API (`io.github.dmlux.prism`: `PrismTagger` as `AutoCloseable`,
 `TaggedSentence`/`TaggedToken` records with features and calibrated
 confidences) over a JNI bridge (`cpp/src/jni.cpp`) onto the C++ tagger.
 Design decisions: text crosses the boundary as UTF-8 byte arrays and

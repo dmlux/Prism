@@ -106,10 +106,10 @@ if(PRISM_ENGINE AND PRISM_JAVA)
         target_compile_options(prism_jni PRIVATE -Wall -Wextra)
 
         file(GLOB PRISM_JAVA_SOURCES
-            "${CMAKE_CURRENT_SOURCE_DIR}/../java/src/main/java/dev/prism/*.java")
+            "${CMAKE_CURRENT_SOURCE_DIR}/../java/src/main/java/io/github/dmlux/prism/*.java")
         add_jar(prism_java SOURCES ${PRISM_JAVA_SOURCES} OUTPUT_NAME prism)
         add_jar(prism_java_test
-            SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../java/src/test/java/dev/prism/PrismTaggerTest.java"
+            SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../java/src/test/java/io/github/dmlux/prism/PrismTaggerTest.java"
             INCLUDE_JARS prism_java
         )
     else()
@@ -148,7 +148,7 @@ if(TARGET prism_java_test)
         COMMAND ${Java_JAVA_EXECUTABLE}
             -Djava.library.path=$<TARGET_FILE_DIR:prism_jni>
             -cp "$<TARGET_PROPERTY:prism_java,JAR_FILE>:$<TARGET_PROPERTY:prism_java_test,JAR_FILE>"
-            dev.prism.PrismTaggerTest
+            io.github.dmlux.prism.PrismTaggerTest
             "${CMAKE_CURRENT_SOURCE_DIR}/../models/prism-no-0.2.0"
     )
 endif()

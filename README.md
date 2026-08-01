@@ -388,7 +388,7 @@ Prism/
 │   └── model-strategy.md
 ├── java/
 │   ├── pom.xml
-│   └── src/main/java/dev/prism/
+│   └── src/main/java/io/github/dmlux/prism/
 ├── logos/
 ├── python/
 │   ├── pyproject.toml

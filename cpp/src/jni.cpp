@@ -1,4 +1,4 @@
-// JNI bridge for the Java binding (java/, package dev.prism).
+// JNI bridge for the Java binding (java/, package io.github.dmlux.prism).
 //
 // The Java layer sends text as UTF-8 byte arrays and receives one flat
 // parallel-array payload per call, so a tagging request costs a single
@@ -78,7 +78,7 @@ std::string TakeUtf8(JNIEnv* env, jbyteArray bytes)
 
 void ThrowPrismException(JNIEnv* env, const std::string& message)
 {
-    jclass exception_class = env->FindClass("dev/prism/PrismException");
+    jclass exception_class = env->FindClass("io/github/dmlux/prism/PrismException");
     if (exception_class != nullptr) {
         env->ThrowNew(exception_class, message.c_str());
     }
@@ -202,7 +202,7 @@ prism::tagger::Tagger* TaggerFrom(jlong handle)
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_dev_prism_PrismTagger_nativeCreate(
+JNIEXPORT jlong JNICALL Java_io_github_dmlux_prism_PrismTagger_nativeCreate(
     JNIEnv* env, jclass, jbyteArray utf8_directory)
 {
     try {
@@ -214,13 +214,13 @@ JNIEXPORT jlong JNICALL Java_dev_prism_PrismTagger_nativeCreate(
     }
 }
 
-JNIEXPORT void JNICALL Java_dev_prism_PrismTagger_nativeDestroy(
+JNIEXPORT void JNICALL Java_io_github_dmlux_prism_PrismTagger_nativeDestroy(
     JNIEnv*, jclass, jlong handle)
 {
     delete TaggerFrom(handle);
 }
 
-JNIEXPORT jobjectArray JNICALL Java_dev_prism_PrismTagger_nativeTagText(
+JNIEXPORT jobjectArray JNICALL Java_io_github_dmlux_prism_PrismTagger_nativeTagText(
     JNIEnv* env, jclass, jlong handle, jbyteArray utf8_text)
 {
     try {
@@ -231,7 +231,7 @@ JNIEXPORT jobjectArray JNICALL Java_dev_prism_PrismTagger_nativeTagText(
     }
 }
 
-JNIEXPORT jobjectArray JNICALL Java_dev_prism_PrismTagger_nativeTagTokens(
+JNIEXPORT jobjectArray JNICALL Java_io_github_dmlux_prism_PrismTagger_nativeTagTokens(
     JNIEnv* env, jclass, jlong handle, jobjectArray utf8_tokens,
     jintArray tokens_per_sentence)
 {

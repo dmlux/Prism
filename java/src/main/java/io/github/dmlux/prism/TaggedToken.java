@@ -1,4 +1,4 @@
-package dev.prism;
+package io.github.dmlux.prism;
 
 import java.util.List;
 import java.util.Map;
