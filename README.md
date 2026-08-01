@@ -98,6 +98,52 @@ native-inference design, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 The accepted roadmap and licensing decisions are in
 [docs/model-strategy.md](docs/model-strategy.md).
 
+## Using the exported model artifact
+
+An exported artifact directory (for example `models/prism-no-0.2.0`) is the
+complete integration contract for native runtimes:
+
+- `model-xnnpack.pte` — the lowered ExecuTorch program. The production
+  decoding policy is baked into the graph: morphology logit correction,
+  per-head temperature calibration, and softmax/sigmoid. The program
+  therefore emits **final calibrated probabilities** (`*_probabilities`
+  outputs, always float32). Consumers implement no decoding mathematics
+  beyond argmax for exclusive heads and the 0.5 threshold for multi-valued
+  morphology features.
+- `vocabulary.json` — the complete Hugging Face fast-tokenizer definition
+  (vocabulary, merges, normalization) of the subword tokenizer.
+- `labels.json` — the label schema: UPOS labels, morphology features and
+  values, lemma edit rules, and the character vocabulary with its maximum
+  character count for the character-CNN inputs.
+- `calibration.json`, `manifest.json`, `LICENSES/` — provenance: fitted
+  temperatures, tensor contracts, shapes, checksums, and licensing.
+- `fixtures.json` — recorded input/output parity fixtures. This file is a
+  development aid for validating a native integration and is not part of
+  the shipped bundle.
+
+### Tokenization: use the shipped definition or implement the contract
+
+The model consumes pre-split words; turning words into subword IDs is the
+integrator's side of the contract, with two supported routes:
+
+1. **Use a ready-made engine (recommended).** `vocabulary.json` is a
+   standard `tokenizer.json`, so any Hugging Face tokenizers runtime loads
+   it directly — for example
+   [swift-transformers](https://github.com/huggingface/swift-transformers)
+   on Apple platforms, `tokenizers` for Rust/Python, or the Java bindings.
+   No tokenization rules have to be re-implemented.
+2. **Implement the tokenizer yourself.** The manifest's tokenizer contract
+   (file name, class name, padding token ID) together with
+   `vocabulary.json` defines the exact behaviour; `fixtures.json` provides
+   recorded inputs and outputs to verify the implementation token by token.
+
+Character-CNN inputs are simpler: map each character of a word through the
+`character_vocabulary` in `labels.json` and pad to the recorded maximum
+count. Sentence splitting and word tokenization of raw text remain the
+application's responsibility (or a port of the versioned
+`prism-runtime-segmentation-v1` policy used by the Python API); applications
+that already have words can skip that layer entirely.
+
 ## Requirements
 
 - macOS or another Python-compatible platform

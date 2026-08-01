@@ -1,6 +1,6 @@
 # Prism project status
 
-Last updated: 2026-07-24
+Last updated: 2026-08-01
 
 ## Product direction
 
@@ -2412,7 +2412,170 @@ Against reproduced UDPipe 2.17 (~700 MB) on the Development splits:
 | Nynorsk Lemmas | **98.8672%** | 98.8288% | +0.0384 pp |
 
 Four of six canonical cells beat UDPipe at one tenth of its size; the
-two open UFeats gaps are documented, honest residuals. The lever
+two open UFeats gaps are documented, honest residuals.
+
+### One-shot test benchmark
+
+With the configuration frozen (checkpoint, correction 0.25, all policies
+fixed on Development), each system was evaluated **once** on the
+untouched test splits (`--split test`; UDPipe via the same
+gold-tokenized LINDAT reproduction on byte-identical gold files,
+predictions under `runs/udpipe-2.17-251125/ud-current/`):
+
+| Test cell | Prism Student | UDPipe 2.17 | Delta |
+| --- | ---: | ---: | ---: |
+| Bokmål UPOS | **98.7619%** | 98.5717% | +0.1902 pp |
+| Bokmål UFeats | 97.1968% | **97.5906%** | -0.3938 pp |
+| Bokmål Lemmas | **98.9755%** | 98.8654% | +0.1101 pp |
+| Nynorsk UPOS | **98.7688%** | 98.5993% | +0.1695 pp |
+| Nynorsk UFeats | 96.9362% | **97.3842%** | -0.4481 pp |
+| Nynorsk Lemmas | **98.6760%** | 98.5630% | +0.1130 pp |
+
+The Development picture replicates exactly: the same four cells win
+(UPOS and Lemmas on both standards), UFeats stays the open gap on both.
+The UFeats deltas are slightly wider than on Development (-0.39/-0.45
+versus -0.17/-0.32), consistent with policies having been selected on
+Development plus ordinary split variance; no test-driven adjustment was
+or will be made.
+
+### Speed benchmark
+
+`prism.languages.norwegian.benchmark_speed` times the complete decision
+(subword tokenization, character batching, device transfer, forward,
+logit correction, decoding) on the Bokmål test split (1,939 sentences,
+29,966 tokens), warmup 8 batches:
+
+| Configuration | Latency p50 | Sentences/s | Tokens/s |
+| --- | ---: | ---: | ---: |
+| CPU, batch 1 | 20.5 ms | 45.1 | 696 |
+| CPU, batch 32 | 184.4 ms/batch | 165.9 | 2,564 |
+| MPS, batch 1 | 31.0 ms | 26.5 | 410 |
+| MPS, batch 32 | 83.7 ms/batch | 188.9 | 2,919 |
+
+For interactive single-sentence use the CPU path is the fastest option
+(~21 ms per decision; MPS dispatch overhead dominates batch 1), and CPU
+throughput of ~2.6k tokens/s tags a book chapter in about two seconds —
+the offline deployment target needs no GPU. UDPipe 2 has no comparable
+local path on this machine; its LINDAT service round-trip (network and
+queueing included, an upper bound only) measured 14.88 s for the Bokmål
+test file (~2,014 tokens/s) and 14.10 s for Nynorsk (~1,757 tokens/s).
+The deployment contrast stands regardless: a ~70 MB local model with
+~21 ms interactive latency versus a ~700 MB model behind a server.
+
+### Runtime tagging API with calibrated confidences
+
+The frozen student is now consumable as a library. Per-head temperature
+calibration was fitted on the Development splits at the production
+correction strength 0.25 (argmax-invariant, so methodologically clean
+after the one-shot test benchmark; artifact
+`calibration-corrected.json` beside the checkpoint). The headline
+finding: the student is **almost self-calibrated** — temperatures sit
+at 1.01–1.14 versus 2.46–2.88 for the gold-only teachers, confirming
+that silver soft-target KD recalibrates internally. After scaling, UPOS
+ECE is 0.0017 and `Gender` ECE 0.0016; the shipped confidences are
+trustworthy.
+
+`prism.data.segmentation.segment_pretokenized_sentences`
+(`prism-runtime-segmentation-v1`) adds the recall-oriented runtime
+counterpart to the silver extraction: same line merging, protected
+boundaries (abbreviations, ordinals), and UD token conventions, but
+user text is never dropped — headings and fragments become sentences
+and over-long sentences are chunked into policy-sized windows instead
+of being discarded.
+
+`prism.languages.norwegian.tagger.NorwegianTagger` ties both together
+for applications such as LexKeep: `tag_text` (raw text, runtime
+segmentation first) and `tag_pretokenized` (application-supplied
+tokens) both return tokens with UPOS, morphology features, lemma, and
+calibrated confidences per decision, decoded with the frozen production
+policy. Lemma decoding reuses the same `LemmaEditRule.apply` convention
+as the UD evaluation and the export artifact. A CPU smoke test on raw
+text (3 sentences, 32 ms) reproduced line-wrap merging, abbreviation
+and ordinal protection, correct lemmas (bøker→bok, sov→sove), and the
+intended confidence behaviour: the all-caps OOV heading token
+"KAPITTEL" received a wrong lemma at 0.27 confidence while every
+regular decision sat above 0.97 — low confidence flags exactly the
+decisions an application should not trust. Test coverage:
+298/298 passing (one ExecuTorch lowering test requires the missing
+`flatc` binary and is environment-blocked, not code-blocked).
+
+### Book-chapter fixture (idea 19.4, LexKeep-realistic input)
+
+`data/examples/hp7kap1.txt` holds a complete novel chapter exactly as
+LexKeep reads it. The first pass exposed the dominant real-world defect:
+e-book extraction loses spaces after sentence punctuation
+("veien.Et sekund"), which fused 105 tokens (~3%), hid half the sentence
+boundaries (113 detected), and produced garbage lemmas — all of it
+correctly flagged by low confidences. The runtime segmentation now
+restores those spaces deterministically
+(`_restore_missing_sentence_spaces`: lowercase letter + terminal
+punctuation immediately followed by an uppercase or opening character
+never form one token in Norwegian prose; abbreviation-protected
+boundaries are still consulted afterwards, so "f.eks.Dette" repairs
+without creating a false sentence break). Runtime-only — the frozen
+silver extraction policy is untouched.
+
+After the fix the chapter yields 247 sentences and 3,783 tokens in
+1.7 s on CPU (~2,250 tokens/s) with zero fused tokens; the low-
+confidence tail halved (UPOS below 0.8: 5.4% → 3.0%, lemma 5.2% → 2.9%,
+below 0.5: 0.6%). The remaining tail is the honest residual: all-caps
+heading words (lemma casing garbage at 0.09–0.30 confidence) and
+genuinely rare verb forms (skalv, rakte) — the documented Rare/OOV
+weakness, reliably marked by confidence. A LexKeep threshold around 0.8
+separates auto-trustable decisions from the ~3% that deserve a fallback.
+Test coverage: 299/299 passing.
+
+### Export precision decision and calibrated-probability graph
+
+The export pipeline now bakes the complete decoding policy into the
+lowered graph: `--calibration` adds a `CalibratedProbabilityExportLayer`
+(per-head temperature scaling, softmax for exclusive heads, sigmoid for
+multi-valued features) behind the already-embedded 0.25 logit
+correction, so the artifact emits final calibrated probabilities
+(`*_probabilities` output names), copies `calibration.json` into the
+artifact, and native runtimes need nothing beyond argmax and the 0.5
+threshold. The correction and calibration tail always computes in
+float32 — both for portable-kernel coverage and numerical safety — and
+the parity machinery stays exact through a log/logit shim that maps
+probabilities back to decode-equivalent logits.
+
+`--precision` was decided by the predeclared ±0.02 pp gate on the
+canonical Development cells:
+
+- **fp16 (everything halved): rejected.** Nynorsk UFeats −0.1024 pp
+  (Bokmål −0.0248); the loss concentrates in the fp16 bundle reranker,
+  whose `log_softmax` also lacks a portable fp16 kernel at runtime.
+- **fp16-backbone (backbone fp16, heads/reranker/correction/calibration
+  fp32): accepted.** Worst cell delta −0.0096 pp, Nynorsk UPOS and
+  Lemmas bit-identical, two cells marginally above fp32.
+
+The shipped artifact `models/prism-no-0.2.0-fp16` lowers to **43.8 MiB**
+(fp32: 84 MiB; the raw fp32 weights are 67.2 MiB — the overhead is
+XNNPACK delegate weight duplication). Runtime parity against eager:
+decoded predictions identical on both fixture batches, max probability
+difference 2.7e-3 (Bokmål) and 1.3e-2 (Nynorsk) — within the
+fp16-appropriate tolerance 0.02 (the 5e-3 default remains for fp32
+exports). `fixtures.json` (6 MB) is a development artifact for native
+parity testing and is not shipped, so the deployable set is roughly
+48 MB: program, vocabulary, labels, calibration, manifest. The missing
+`flatc` binary was installed (Homebrew flatbuffers), unblocking the
+ExecuTorch lowering test: 300/300 passing.
+
+A direct program benchmark (fixture batch of 8 sentences at the fixed
+160×96 shapes, 20 timed runs after warmup) then reversed the shipping
+decision: the fp32 program needs 257 ms per batch (32 ms/sentence),
+the fp16-backbone program **3,668 ms** (459 ms/sentence) — roughly
+14× slower. The XNNPACK partitioner does not delegate the fp16
+operators, so the halved weights execute in naive portable kernels;
+size dropped but speed collapsed. Since offline latency is a core
+product goal, **fp32 remains the shipped precision**; fp16-backbone
+passed the quality gate but fails the deployment gate. The shipping
+artifact is **`models/prism-no-0.2.0`** (fp32, calibrated-probability
+graph, 83.9 MiB program): runtime parity max |Δp| 1.63e-3 (Bokmål) and
+1.94e-3 (Nynorsk) within the 5e-3 fp32 tolerance, decoded predictions
+identical on both fixture batches. The documented next size lever is XNNPACK
+**int8 quantization**, which is a first-class delegated path and would
+need its own predeclared quality gate (~22 MiB expected). The lever
 history that produced this stand: dose ladder 1M→5M→10M (logarithmic),
 labeler ceiling lift base→large (+0.29 Bokmål UFeats at fixed dose),
 register diversification via Nynorsk Wikipedia (+0.50 Nynorsk UFeats in
@@ -2863,6 +3026,52 @@ Nynorsk lemma predictions lost relative to the selected `identity` control
 without giving back the shared MLP's 226 complete-bundle gain. UDPipe
 predictions must not enter training, candidate construction, loss weighting,
 or threshold selection, and both official test splits remain untouched.
+
+## Versioned model-artifact export
+
+The first versioned model artifact is implemented and produced. The export
+pipeline lives in `prism.exporting` (fixed-shape padding, ExecuTorch XNNPACK
+lowering, typed manifest, fixtures) with the thin CLI
+`prism.languages.norwegian.export_artifact`. It loads the frozen benchmark
+checkpoint, embeds the canonical morphology-logit correction 0.25 into the
+exported graph, captures the complete character-aware tagger with strict
+`torch.export` at static shapes (batch 8, 160 subwords, 96 tokens, 32
+characters), lowers it to an XNNPACK `.pte`, and writes
+`models/prism-no-<version>/` containing `model-xnnpack.pte`, `manifest.json`,
+`labels.json` (task schema plus character vocabulary), `vocabulary.json`
+(the NorBERT4 fast-tokenizer definition), `fixtures.json`, and `LICENSES/`.
+The directory stays out of Git.
+
+Runtime parity is a gate, not a claim: the CLI replays each recorded fixture
+batch through the ExecuTorch runtime and fails the export unless decoded
+predictions match eager PyTorch exactly and task probabilities agree within
+the documented tolerance (default 5e-3). Raw logits are deliberately not the
+parity space because the bundle reranker maps saturated candidate
+probabilities through `log`/`logit`; numerically irrelevant runtime
+differences near the epsilon clamp inflate to logit gaps of about 0.25 on
+Definite, Number, Gender, PronType, and VerbForm while probabilities agree to
+about 1.5e-3 and decoding is identical. `torch.export` itself is bit-exact
+against eager; the measured artifact records
+`parity_maximum_probability_difference` 1.48e-3 across both development
+fixture batches. Outputs at padded positions are contractually undefined and
+excluded.
+
+Fixtures record, per written standard, eight development sentences with all
+padded input tensors, full expected logits for UPOS and every morphology
+feature, top-8 lemma-rule logits (the full lemma head would dominate the
+file), and canonically decoded predictions a native runtime must reproduce.
+The produced `prism-no-0.1.0` artifact measures about 88 MiB for the FP32
+program; quantization, confidence calibration, the versioned Nynorsk external
+treebank policy, and the document-scale performance gate remain open release
+requirements.
+
+The export command:
+
+```bash
+python -m prism.languages.norwegian.export_artifact \
+  --checkpoint runs/no-student-silver-10m-large-labels-w050-e12-weighted/best-development-task-accuracy.pt \
+  --artifact-version 0.1.0
+```
 
 ## Vorläufiger Architektur-Cleanup
 
