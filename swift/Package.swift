@@ -20,16 +20,16 @@ let package = Package(
         .target(
             name: "PrismKit",
             dependencies: [
-                .product(name: "executorch_debug", package: "executorch"),
-                .product(name: "backend_xnnpack_debug", package: "executorch"),
-                .product(name: "kernels_optimized_debug", package: "executorch"),
+                .product(name: "executorch", package: "executorch"),
+                .product(name: "backend_xnnpack", package: "executorch"),
+                .product(name: "kernels_optimized", package: "executorch"),
             ]
         ),
         .testTarget(
             name: "PrismKitTests",
             dependencies: [
                 "PrismKit",
-                .product(name: "backend_xnnpack_debug", package: "executorch"),
+                .product(name: "backend_xnnpack", package: "executorch"),
             ],
             resources: [.process("Resources")],
             linkerSettings: [

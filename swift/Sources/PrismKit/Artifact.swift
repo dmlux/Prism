@@ -39,21 +39,40 @@ public struct PrismArtifact: Sendable {
     /// `automatic` prefers GPU when the artifact provides one and falls back
     /// to CPU otherwise.
     public func program(for device: ComputeDevice) throws -> ArtifactProgram {
+        guard let largest = try programs(for: device).last else {
+            throw PrismError.deviceUnavailable(device)
+        }
+        return largest
+    }
+
+    /// All programs serving the device, sorted by capacity (smallest first).
+    ///
+    /// Artifacts may ship several fixed-shape programs per backend; runtimes
+    /// pick the smallest program a batch fits into, so short sentences never
+    /// pay the padding cost of the largest shapes.
+    public func programs(for device: ComputeDevice) throws -> [ArtifactProgram] {
         let gpuBackends: Set<String> = ["coreml", "mps"]
+        let backendPrograms: [ArtifactProgram]
         switch device {
         case .cpu:
-            if let program = manifest.programs.first(where: { $0.backend == "xnnpack" }) {
-                return program
-            }
+            backendPrograms = manifest.programs.filter { $0.backend == "xnnpack" }
         case .gpu:
-            if let program = manifest.programs.first(where: { gpuBackends.contains($0.backend) }) {
-                return program
+            backendPrograms = manifest.programs.filter {
+                gpuBackends.contains($0.backend)
             }
         case .automatic:
-            if let program = try? program(for: .gpu) { return program }
-            if let program = try? program(for: .cpu) { return program }
+            if let programs = try? programs(for: .gpu), !programs.isEmpty {
+                return programs
+            }
+            backendPrograms = manifest.programs.filter { $0.backend == "xnnpack" }
         }
-        throw PrismError.deviceUnavailable(device)
+        guard !backendPrograms.isEmpty else {
+            throw PrismError.deviceUnavailable(device)
+        }
+        return backendPrograms.sorted {
+            ($0.shapes.subwordCount, $0.shapes.tokenCount)
+                < ($1.shapes.subwordCount, $1.shapes.tokenCount)
+        }
     }
 }
 

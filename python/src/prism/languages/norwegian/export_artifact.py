@@ -92,6 +92,7 @@ class ArtifactExportArguments:
     overwrite: bool
     calibration_path: Path | None
     precision: str
+    small_shapes: tuple[int, int] | None
 
 
 def parse_artifact_export_arguments(
@@ -205,6 +206,17 @@ def parse_artifact_export_arguments(
         ),
     )
     parser.add_argument(
+        "--small-shapes",
+        type=int,
+        nargs=2,
+        metavar=("SUBWORDS", "TOKENS"),
+        default=None,
+        help=(
+            "Additionally lower a second program with these smaller fixed "
+            "shapes; runtimes pick the smallest program a batch fits into."
+        ),
+    )
+    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Replace an existing artifact directory of the same version.",
@@ -228,6 +240,9 @@ def parse_artifact_export_arguments(
         overwrite=parsed.overwrite,
         calibration_path=parsed.calibration_path,
         precision=parsed.precision,
+        small_shapes=(
+            None if parsed.small_shapes is None else tuple(parsed.small_shapes)
+        ),
     )
 
 
@@ -756,6 +771,120 @@ def main() -> None:
         )
         for profile in profiles
     )
+    small_program_entries: list[ModelProgramEntry] = []
+    if arguments.small_shapes is not None:
+        small_shapes = FixedExportShapes(
+            batch_size=shapes.batch_size,
+            subword_count=arguments.small_shapes[0],
+            token_count=arguments.small_shapes[1],
+            character_count=shapes.character_count,
+        )
+        print(
+            "Lowering small program:",
+            f"subwords={small_shapes.subword_count}",
+            f"tokens={small_shapes.token_count}",
+        )
+        small_sentences = _fitting_fixture_sentences(
+            sentences=_pretokenized_development_sentences(
+                profiles[0].gold_treebank.development_path,
+                tagger,
+            ),
+            tokenizer=tagger.tokenizer,
+            shapes=small_shapes,
+            fixture_sentence_count=arguments.fixture_sentence_count,
+        )
+        small_inputs = build_fixture_input_tensors(
+            sentences=small_sentences,
+            tagger=tagger,
+            shapes=small_shapes,
+        )
+        with torch.no_grad():
+            small_eager = tuple(
+                output.detach().clone()
+                for output in adapter(*(tensor for _, tensor in small_inputs))
+            )
+        small_bytes = lower_to_executorch_xnnpack(
+            adapter=adapter,
+            example_inputs=tuple(tensor for _, tensor in small_inputs),
+        )
+        small_file_name = (
+            f"model-xnnpack-{small_shapes.subword_count}x"
+            f"{small_shapes.token_count}.pte"
+        )
+        (artifact_directory / small_file_name).write_bytes(small_bytes)
+        print(f"Wrote {small_file_name}: {len(small_bytes) / (1 << 20):.1f} MiB")
+        small_runtime = run_executorch_program(
+            program_bytes=small_bytes,
+            inputs=tuple(tensor for _, tensor in small_inputs),
+        )
+        calibrated = calibration is not None
+        small_difference = maximum_task_probability_difference(
+            schema=tagger.schema,
+            reference_outputs=_decodable_flat_outputs(
+                small_eager, tagger=tagger, calibrated=calibrated
+            ),
+            candidate_outputs=_decodable_flat_outputs(
+                small_runtime, tagger=tagger, calibrated=calibrated
+            ),
+            token_mask=dict(small_inputs)["token_mask"],
+        )
+        small_batch_tokens = tuple(
+            sentence.tokens
+            for sentence in repeat_pad_sentences(
+                small_sentences, batch_size=small_shapes.batch_size
+            )
+        )
+        small_eager_decoded = decoded_sentence_predictions(
+            schema=tagger.schema,
+            logits=token_task_logits_from_flat_outputs(
+                _decodable_flat_outputs(
+                    small_eager, tagger=tagger, calibrated=calibrated
+                ),
+                schema=tagger.schema,
+            ),
+            token_mask=dict(small_inputs)["token_mask"],
+            sentence_tokens=small_batch_tokens,
+        )
+        small_runtime_decoded = decoded_sentence_predictions(
+            schema=tagger.schema,
+            logits=token_task_logits_from_flat_outputs(
+                _decodable_flat_outputs(
+                    small_runtime, tagger=tagger, calibrated=calibrated
+                ),
+                schema=tagger.schema,
+            ),
+            token_mask=dict(small_inputs)["token_mask"],
+            sentence_tokens=small_batch_tokens,
+        )
+        if tuple(small_runtime_decoded) != tuple(small_eager_decoded):
+            raise SystemExit(
+                "Small-program decoded predictions diverge from eager output."
+            )
+        if small_difference > arguments.parity_tolerance:
+            raise SystemExit(
+                "Small-program parity difference "
+                f"{small_difference} exceeds {arguments.parity_tolerance}."
+            )
+        print(
+            "Runtime parity small program:",
+            f"max probability |\u0394| = {small_difference:.2e},",
+            "decoded predictions identical",
+        )
+        small_program_entries.append(
+            ModelProgramEntry(
+                file_name=small_file_name,
+                format="executorch-pte",
+                backend="xnnpack",
+                precision=arguments.precision,
+                sha256=sha256_of_bytes(small_bytes),
+                size_bytes=len(small_bytes),
+                shapes=small_shapes,
+                inputs=_tensor_specs(small_inputs),
+                output_names=_output_names(tagger, calibrated=calibrated),
+                parity_maximum_probability_difference=small_difference,
+            )
+        )
+
     calibration_file_name = None
     if arguments.calibration_path is not None:
         calibration_file_name = "calibration.json"
@@ -789,6 +918,7 @@ def main() -> None:
                 ),
                 parity_maximum_probability_difference=largest_difference,
             ),
+            *small_program_entries,
         ),
         checkpoint=CheckpointProvenance(
             run_name=arguments.checkpoint_path.parent.name,

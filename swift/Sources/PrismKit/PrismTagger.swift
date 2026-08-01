@@ -21,10 +21,14 @@ public struct TaggedSentence: Sendable {
 /// calibrated confidences out. The program already contains the complete
 /// decoding policy, so this class only assembles fixed-shape batches and
 /// applies argmax, the 0.5 threshold, and the lemma edit rules.
+///
+/// Artifacts may ship several fixed-shape programs; sentences are sorted by
+/// length and every batch runs on the smallest program it fits into, so
+/// short sentences never pay the padding cost of the largest shapes.
 public final class PrismTagger {
     private let artifact: PrismArtifact
-    private let program: ArtifactProgram
-    private let module: Module
+    private let programs: [ArtifactProgram]
+    private var modules: [String: Module] = [:]
     private let tokenizer: SubwordTokenizer
     private let segmentationPolicy: SegmentationPolicy
     private let characterIds: [String: Int]
@@ -40,18 +44,14 @@ public final class PrismTagger {
 
     public init(artifactURL: URL, device: ComputeDevice = .automatic) throws {
         artifact = try PrismArtifact(contentsOf: artifactURL)
-        program = try artifact.program(for: device)
-        module = Module(
-            filePath: artifactURL.appendingPathComponent(program.fileName).path
-        )
-        try module.load()
+        programs = try artifact.programs(for: device)
         tokenizer = try SubwordTokenizer(
             vocabularyURL: artifactURL.appendingPathComponent(
                 artifact.manifest.vocabularyFile
             )
         )
         segmentationPolicy = .norwegian(
-            maximumTokenCount: program.shapes.tokenCount
+            maximumTokenCount: programs.last!.shapes.tokenCount
         )
         var lookup: [String: Int] = [:]
         for (index, character) in (artifact.labels.characterVocabulary?.characters ?? [])
@@ -87,32 +87,83 @@ public final class PrismTagger {
     }
 
     public func tag(sentences: [PretokenizedSentence]) throws -> [TaggedSentence] {
+        let largest = programs.last!.shapes
         let prepared = sentences.flatMap {
-            RuntimeSegmentation.chunk($0, maximumTokenCount: program.shapes.tokenCount)
+            RuntimeSegmentation.chunk($0, maximumTokenCount: largest.tokenCount)
         }
-        var tagged: [TaggedSentence] = []
+        let encoded = prepared.map(tokenizer.encode)
+        for sentence in encoded where sentence.inputIds.count > largest.subwordCount {
+            throw PrismError.invalidArtifact(
+                "Sentence exceeds the largest program's subword capacity."
+            )
+        }
+
+        // Length-sorted batching keeps short sentences together so their
+        // batches qualify for the smallest lowered program.
+        let order = prepared.indices.sorted {
+            encoded[$0].inputIds.count < encoded[$1].inputIds.count
+        }
+        var tagged = [TaggedSentence?](repeating: nil, count: prepared.count)
+        let batchSize = largest.batchSize
         var start = 0
-        while start < prepared.count {
-            let end = min(start + program.shapes.batchSize, prepared.count)
-            tagged.append(contentsOf: try tagBatch(Array(prepared[start..<end])))
+        while start < order.count {
+            let end = min(start + batchSize, order.count)
+            let batchIndices = Array(order[start..<end])
+            let batchSentences = batchIndices.map { prepared[$0] }
+            let batchEncoded = batchIndices.map { encoded[$0] }
+            let program = smallestFittingProgram(for: batchEncoded, in: batchSentences)
+            let decoded = try tagBatch(
+                batchSentences,
+                encoded: batchEncoded,
+                program: program
+            )
+            for (position, index) in batchIndices.enumerated() {
+                tagged[index] = decoded[position]
+            }
             start = end
         }
-        return tagged
+        return tagged.map { $0! }
     }
 
-    private func tagBatch(_ realSentences: [PretokenizedSentence]) throws -> [TaggedSentence] {
+    private func smallestFittingProgram(
+        for encoded: [EncodedSentence],
+        in sentences: [PretokenizedSentence]
+    ) -> ArtifactProgram {
+        let maximumSubwords = encoded.map(\.inputIds.count).max() ?? 0
+        let maximumTokens = sentences.map(\.tokens.count).max() ?? 0
+        for program in programs
+        where program.shapes.subwordCount >= maximumSubwords
+            && program.shapes.tokenCount >= maximumTokens
+        {
+            return program
+        }
+        return programs.last!
+    }
+
+    private func module(for program: ArtifactProgram) throws -> Module {
+        if let module = modules[program.fileName] {
+            return module
+        }
+        let module = Module(
+            filePath: artifact.directory
+                .appendingPathComponent(program.fileName).path
+        )
+        try module.load()
+        modules[program.fileName] = module
+        return module
+    }
+
+    private func tagBatch(
+        _ realSentences: [PretokenizedSentence],
+        encoded realEncoded: [EncodedSentence],
+        program: ArtifactProgram
+    ) throws -> [TaggedSentence] {
         let shapes = program.shapes
         var sentences = realSentences
+        var encoded = realEncoded
         while sentences.count < shapes.batchSize {
             sentences.append(sentences[sentences.count - 1])
-        }
-
-        let encoded = sentences.map(tokenizer.encode)
-        for sentence in encoded
-        where sentence.inputIds.count > shapes.subwordCount {
-            throw PrismError.invalidArtifact(
-                "Sentence exceeds the program's subword capacity."
-            )
+            encoded.append(encoded[encoded.count - 1])
         }
 
         var inputIds = [Int64](
@@ -191,21 +242,26 @@ public final class PrismTagger {
             )
         }
 
-        let outputs = try module.forward(values)
+        let outputs = try module(for: program).forward(values)
         var probabilities: [[Float]] = []
         for output in outputs {
-            let tensor: Tensor<Float> = try output.tensor()
-                ?? { throw PrismError.invalidArtifact("Program output is not a tensor.") }()
+            guard let tensor: Tensor<Float> = output.tensor() else {
+                throw PrismError.invalidArtifact("Program output is not a tensor.")
+            }
             probabilities.append(try tensor.scalars())
         }
-        return try decode(realSentences, probabilities: probabilities)
+        return try decode(
+            realSentences,
+            probabilities: probabilities,
+            tokenCount: shapes.tokenCount
+        )
     }
 
     private func decode(
         _ sentences: [PretokenizedSentence],
-        probabilities: [[Float]]
+        probabilities: [[Float]],
+        tokenCount: Int
     ) throws -> [TaggedSentence] {
-        let shapes = program.shapes
         let schema = artifact.labels.schema
         let uposCount = schema.upos.labels.count
         let ruleCount = schema.lemmaRules.rules.count
@@ -214,12 +270,11 @@ public final class PrismTagger {
         for (row, sentence) in sentences.enumerated() {
             var tokens: [TaggedToken] = []
             for tokenIndex in 0..<sentence.tokens.count {
-                let flat = row * shapes.tokenCount + tokenIndex
+                let flat = row * tokenCount + tokenIndex
 
-                let uposRow = Array(
-                    probabilities[0][(flat * uposCount)..<((flat + 1) * uposCount)]
+                let (uposIndex, uposConfidence) = argmax(
+                    probabilities[0], offset: flat * uposCount, count: uposCount
                 )
-                let (uposIndex, uposConfidence) = argmax(uposRow)
 
                 var features: [String: [String]] = [:]
                 var featureConfidences: [String: Double] = [:]
@@ -227,19 +282,24 @@ public final class PrismTagger {
                     let output = probabilities[1 + featureIndex]
                     if feature.allowsMultipleValues {
                         let count = feature.values.count
-                        let valueRow = Array(output[(flat * count)..<((flat + 1) * count)])
-                        let selected = zip(feature.values, valueRow)
-                            .filter { $0.1 > 0.5 }
+                        var selected: [String] = []
+                        var confidence = Float.greatestFiniteMagnitude
+                        for (valueIndex, value) in feature.values.enumerated() {
+                            let probability = output[flat * count + valueIndex]
+                            if probability > 0.5 {
+                                selected.append(value)
+                                confidence = min(confidence, probability)
+                            }
+                        }
                         if !selected.isEmpty {
-                            features[feature.name] = selected.map(\.0)
-                            featureConfidences[feature.name] = Double(
-                                selected.map(\.1).min()!
-                            )
+                            features[feature.name] = selected
+                            featureConfidences[feature.name] = Double(confidence)
                         }
                     } else {
                         let count = feature.values.count + 1
-                        let valueRow = Array(output[(flat * count)..<((flat + 1) * count)])
-                        let (valueIndex, confidence) = argmax(valueRow)
+                        let (valueIndex, confidence) = argmax(
+                            output, offset: flat * count, count: count
+                        )
                         if valueIndex > 0 {
                             features[feature.name] = [feature.values[valueIndex - 1]]
                             featureConfidences[feature.name] = confidence
@@ -247,12 +307,11 @@ public final class PrismTagger {
                     }
                 }
 
-                let lemmaRow = Array(
-                    probabilities[probabilities.count - 1][
-                        (flat * ruleCount)..<((flat + 1) * ruleCount)
-                    ]
+                let (ruleIndex, lemmaConfidence) = argmax(
+                    probabilities[probabilities.count - 1],
+                    offset: flat * ruleCount,
+                    count: ruleCount
                 )
-                let (ruleIndex, lemmaConfidence) = argmax(lemmaRow)
                 let tokenText = sentence.tokens[tokenIndex]
                 let lemma = (try? schema.lemmaRules.rules[ruleIndex].apply(to: tokenText))
                     ?? tokenText
@@ -275,11 +334,11 @@ public final class PrismTagger {
         return tagged
     }
 
-    private func argmax(_ row: [Float]) -> (Int, Double) {
+    private func argmax(_ values: [Float], offset: Int, count: Int) -> (Int, Double) {
         var bestIndex = 0
         var bestValue = -Float.infinity
-        for (index, value) in row.enumerated() where value > bestValue {
-            bestValue = value
+        for index in 0..<count where values[offset + index] > bestValue {
+            bestValue = values[offset + index]
             bestIndex = index
         }
         return (bestIndex, Double(bestValue))

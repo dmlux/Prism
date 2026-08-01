@@ -3167,3 +3167,23 @@ confidence ranges) and across the multi-batch path. 16/16 Swift tests
 passing. Remaining for the Swift phase: the performance pass (scanner-
 based segmentation and buffer reuse are the known levers) and the
 README integration notes.
+
+### Performance pass (multi-shape programs + length-sorted bucketing)
+
+The release-mode baseline showed PrismKit's own code costs ~11 ms of the
+5,645 ms chapter run — the fixed 8×160×96 shapes dominate, padding every
+~20-subword sentence to 160 subwords. The lever is therefore shape
+bucketing, not micro-optimization: the export gained `--small-shapes`
+(a second lowered program, here 8×48×32, parity-gated exactly like the
+main program: max |Δp| 1.63e-3, decoded predictions identical), the
+manifest lists both programs, and `PrismTagger` sorts sentences by
+subword length, batches them, and runs every batch on the smallest
+program it fits into (modules load lazily; results scatter back to
+input order). Chapter benchmark: **5,645 ms → 2,949 ms** (670 → 1,283
+tokens/s), 17/17 Swift tests passing including the reference-decision
+tests on the bucketed path. Trade-off recorded honestly: each program
+embeds the full weights, so the two-program artifact is ~177 MB on
+disk; ExecuTorch program-data separation (one shared weight file,
+small per-shape programs) is the documented follow-up if disk size
+matters for distribution. Further bucket sizes remain available via
+repeated exports when profiling justifies them.
