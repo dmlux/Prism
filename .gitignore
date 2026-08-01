@@ -65,3 +65,4 @@ temp/
 
 # Swift package build directory
 swift/.build/
+swift/.swiftpm/
