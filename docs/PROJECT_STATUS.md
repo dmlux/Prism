@@ -3207,3 +3207,23 @@ with ctest; all checks passing. Remaining C++ roadmap: the BPE subword
 tokenizer port with the shared parity fixtures, artifact/label parsing,
 the ExecuTorch C++ runtime engine, and the C ABI for the LexKeep core
 and the Windows/Linux variants.
+
+### C++ BPE subword tokenizer
+
+`prism::subword::Tokenizer` ports the byte-level BPE natively: the
+GPT-style split pre-tokenizer as a scanner, the byte-to-unicode table,
+whole-piece lookup with `ignore_merges`, ranked merges, the `<s>`
+template, and the word alignment. Diagnosing the first parity run
+surfaced that the reference pipeline's NFKC folds characters like
+U+2026 into ASCII ("…" → "..."); the port applies a compact
+compatibility table for the practically occurring subset (ellipses,
+ligatures, no-break and typographic spaces, №, ™) with the shared
+fixtures as the gate and pass-through for anything else. Parity: the
+nine recorded cases (IDs and alignment) and all 247 chapter sentences /
+5,028 subword IDs match the reference; segmentation plus BPE process
+the chapter in ~3.6 ms. JSON parsing uses nlohmann/json via pinned
+FetchContent. Both ctest suites passing. The Xcode workspace issue was
+fixed separately: the swiftpm-1.3.1 frameworks were built with Swift
+5.10, the current swiftpm-1.4.0 snapshot compiles from its textual
+interface, and the 1.3.1-exported program runs unchanged on the 1.4
+runtime (verified by the engine tests and xcodebuild).
