@@ -3334,3 +3334,28 @@ GoogleTest tests + the Java end-to-end run), chapter timings unchanged.
 For the many-language outlook the remaining levers stay documented:
 int8 XNNPACK quantization (~22 MB per language) and downloading language
 artifacts on demand instead of bundling them.
+
+### First public model release: prism-no 0.2.1
+
+Published as a GitHub release (tag `prism-no-0.2.1`, assets:
+`prism-no-0.2.1.tar.gz` with the complete artifact directory,
+`SHA256SUMS`, and a loose `manifest.json` for inspection without
+downloading). Release conventions decided here: model releases are
+tagged per language and version (`prism-{language}-{semver}`) so every
+language keeps an independent lifecycle; plain `v*` tags stay reserved
+for future library releases; GitHub Releases carry the artifacts (free
+storage and bandwidth, no LFS cost trap), with a Hugging Face mirror as
+documented follow-up. Licensing decided and recorded in the release
+notes: source code Apache 2.0, model weights CC BY-SA 4.0 — matching
+the gold annotations' share-alike terms by construction; using or
+bundling the unmodified artifact (including commercially, closed
+source) is not an adaptation, while redistributed modified weights must
+stay open. The notes credit every training-data source with license and
+revision: the UD Bokmål/Nynorsk treebanks (CC BY-SA 4.0), Språkbanken's
+NBdigital `sbr-43` and municipal-documents `sbr-60` corpora (CC0,
+National Library of Norway), the Nynorsk Wikipedia dump (CC BY-SA 4.0,
+text never redistributed), and the `ltg/norbert4-xsmall` backbone
+(Apache 2.0, University of Oslo). The release states explicitly that
+one set of weights serves both written standards and that the artifact
+ships CPU (XNNPACK) programs as a measured decision, with the device
+API ready for future GPU-lowered programs.
