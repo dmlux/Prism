@@ -38,9 +38,15 @@ jobs:
             classifier: macos-aarch64
             library: libprism_jni.dylib
             experimental: false
-          - runner: macos-13
+          # GitHub retired the Intel macOS runners; the x86_64 library is
+          # cross-compiled on the arm64 runner instead. Tests are skipped
+          # on this leg (the host cannot reliably execute the foreign
+          # architecture), which is covered by the native macOS leg.
+          - runner: macos-14
             classifier: macos-x86_64
             library: libprism_jni.dylib
+            cmake_flags: -DCMAKE_OSX_ARCHITECTURES=x86_64
+            run_tests: false
             experimental: false
           - runner: ubuntu-24.04
             classifier: linux-x86_64
@@ -75,6 +81,7 @@ jobs:
           cmake -S cpp -B cpp/build
           -DCMAKE_BUILD_TYPE=Release
           -DPython3_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')"
+          ${{ matrix.cmake_flags }}
         shell: bash
 
       - name: Build
@@ -85,6 +92,7 @@ jobs:
         shell: bash
 
       - name: Test (model-dependent tests skip without a local artifact)
+        if: ${{ matrix.run_tests != false }}
         run: ctest --test-dir cpp/build --output-on-failure --build-config Release
         shell: bash
 
