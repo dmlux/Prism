@@ -100,6 +100,12 @@ shareable.
 
 ## Swift (PrismKit)
 
+**Prerequisites:** Xcode with a current Swift toolchain (Swift 5.9+;
+the prebuilt ExecuTorch frameworks must have been compiled with a
+toolchain your Xcode accepts — use a current `swiftpm-*` snapshot
+branch), targeting macOS 13+ / iOS 17+. Nothing else: PrismKit has no
+third-party Swift dependencies.
+
 `swift/PrismKit` implements the complete pipeline natively — its own
 segmentation and byte-level BPE, parity-tested against the reference —
 so no external tokenization framework is required.
@@ -124,6 +130,15 @@ so no external tokenization framework is required.
   (without `fixtures.json`).
 
 ## C++ and the C ABI
+
+**Prerequisites:** CMake ≥ 3.24, a C++20 compiler (Apple Clang, Clang,
+or GCC), and — only while *building* — a Python interpreter with
+`torch` installed (the ExecuTorch build generates code through it; the
+repository virtualenv from [DEVELOPMENT.md](DEVELOPMENT.md) is wired as
+the default). Network access is needed once at configure time to fetch
+the pinned ExecuTorch sources; `nlohmann/json` and GoogleTest are
+vendored in-tree. The *built* libraries and your application have no
+Python dependency.
 
 `cpp/` implements the same pipeline with hand-written scanners (no
 regex engine, no ICU), parity-tested against the shared fixtures.
@@ -152,19 +167,94 @@ regex engine, no ICU), parity-tested against the shared fixtures.
 
 ## Java
 
-`java/` is a dependency-free Java 21 API (Kotlin-compatible out of the
-box) over the native core: a thin JNI bridge marshals text in and one
-flat payload out per call.
+**Prerequisites:** a JDK 21+ to build (the API uses records; any JRE
+21+ suffices at runtime), plus everything from the C++ section — the
+Java binding is a thin layer over the native core, so shipping Java
+means building the C++ part once per target platform.
 
-- **Building:** the canonical build produces `prism.jar` and the native
-  library `prism_jni` through CMake (the Java binding is on by default
-  when a JDK 21 is found; `-DPRISM_JAVA=OFF` disables it). Maven/Gradle
-  consumers can alternatively build and install the JAR with
-  `java/pom.xml` (`mvn install`, coordinates `io.github.dmlux:prism`).
-- **Native library:** the JAR contains the Java layer only. At runtime
-  the native library must be resolvable — either on
-  `java.library.path` (`-Djava.library.path=...`) or loaded explicitly
-  with `PrismTagger.loadNativeLibrary(path)` before the first `load`.
+### How the JNI dependency works
+
+The stack has exactly three pieces:
+
+```text
+your application (Java/Kotlin)
+        │  classpath
+   prism.jar          — pure Java, platform-independent, no dependencies
+        │  System.loadLibrary("prism_jni")
+libprism_jni.dylib/.so/prism_jni.dll
+        │              — ONE self-contained native library per platform:
+        │                the JNI bridge, the complete Prism C++ core,
+        │                and the ExecuTorch runtime with all kernels,
+        │                statically linked
+model artifact directory (prism-no-…)
+```
+
+`prism.jar` contains only the Java layer (`PrismTagger`,
+`TaggedSentence`, `TaggedToken`, `PrismException`) and declares
+`native` methods. All actual work — segmentation, BPE, batching,
+ExecuTorch execution, decoding — happens inside `prism_jni`, which
+statically links the whole C++ core including the ExecuTorch runtime,
+XNNPACK, and the optimized and quantized kernel libraries. There is
+nothing else to install on the target machine: no ExecuTorch, no
+PyTorch, no Python.
+
+Design notes for anyone reimplementing or extending the bridge
+(`cpp/src/jni.cpp`): text crosses into C++ as UTF-8 byte arrays
+(`String.getBytes(UTF_8)`), because JNI's `GetStringUTFChars` uses
+*modified* UTF-8, which corrupts supplementary codepoints; results
+return as one flat parallel-array payload per call (a single JNI
+transition regardless of sentence count), and strings travel back
+through `NewString` (UTF-16) rather than `NewStringUTF`. The Java side
+unflattens the payload into records.
+
+### Building the native library
+
+```bash
+cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
+cmake --build cpp/build --parallel
+```
+
+The Java binding is on by default when CMake finds a JDK 21 and JNI
+headers (`-DPRISM_JAVA=OFF` disables it; `JAVA_HOME` steers which JDK
+is found). This produces both deliverables:
+
+- `cpp/build/prism.jar`
+- `cpp/build/libprism_jni.dylib` (macOS) / `libprism_jni.so` (Linux) /
+  `prism_jni.dll` (Windows)
+
+The native library is platform- and architecture-specific: build it on
+(or cross-compile for) every platform you ship — e.g. macOS arm64,
+Linux x86_64, Windows x64. The JAR is the same everywhere.
+
+### Wiring it into an application
+
+Two resolution options at runtime:
+
+```bash
+# Option 1: library directory on java.library.path
+java -Djava.library.path=/path/to/native/libs -cp prism.jar:app.jar my.App
+```
+
+```java
+// Option 2: explicit path (e.g. after extracting from your own packaging)
+PrismTagger.loadNativeLibrary(Path.of("/path/to/libprism_jni.dylib"));
+try (PrismTagger tagger = PrismTagger.load(artifactDirectory)) { ... }
+```
+
+Maven/Gradle consumers can build and install the JAR from
+`java/pom.xml` (`mvn install`, coordinates `io.github.dmlux:prism`) —
+the POM covers the Java layer only; the native library still comes from
+the CMake build. Bundling per-platform natives inside the JAR with
+automatic extraction (the sqlite-jdbc pattern) is a documented
+follow-up.
+
+Common failure modes: `UnsatisfiedLinkError: no prism_jni in
+java.library.path` — the library directory is not on the path and no
+explicit load happened; `UnsatisfiedLinkError` naming a specific
+method — `prism.jar` and the native library come from different builds
+(rebuild both together); an immediate `PrismException` on `load` —
+artifact directory missing or incomplete (`prism_last_error` details
+travel into the exception message).
 
 ## Python
 

@@ -77,53 +77,15 @@ attribution and share-alike requirements. Silver-corpus preparation
 (NBdigital, municipal documents, Nynorsk Wikipedia) is documented in
 [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
-## Training and evaluation
+## Training, evaluation, and export
 
-Reproduce the unweighted gold-only student:
-
-```bash
-python -m prism.languages.norwegian.train_baseline
-```
-
-Reproduce the selected class-weighted ablation without overwriting the
-unweighted checkpoint:
-
-```bash
-python -m prism.languages.norwegian.train_baseline \
-  --checkpoint runs/nb-student-weighted/best.pt \
-  --morphology-weight-cap 10.0
-```
-
-Evaluate a fixed checkpoint on the development split:
-
-```bash
-python -m prism.languages.norwegian.evaluate_baseline \
-  --checkpoint runs/nb-student-weighted/best.pt \
-  --analysis runs/nb-student-weighted/development-analysis.json
-```
-
-The commands intentionally use training and development data only. The
-test split is reserved for one final evaluation after the model and
-decision policy are frozen; the accepted results are recorded in
+The complete pipeline — teacher, silver data, student distillation,
+calibration, artifact export, and how to add a **new language** — is
+documented step by step in [TRAINING.md](TRAINING.md). The commands
+intentionally use training and development data only; the test split is
+reserved for one final evaluation after the model and decision policy
+are frozen, and the accepted results are recorded in
 [benchmarks](benchmarks/).
-
-## Exporting artifacts
-
-The exporter turns a frozen checkpoint into a versioned artifact
-directory (see [INTEGRATION.md](INTEGRATION.md) for the contract):
-
-```bash
-python -m prism.languages.norwegian.export_artifact \
-  --checkpoint runs/<run>/best-development-task-accuracy.pt \
-  --artifact-version 0.2.2 \
-  --calibration <calibration.json> \
-  --small-shapes 24 16 --small-shapes 48 32 --small-shapes 96 64 \
-  --external-data
-```
-
-Add `--precision int8` (and `-fast` in the version string) for the fast
-variant; its runtime parity gate is the C++ test suite because the
-Python ExecuTorch wheel ships no quantized kernels.
 
 ## Tests
 

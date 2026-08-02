@@ -203,6 +203,20 @@ Every binding also accepts pretokenized input (`tag(pretokenized:)`,
 `TagPretokenized`, `tagPretokenized`, `prism_tagger_tag_tokens`) when
 your application already has words.
 
+## Bring your own language
+
+Norwegian is the first language, not the last: the model, training,
+export, and artifact contracts are language-independent, and every
+runtime reads any conforming artifact without code changes. If you have
+a [Universal Dependencies](https://universaldependencies.org/)-style
+treebank (CoNLL-U with `FORM`, `LEMMA`, `UPOS`, `FEATS`) and a Hugging
+Face encoder for your language, you can train and ship your own Prism
+model: label schemas, morphology features, and lemma rules are derived
+from your data automatically. The complete guide — data format and
+placement, every pipeline stage from teacher to released artifact, and
+the language-profile mechanism — is
+[docs/TRAINING.md](docs/TRAINING.md).
+
 ## Training data and licenses
 
 Prism source code is licensed under the
@@ -232,8 +246,10 @@ Pinned revisions and checksums travel inside every artifact
 - [docs/benchmarks/](docs/benchmarks/) — quality and runtime benchmarks
   per released artifact; [docs/benchmarks.md](docs/benchmarks.md) holds
   the model-development history
-- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — building, training,
-  evaluating, and testing Prism itself
+- [docs/TRAINING.md](docs/TRAINING.md) — training models and adding new
+  languages, from data format to released artifact
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — building and testing
+  Prism itself
 - [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) — every accepted
   decision and milestone, in order
 
