@@ -2,6 +2,13 @@
   <img src="logos/logo.svg" alt="Prism" width="420">
 </p>
 
+<p align="center">
+  <a href="https://github.com/dmlux/Prism/releases?q=v0&expanded=true"><img src="https://img.shields.io/github/v/release/dmlux/Prism?filter=v*&label=library&color=blue" alt="latest library release"></a>
+  <a href="https://central.sonatype.com/artifact/io.github.dmlux/prism"><img src="https://img.shields.io/maven-central/v/io.github.dmlux/prism?label=maven%20central&color=blue" alt="Maven Central"></a>
+  <a href="https://github.com/dmlux/Prism/releases?q=prism-no&expanded=true"><img src="https://img.shields.io/github/v/release/dmlux/Prism?filter=prism-no-*&label=model%3A%20norwegian&color=purple" alt="latest Norwegian model release"></a>
+  <a href="https://huggingface.co/dmlux/prism-no"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20hub-dmlux%2Fprism--no-yellow" alt="Hugging Face model"></a>
+</p>
+
 # Prism
 
 Prism is an open-source NLP toolkit for fast, local, privacy-friendly
