@@ -45,7 +45,7 @@ jobs:
           - runner: macos-14
             classifier: macos-x86_64
             library: libprism_jni.dylib
-            cmake_flags: -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_SYSTEM_PROCESSOR=x86_64
+            cmake_flags: -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_SYSTEM_NAME=Darwin -DCMAKE_SYSTEM_PROCESSOR=x86_64
             run_tests: false
             experimental: false
           - runner: ubuntu-24.04
