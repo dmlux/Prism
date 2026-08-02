@@ -65,11 +65,14 @@ only. Every binding installs the measured six-thread default
 (override: `prism::engine::SetThreadCount`, `prism_set_thread_count`,
 `PrismTagger.setThreadCount`, `ComputeThreads.setThreadCount`).
 
+Each cell: wall-clock for the whole chapter, with throughput in
+tokens per second.
+
 | Variant | Python | Swift | C++ | Java |
 | --- | ---: | ---: | ---: | ---: |
-| fp32, one program (8×160×96) | 1.6 s* | 4.8 s | 7.5 s | 7.7 s |
-| fp32, four shapes | 1.6 s* | 1.5 s | 2.2 s | 2.2 s |
-| fast (int8), four shapes | n/a** | **1.5 s** | **1.2 s** | **1.2 s** |
+| fp32, one program (8×160×96) | 1.6 s (2,328/s)* | 4.8 s (796/s) | 7.5 s (501/s) | 7.7 s (493/s) |
+| fp32, four shapes | 1.6 s (2,328/s)* | 1.5 s (2,500/s) | 2.2 s (1,731/s) | 2.3 s (1,676/s) |
+| fast (int8), four shapes | n/a** | **1.5 s (2,541/s)** | **1.2 s (3,185/s)** | **1.2 s (3,228/s)** |
 
 \* Python runs the checkpoint eagerly with dynamic shapes — there are
 no fixed-shape programs to select, so both fp32 rows coincide.
