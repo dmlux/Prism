@@ -4,278 +4,176 @@
 
 # Prism
 
-Prism is a modular, open-source NLP toolkit for fast, local, and
-privacy-friendly linguistic analysis. It is designed to provide
-language-specific models through a unified, versioned API for tokenization,
-sentence segmentation, part-of-speech tagging, lemmatization, and
-morphological analysis across Python and native platforms.
+Prism is an open-source NLP toolkit for fast, local, privacy-friendly
+linguistic analysis on end-user devices. It tags text with
+part-of-speech (UPOS), morphological features, and lemmata — each
+decision with a **calibrated confidence** — fully offline, optimized
+for small bundles and native performance. The current model covers
+Norwegian: Bokmål (`nb`) and Nynorsk (`nn`) in one set of weights.
 
-The current implementation focuses on Norwegian. Bokmål (`nb`) and Nynorsk
-(`nn`) share one measured gold-only student over a common Norwegian schema,
-while retaining separate data profiles and quality reports. Prism's shared
-model, training, evaluation, export, and artifact contracts remain
-language-independent.
+**Highlights**
 
-## Current status
+- **Built for devices, not servers:** the deployable model is a 45 MB
+  artifact tagging ~3,200 tokens/s on a laptop CPU — no GPU, no
+  network, no Python.
+- **Native APIs for every major platform:** Swift, C++, C, and Java
+  (Kotlin-compatible) over one shared model contract, plus the Python
+  reference runtime.
+- **Calibrated confidences:** every tag comes with a probability an
+  application can actually act on (fitted temperatures, UPOS ECE
+  0.0017).
+- **Quality that competes:** beats UDPipe 2.17 on UPOS and lemmata on
+  the official UD test splits at a twentieth of its size.
 
-Prism currently provides:
-
-- deterministic CoNLL-U ingestion and typed externally-tokenized inputs;
-- language-owned UPOS, morphology, and lemma-rule schemas;
-- a compact NorBERT4-xsmall Transformer student for Norwegian;
-- shared UPOS, per-feature morphology, and lemma edit-rule heads;
-- checkpoint-compatible linear and shared-MLP head architectures plus the
-  selected structured, character-aware morphology/lemma path;
-- schema-driven categorical and multi-label morphology objectives;
-- supervised Apple MPS training with reproducible checkpoints;
-- class-weighted morphology training derived only from the training split;
-- exact, per-label, and threshold-independent development metrics;
-- reproducible Rare/OOV development slices derived only from training-form
-  frequencies;
-- a selected, export-tested character-CNN branch that feeds complete-token form
-  information into morphology and lemma while leaving UPOS unchanged;
-- a selected shared post-fusion morphology MLP that improves complete UFeats
-  and Gender across Bokmål and Nynorsk while preserving an explicit identity
-  control for compatibility and ablations;
-- a typed task-specific distillation policy with independent UPOS, morphology,
-  and lemma temperatures and weights;
-- optional categorical DKD with independently weighted target-class and
-  non-target-class knowledge while preserving binary KL for multi-value tasks;
-- a versioned ExecuTorch export spike with PyTorch parity coverage;
-- explicit language profiles so another language can replace its tokenizer,
-  backbone, schemas, decoding policy, and artifact metadata.
-
-The selected twelve-epoch Mean-pooling, learned-last-four, wide-shared-MLP
-Student combines a structured, soft-decision morphology refinement with a
-compact character CNN for morphology and lemma, then distills an accepted
-NorBERT4-Base Teacher at temperature 1.0 and weight 0.1. The character branch
-improves Rare end-to-end lemma accuracy by 2.67/2.42 percentage points and Rare
-morphology micro F1 by 1.76/1.50 points on Bokmål/Nynorsk. OOV lemma,
-morphology, and UPOS also improve on both written standards. The selected
-shared morphology MLP then corrects 226 additional complete UFeats bundles and
-204 Gender decisions across Bokmål and Nynorsk for a 70,661,786-byte
-checkpoint that remains below the 100 MB target. Decoupled knowledge distillation
-further lowers loss and improves overall UPOS, lemma, and Rare/OOV lemma and
-morphology on both standards without changing inference cost. Its localized
-Rare/OOV UPOS tradeoffs remain explicit. Both official test splits remain
-untouched.
-See [the benchmark notes](docs/benchmarks.md) for the complete, comparable
-results.
-
-Prism does not yet ship a production model bundle or a stable native runtime
-API. Dependency parsing, raw-text tokenization, sentence segmentation, named
-entities, phrases, and multiword expressions are explicit later tasks rather
-than hidden parts of the current token tagger.
-
-## Architecture
-
-The compact student converts externally supplied tokens into subwords, runs a
-replaceable language backbone, aligns contextual subword states back to source
-tokens, and applies shared task-head implementations:
+## How it works
 
 ```text
-tokens + spacing
-      |
-language tokenizer
-      |
-subword IDs + alignment
-      |
-language backbone
-      |
-token representations
-      +--> UPOS head
-      +--> morphology feature heads
-      +--> lemma edit-rule head
+raw text ──► sentence segmentation ──► byte-level BPE subwords
+                                             │
+                              compact Transformer backbone
+                              (NorBERT4-xsmall, distilled)
+                                             │
+                token representations + character-CNN features
+                     │               │                │
+                 UPOS head    morphology heads   lemma-rule head
+                     └──── calibrated probabilities ────┘
 ```
 
-The Norwegian profile currently selects NorBERT4-xsmall. Generic Prism code
-does not import or branch on NorBERT4. Future language profiles may select a
-different tokenizer and backbone while reusing the same model and artifact
-contracts.
+The model is a compact Transformer student distilled from a larger
+teacher and exported to [ExecuTorch](https://pytorch.org/executorch)
+programs with fixed shapes; runtimes pick the smallest program each
+batch fits into, so short sentences never pay long-sentence padding.
+Decoding policy and calibration are baked into the exported graph —
+integrations do argmax and one threshold, nothing more. The full design
+is documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-For a learning-oriented explanation of the complete teacher-student and
-native-inference design, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-The accepted roadmap and licensing decisions are in
-[docs/model-strategy.md](docs/model-strategy.md).
+## Quality and speed
 
-## Using the exported model artifact
+Evaluated once on the untouched official UD test splits against UDPipe
+2.17 (gold tokenization, official CoNLL definitions):
 
-An exported artifact directory (for example `models/prism-no-0.2.2`) is the
-complete integration contract for native runtimes:
+| Test F1 | Prism | UDPipe 2.17 |
+| --- | ---: | ---: |
+| Bokmål UPOS | **98.76%** | 98.57% |
+| Bokmål Lemmas | **98.98%** | 98.87% |
+| Bokmål UFeats | 97.20% | **97.59%** |
+| Nynorsk UPOS | **98.77%** | 98.60% |
+| Nynorsk Lemmas | **98.68%** | 98.56% |
+| Nynorsk UFeats | 96.94% | **97.38%** |
 
-- `model-xnnpack.pte` — the lowered ExecuTorch program. The production
-  decoding policy is baked into the graph: morphology logit correction,
-  per-head temperature calibration, and softmax/sigmoid. The program
-  therefore emits **final calibrated probabilities** (`*_probabilities`
-  outputs, always float32). Consumers implement no decoding mathematics
-  beyond argmax for exclusive heads and the 0.5 threshold for multi-valued
-  morphology features.
-- `model.ptd` — the shared tensor-data file (program-data separation).
-  The model weights live here exactly once; every fixed-shape program
-  references them by content hash, so shipping several shapes costs the
-  weights only once. A program's manifest entry lists its required data
-  files under `data_files`; runtimes must load them alongside the program
-  (all ExecuTorch runtimes accept data paths next to the program path).
-- `vocabulary.json` — the complete Hugging Face fast-tokenizer definition
-  (vocabulary, merges, normalization) of the subword tokenizer.
-- `labels.json` — the label schema: UPOS labels, morphology features and
-  values, lemma edit rules, and the character vocabulary with its maximum
-  character count for the character-CNN inputs.
-- `calibration.json`, `manifest.json`, `LICENSES/` — provenance: fitted
-  temperatures, tensor contracts, shapes, checksums, and licensing.
-- `fixtures.json` — recorded input/output parity fixtures. This file is a
-  development aid for validating a native integration and is not part of
-  the shipped bundle.
+**Strengths:** best-in-class UPOS and lemmata; runs locally at
+~3,200 tokens/s (C++/Java) on an Apple M4 Max CPU — UDPipe's comparable
+models sit behind a ~700 MB server deployment; calibrated confidences;
+one model for both written standards, mixed input welcome.
 
-Each model version ships in two precisions, and an application bundles
-exactly one: the fp32 artifact (for example `prism-no-0.2.2`, ≈ 94 MB)
-is the exact reference; the **fast** artifact (`prism-no-0.2.2-fast`,
-≈ 45 MB) quantizes linears and embeddings to int8 for less than half
-the size and roughly twice the speed, with development-split quality
-within a few thousandths of a percentage point of fp32 (see
-`docs/benchmarks.md`). The runtimes read either artifact unchanged; the
-fast artifact requires the quantized kernel library, which the C++
-build links automatically and the Swift package pulls in via the
-`kernels_quantized` product.
+**Weaknesses:** exact morphology bundles (UFeats — every feature of a
+word must match) trail UDPipe by ~0.4 pp; no dependency parsing, named
+entities, or raw-text sentence splitting beyond the shipped
+segmentation policy; one language so far (the architecture and
+artifact contract are language-independent by design).
 
-### Tokenization: use the shipped definition or implement the contract
+Complete tables — including the fast-versus-fp32 quality gate and the
+cross-binding runtime matrix — live in
+[docs/benchmarks/prism-no-0.2.2.md](docs/benchmarks/prism-no-0.2.2.md).
 
-The model consumes pre-split words; turning words into subword IDs is the
-integrator's side of the contract, with two supported routes:
+## Get a model
 
-1. **Use a ready-made engine (recommended).** `vocabulary.json` is a
-   standard `tokenizer.json`, so any Hugging Face tokenizers runtime loads
-   it directly — for example
-   [swift-transformers](https://github.com/huggingface/swift-transformers)
-   on Apple platforms, `tokenizers` for Rust/Python, or the Java bindings.
-   No tokenization rules have to be re-implemented.
-2. **Implement the tokenizer yourself.** The manifest's tokenizer contract
-   (file name, class name, padding token ID) together with
-   `vocabulary.json` defines the exact behaviour; `fixtures.json` provides
-   recorded inputs and outputs to verify the implementation token by token.
+Download from [Releases](https://github.com/dmlux/Prism/releases) and
+unpack; each model version ships in two precisions, and an application
+bundles exactly one:
 
-Character-CNN inputs are simpler: map each character of a word through the
-`character_vocabulary` in `labels.json` and pad to the recorded maximum
-count. Sentence splitting and word tokenization of raw text remain the
-application's responsibility (or a port of the versioned
-`prism-runtime-segmentation-v1` policy used by the Python API); applications
-that already have words can skip that layer entirely.
+| Artifact | Size | When to use |
+| --- | ---: | --- |
+| `prism-no-0.2.2-fast` | ≈ 45 MB | **Recommended.** int8, up to 2× faster, quality within 0.014 pp of fp32 |
+| `prism-no-0.2.2` | ≈ 94 MB | Bit-exact fp32 reference behind the published benchmark |
 
-## PrismKit (Swift)
+```bash
+curl -LO https://github.com/dmlux/Prism/releases/download/prism-no-0.2.2/prism-no-0.2.2-fast.tar.gz
+tar -xzf prism-no-0.2.2-fast.tar.gz
+```
 
-`swift/PrismKit` is the native Swift implementation of the complete
-pipeline. It ships its own word segmentation (the
-`prism-runtime-segmentation-v1` policy) and its own byte-level BPE subword
-tokenizer, both parity-tested against the Python reference, so no external
-tokenization framework is required — maximum performance at equal quality
-is the API's stated goal.
+Verify downloads against the release's `SHA256SUMS`. The unpacked
+directory is everything the runtimes need. Details of the artifact
+contract: [docs/INTEGRATION.md](docs/INTEGRATION.md).
+
+## Quick start
+
+All bindings share the same shape: point a tagger at an artifact
+directory, put text in, get sentences of tokens with UPOS, morphology,
+lemma, and confidences out. Sensible defaults (thread count, program
+selection) are built in.
+
+### Swift
+
+Add the package under `swift/` plus the ExecuTorch products
+(`executorch`, `backend_xnnpack`, `kernels_optimized`,
+`kernels_quantized`) to your app target — details in
+[INTEGRATION.md](docs/INTEGRATION.md).
 
 ```swift
 import PrismKit
 
 let tagger = try PrismTagger(
-    artifactURL: artifactDirectory,   // e.g. .../prism-no-0.2.2
-    device: .cpu                      // .automatic, .cpu, .gpu
+    artifactURL: artifactDirectory,   // .../prism-no-0.2.2-fast
+    device: .cpu
 )
-let sentences = try tagger.tag(text: "Hun kjøpte tre gamle bøker.")
-// or: try tagger.tag(pretokenized: [["Hun", "kjøpte", "bøker", "."]])
-for token in sentences[0].tokens {
-    print(token.text, token.upos, token.lemma, token.uposConfidence)
+for sentence in try tagger.tag(text: "Hun kjøpte tre gamle bøker.") {
+    for token in sentence.tokens {
+        print(token.text, token.upos, token.lemma, token.uposConfidence)
+    }
 }
 ```
 
-Integration notes:
+### C++
 
-- **Opening in Xcode:** open `Prism.xcworkspace` at the repository root
-  (or `swift/Package.swift` directly) — Swift packages are native Xcode
-  projects, so no generated `.xcodeproj` is committed.
-- **Adding to an app:** depend on the package at `swift/` and on the
-  ExecuTorch products `executorch`, `backend_xnnpack`, and
-  `kernels_optimized`. Use a current `swiftpm-*` snapshot branch — the
-  prebuilt frameworks must be compiled with a Swift toolchain your Xcode
-  accepts — and keep the runtime at or above the exporter version that
-  produced the artifact (the program format is backward compatible; the
-  test suite's engine tests verify the pairing).
-- **Force-loading backends:** ExecuTorch backends register through static
-  initializers. App targets must add `-force_load` for the backend and
-  kernel archives in Xcode's *Other Linker Flags* (see the ExecuTorch iOS
-  documentation); the package's test target uses `-all_load` for the same
-  reason.
-- **Compute device:** `.cpu` (XNNPACK) works on every Mac including
-  Intel machines; `.gpu` requires an artifact containing a GPU-lowered
-  program and fails with a typed `deviceUnavailable` error otherwise;
-  `.automatic` picks the best available program.
-- **Multi-shape artifacts:** when the artifact ships several fixed-shape
-  programs, `PrismTagger` sorts sentences by length and runs every batch
-  on the smallest program it fits into — no configuration required.
-- **Threads:** `PrismTagger` installs a measured CPU thread-count
-  default (the runtime's own default oversubscribes small fixed-shape
-  batches); `ComputeThreads.setThreadCount(_:)` before creating the
-  tagger overrides it.
-- **Artifact placement:** ship the artifact directory (program files plus
-  `vocabulary.json`, `labels.json`, `calibration.json`, `manifest.json`)
-  as app resources; `fixtures.json` is a development aid and does not
-  belong in the bundle.
-
-## C++ API and C ABI
-
-`cpp/` is the native C++ implementation of the same pipeline — word
-segmentation, byte-level BPE, ExecuTorch execution, and decoding — built
-with hand-written scanners (no regex engine, no ICU) and parity-tested
-against the same shared fixtures. Text is expected in Unicode NFC.
+Build with CMake (`cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release`),
+link the aggregate target: `target_link_libraries(app PRIVATE prism)`.
 
 ```cpp
-#include <prism>  // umbrella header; or the individual <prism/*.h> headers
+#include <prism>
 
-prism::tagger::Tagger tagger("models/prism-no-0.2.2");
-const auto sentences = tagger.TagText("Hun kjøpte tre gamle bøker.");
-for (const auto& token : sentences[0].tokens) {
-    std::cout << token.text << " " << token.upos << " " << token.lemma
-              << " " << token.upos_confidence << "\n";
+prism::tagger::Tagger tagger("prism-no-0.2.2-fast");
+for (const auto& sentence : tagger.TagText("Hun kjøpte tre gamle bøker.")) {
+    for (const auto& token : sentence.tokens) {
+        std::cout << token.text << " " << token.upos << " " << token.lemma
+                  << " " << token.upos_confidence << "\n";
+    }
 }
 ```
 
-For applications whose core links plain C (or crosses a foreign function
-interface), `<prism/prism_c.h>` exposes the same functionality through a
-stable C ABI: opaque `prism_tagger`/`prism_result` handles, thread-local
-`prism_last_error()`, and accessors returning only C strings and scalars.
+### C
 
-Integration notes:
+For application cores that link plain C (or any foreign-function
+interface):
 
-- **Building:** `cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release`
-  then `cmake --build cpp/build`. Third-party code is vendored and
-  version-pinned under `cpp/vendor/`; only the ExecuTorch runtime is
-  fetched at configure time, pinned to the exporter's exact version.
-  `-DPRISM_ENGINE=OFF` builds segmentation and tokenization without
-  network access.
-- **Linking:** the CMake target `prism` aggregates every library and
-  both include directories, so consumers write
-  `target_link_libraries(app PRIVATE prism)` and `#include <prism>`.
-- **Torch headers:** the ExecuTorch build resolves torch headers through
-  a Python interpreter; the repository virtual environment is wired as
-  the default (`Python3_EXECUTABLE` overrides it).
-- **Backend registration:** kernels and backends register through static
-  initializers; the CMake setup already applies the required whole-archive
-  linking to every consumer of `prism_tagger` and `prism_c`.
-- **Multi-shape artifacts:** the tagger sorts sentences by length and
-  runs every batch on the smallest fitting program — no configuration
-  required.
-- **Threads:** the tagger installs a measured CPU thread-count default
-  (the runtime's own default oversubscribes small fixed-shape batches).
-  Override with `prism::engine::SetThreadCount`, `prism_set_thread_count`
-  (C), or `PrismTagger.setThreadCount` (Java) before loading.
+```c
+#include <prism/prism_c.h>
 
-## Java API
+prism_tagger* tagger = prism_tagger_create("prism-no-0.2.2-fast");
+prism_result* result = prism_tagger_tag_text(tagger, "Hun kjøpte tre gamle bøker.");
+for (size_t t = 0; t < prism_result_token_count(result, 0); ++t) {
+    printf("%s %s %s %.3f\n",
+        prism_result_token_text(result, 0, t),
+        prism_result_token_upos(result, 0, t),
+        prism_result_token_lemma(result, 0, t),
+        prism_result_token_upos_confidence(result, 0, t));
+}
+prism_result_destroy(result);
+prism_tagger_destroy(tagger);
+```
 
-`java/` is a dependency-free Java 21 API (Kotlin-compatible out of the
-box) over the native Prism core: a thin JNI bridge marshals text in and
-results out, so segmentation, tokenization, batching, and decoding run
-at native speed.
+### Java (and Kotlin)
+
+Depend on `io.github.dmlux:prism` (or the CMake-built `prism.jar`) and
+make the native library resolvable
+(`-Djava.library.path=...` or `PrismTagger.loadNativeLibrary(...)`).
 
 ```java
-try (PrismTagger tagger = PrismTagger.load(Path.of("models/prism-no-0.2.2"))) {
-    for (TaggedSentence sentence : tagger.tagText("Hun kjøpte tre gamle bøker.")) {
-        for (TaggedToken token : sentence.tokens()) {
+import io.github.dmlux.prism.PrismTagger;
+
+try (PrismTagger tagger = PrismTagger.load(Path.of("prism-no-0.2.2-fast"))) {
+    for (var sentence : tagger.tagText("Hun kjøpte tre gamle bøker.")) {
+        for (var token : sentence.tokens()) {
             System.out.println(token.text() + " " + token.upos() + " "
                 + token.lemma() + " " + token.uposConfidence());
         }
@@ -283,173 +181,65 @@ try (PrismTagger tagger = PrismTagger.load(Path.of("models/prism-no-0.2.2"))) {
 }
 ```
 
-Integration notes:
+### Python
 
-- **Building:** the repository's canonical build produces `prism.jar` and
-  the native library `prism_jni` through CMake (see the C++ section; the
-  Java binding is on by default when a JDK 21 is found, `-DPRISM_JAVA=OFF`
-  disables it). Maven/Gradle consumers can alternatively build and
-  install the JAR with `java/pom.xml` (`mvn install`, coordinates
-  `io.github.dmlux:prism`).
-- **Native library:** the JAR contains the Java layer only. At runtime
-  the native library must be resolvable — either on `java.library.path`
-  (`-Djava.library.path=...`) or loaded explicitly with
-  `PrismTagger.loadNativeLibrary(path)` before the first `load`.
-- **Threading:** a `PrismTagger` instance is not thread-safe; results are
-  immutable and freely shareable.
+The Python package is the research and reference runtime — it runs the
+frozen checkpoint eagerly through PyTorch and requires the repository
+setup ([DEVELOPMENT.md](docs/DEVELOPMENT.md)) rather than a released
+artifact:
 
-## Requirements
+```python
+from prism.languages.norwegian.tagger import NorwegianTagger
 
-- macOS or another Python-compatible platform
-- Python 3.12
-- Git
-
-Python 3.12 is the supported development runtime because it has broad
-compatibility with the current PyTorch and export ecosystem.
-
-## Setup
-
-Clone the repository, create the local virtual environment, and install the
-development dependencies:
-
-```bash
-git clone git@github.com:dmlux/Prism.git
-cd Prism
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e './python[dev]'
+tagger = NorwegianTagger(
+    checkpoint_path=checkpoint, calibration_path=calibration
+)
+for sentence in tagger.tag_text("Hun kjøpte tre gamle bøker."):
+    for token in sentence.tokens:
+        print(token.text, token.upos, token.lemma, token.upos_confidence)
 ```
 
-The distribution is named `prism-nlp`; the Python import package remains
-`prism`.
+Every binding also accepts pretokenized input (`tag(pretokenized:)`,
+`TagPretokenized`, `tagPretokenized`, `prism_tagger_tag_tokens`) when
+your application already has words.
 
-## Training data
+## Training data and licenses
 
-Prism uses separately pinned official Universal Dependencies repositories.
-They live under the ignored `data/raw/` directory and are never committed to
-this repository.
+Prism source code is licensed under the
+[Apache License 2.0](LICENSE.md). Model weights are released under
+**CC BY-SA 4.0**: using or bundling the unmodified artifact — including
+commercially, in closed-source applications — is fine (keep the
+attribution); redistributed modified weights must stay open.
 
-### Norwegian Bokmål
+The Norwegian model exists thanks to openly licensed resources: the
+[UD Norwegian-Bokmaal](https://github.com/UniversalDependencies/UD_Norwegian-Bokmaal)
+and [UD Norwegian-Nynorsk](https://github.com/UniversalDependencies/UD_Norwegian-Nynorsk)
+treebanks (Universal Dependencies contributors, based on the Norwegian
+Dependency Treebank by the National Library of Norway, CC BY-SA 4.0),
+Språkbanken's NBdigital and municipal-documents corpora (National
+Library of Norway, CC0), the Nynorsk Wikipedia (CC BY-SA 4.0), and the
+[`ltg/norbert4-xsmall`](https://huggingface.co/ltg/norbert4-xsmall)
+backbone (Language Technology Group, University of Oslo, Apache 2.0).
+Pinned revisions and checksums travel inside every artifact
+(`manifest.json`, `LICENSES/`).
 
-```bash
-git clone https://github.com/UniversalDependencies/UD_Norwegian-Bokmaal.git \
-  data/raw/UD_Norwegian-Bokmaal
-git -C data/raw/UD_Norwegian-Bokmaal checkout \
-  396d11f0c2bd290a2a2711015c04ac25bc3dcc06
-```
+## Documentation
 
-### Norwegian Nynorsk
-
-```bash
-git clone https://github.com/UniversalDependencies/UD_Norwegian-Nynorsk.git \
-  data/raw/UD_Norwegian-Nynorsk
-git -C data/raw/UD_Norwegian-Nynorsk checkout \
-  aaeb9d90c748c2bd9e272f180b599484f9f05ac6
-```
-
-Both datasets are distributed under CC BY-SA 4.0 and retain their own
-attribution and share-alike requirements.
-
-## Bokmål training and evaluation
-
-Reproduce the unweighted gold-only student:
-
-```bash
-python -m prism.languages.norwegian.train_baseline
-```
-
-Reproduce the selected class-weighted ablation without overwriting the
-unweighted checkpoint:
-
-```bash
-python -m prism.languages.norwegian.train_baseline \
-  --checkpoint runs/nb-student-weighted/best.pt \
-  --morphology-weight-cap 10.0
-```
-
-Evaluate a fixed checkpoint on the development split:
-
-```bash
-python -m prism.languages.norwegian.evaluate_baseline \
-  --checkpoint runs/nb-student-weighted/best.pt \
-  --analysis runs/nb-student-weighted/development-analysis.json
-```
-
-The commands intentionally use training and development data only. The test
-split is reserved for final evaluation after the model and decision policy are
-frozen.
-
-## Tests
-
-Run the complete Python suite from the repository root:
-
-```bash
-python -m pytest python/tests
-```
-
-Run Ruff and the whitespace check before handing off changes:
-
-```bash
-python -m ruff check python
-python -m ruff format --check python
-git diff --check
-```
-
-## Repository layout
-
-```text
-Prism/
-├── cpp/
-│   ├── CMakeLists.txt
-│   ├── include/prism/
-│   ├── src/
-│   ├── tests/
-│   ├── umbrella/
-│   └── vendor/
-├── docs/
-│   ├── ARCHITECTURE.md
-│   ├── PROJECT_STATUS.md
-│   ├── benchmarks.md
-│   └── model-strategy.md
-├── java/
-│   ├── pom.xml
-│   └── src/main/java/io/github/dmlux/prism/
-├── logos/
-├── python/
-│   ├── pyproject.toml
-│   ├── src/prism/
-│   │   ├── data/
-│   │   ├── evaluation/
-│   │   ├── export/
-│   │   ├── languages/
-│   │   ├── modeling/
-│   │   ├── schema/
-│   │   └── training/
-│   └── tests/
-├── swift/
-│   ├── Package.swift
-│   ├── Sources/PrismKit/
-│   └── Tests/PrismKitTests/
-├── Prism.xcworkspace/
-└── README.md
-```
-
-Datasets, checkpoints, virtual environments, caches, and generated artifacts
-are excluded through `.gitignore`.
+- [docs/INTEGRATION.md](docs/INTEGRATION.md) — the artifact contract
+  and per-binding integration details
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how the model and the
+  native inference stack are designed, explained from the ground up
+- [docs/benchmarks/](docs/benchmarks/) — quality and runtime benchmarks
+  per released artifact; [docs/benchmarks.md](docs/benchmarks.md) holds
+  the model-development history
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — building, training,
+  evaluating, and testing Prism itself
+- [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) — every accepted
+  decision and milestone, in order
 
 ## Roadmap
 
-1. Calibrate confidence and freeze the language artifact schema.
-2. Evaluate the frozen model once on the untouched test splits.
-3. Export the selected student and measure the 6,000-token document fixture on
-   production runtimes.
-4. Provide stable Swift, Java/Kotlin, and C++ packages over the versioned model
-   artifact contract.
-
-## Licensing
-
-Prism source code is licensed under the
-[Apache License 2.0](LICENSE.md). External datasets and pretrained models
-retain their own licenses. Every released model artifact must document its
-training-data provenance, dataset license, backbone license, resolved
-configuration, and measured metrics separately.
+1. Close the exact-morphology gap (joint bundle consistency).
+2. More languages over the same language-independent contracts.
+3. Runtime follow-ups: newer ExecuTorch pin for the C++ build,
+   GPU-lowered artifact variants, Hugging Face mirrors of the releases.
