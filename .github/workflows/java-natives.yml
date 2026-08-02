@@ -77,7 +77,10 @@ jobs:
         shell: bash
 
       - name: Build
-        run: cmake --build cpp/build --parallel --config Release
+        # Bounded parallelism: hosted runners have 7-16 GB of RAM, and the
+        # Eigen BLAS translation units inside ExecuTorch OOM-kill the
+        # compiler when every core builds one simultaneously.
+        run: cmake --build cpp/build --parallel 2 --config Release
         shell: bash
 
       - name: Test (model-dependent tests skip without a local artifact)
