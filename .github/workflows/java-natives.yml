@@ -19,6 +19,11 @@
 
 name: java-natives
 
+# Attaching the assembled JAR to a release needs write access to
+# repository contents; everything else works with the read-only default.
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
   push:
