@@ -4,6 +4,15 @@ project(prism-cpp LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Compiler portability: MSVC neither accepts GCC/Clang warning flags nor
+# tolerates the Windows min/max macros inside the ExecuTorch sources.
+if(MSVC)
+    set(PRISM_WARNING_OPTIONS /W4)
+    add_compile_definitions(NOMINMAX)
+else()
+    set(PRISM_WARNING_OPTIONS -Wall -Wextra)
+endif()
+
 # Vendored, version-pinned third-party code (no network at configure time):
 # - vendor/nlohmann: json.hpp single-header amalgamation v3.11.3 (MIT)
 # - vendor/googletest: GoogleTest v1.17.0 sources (BSD-3-Clause)
@@ -21,17 +30,17 @@ target_include_directories(prism_vendor_gtest
 
 add_library(prism_segmentation src/segmentation.cpp)
 target_include_directories(prism_segmentation PUBLIC include)
-target_compile_options(prism_segmentation PRIVATE -Wall -Wextra)
+target_compile_options(prism_segmentation PRIVATE ${PRISM_WARNING_OPTIONS})
 
 add_library(prism_subword src/subword.cpp)
 target_include_directories(prism_subword PUBLIC include)
 target_link_libraries(prism_subword PUBLIC prism_segmentation PRIVATE prism_vendor_json)
-target_compile_options(prism_subword PRIVATE -Wall -Wextra)
+target_compile_options(prism_subword PRIVATE ${PRISM_WARNING_OPTIONS})
 
 add_library(prism_artifact src/artifact.cpp)
 target_include_directories(prism_artifact PUBLIC include)
 target_link_libraries(prism_artifact PRIVATE prism_vendor_json)
-target_compile_options(prism_artifact PRIVATE -Wall -Wextra)
+target_compile_options(prism_artifact PRIVATE ${PRISM_WARNING_OPTIONS})
 
 # The ExecuTorch runtime cannot be vendored as an amalgamation (the source
 # tree with submodules spans hundreds of megabytes), so the engine pins it
@@ -86,18 +95,18 @@ if(PRISM_ENGINE)
         PUBLIC prism_artifact prism_segmentation
         PRIVATE prism_subword prism_engine
     )
-    target_compile_options(prism_tagger PRIVATE -Wall -Wextra)
+    target_compile_options(prism_tagger PRIVATE ${PRISM_WARNING_OPTIONS})
 
     # The plain-C embedding surface for applications whose core links C
     # libraries only (see include/prism/prism_c.h).
     add_library(prism_c src/prism_c.cpp)
     target_include_directories(prism_c PUBLIC include)
     target_link_libraries(prism_c PRIVATE prism_tagger)
-    target_compile_options(prism_c PRIVATE -Wall -Wextra)
+    target_compile_options(prism_c PRIVATE ${PRISM_WARNING_OPTIONS})
 
     add_executable(prism_chapter_benchmark tools/chapter_benchmark.cpp)
     target_link_libraries(prism_chapter_benchmark PRIVATE prism_tagger)
-    target_compile_options(prism_chapter_benchmark PRIVATE -Wall -Wextra)
+    target_compile_options(prism_chapter_benchmark PRIVATE ${PRISM_WARNING_OPTIONS})
 endif()
 
 # The Java binding: a thin JNI bridge over the C++ tagger plus the
@@ -114,7 +123,7 @@ if(PRISM_ENGINE AND PRISM_JAVA)
         add_library(prism_jni SHARED src/jni.cpp)
         target_include_directories(prism_jni PRIVATE ${JNI_INCLUDE_DIRS})
         target_link_libraries(prism_jni PRIVATE prism_tagger)
-        target_compile_options(prism_jni PRIVATE -Wall -Wextra)
+        target_compile_options(prism_jni PRIVATE ${PRISM_WARNING_OPTIONS})
 
         file(GLOB PRISM_JAVA_SOURCES
             "${CMAKE_CURRENT_SOURCE_DIR}/../java/src/main/java/io/github/dmlux/prism/*.java")
