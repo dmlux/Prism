@@ -243,10 +243,51 @@ try (PrismTagger tagger = PrismTagger.load(artifactDirectory)) { ... }
 
 Maven/Gradle consumers can build and install the JAR from
 `java/pom.xml` (`mvn install`, coordinates `io.github.dmlux:prism`) —
-the POM covers the Java layer only; the native library still comes from
-the CMake build. Bundling per-platform natives inside the JAR with
-automatic extraction (the sqlite-jdbc pattern) is a documented
-follow-up.
+the POM covers the Java layer; the native library still comes from the
+CMake build once per platform.
+
+### Self-contained JARs (embedded natives)
+
+There is no plugin mechanism that runs CMake on a *consumer's* machine
+when they add a Maven/Gradle dependency — dependencies are downloaded
+artifacts, and requiring every consumer to carry a C++ toolchain would
+defeat the point. The established pattern (sqlite-jdbc, JNA, ONNX
+Runtime) is the one Prism implements: **prebuilt natives inside the
+JAR, extracted and loaded automatically at runtime.**
+
+`PrismTagger` resolves the native library in this order:
+
+1. an explicit `PrismTagger.loadNativeLibrary(path)` call;
+2. a library embedded in the JAR under
+   `/io/github/dmlux/prism/native/<os>-<arch>/` matching the current
+   platform (`macos`/`linux`/`windows` × `aarch64`/`x86_64`), extracted
+   to a temporary directory;
+3. `System.loadLibrary("prism_jni")` via `java.library.path`.
+
+To produce a self-contained JAR, place the platform builds under the
+Maven resource path before packaging — each library is ~8 MB, so a JAR
+covering several platforms stays reasonably sized:
+
+```text
+java/src/main/resources/io/github/dmlux/prism/native/
+├── macos-aarch64/libprism_jni.dylib
+├── macos-x86_64/libprism_jni.dylib
+├── linux-x86_64/libprism_jni.so
+└── windows-x86_64/prism_jni.dll
+```
+
+```bash
+cmake --build cpp/build --parallel        # produces the current platform's library
+mkdir -p java/src/main/resources/io/github/dmlux/prism/native/macos-aarch64
+cp cpp/build/libprism_jni.dylib \
+   java/src/main/resources/io/github/dmlux/prism/native/macos-aarch64/
+cd java && mvn install                    # JAR now works without java.library.path
+```
+
+Consumers of such a JAR need nothing beyond the dependency and a model
+artifact. Building the natives for all platforms in CI (one runner per
+OS/architecture) and publishing the combined JAR is the release-side
+counterpart of this mechanism.
 
 Common failure modes: `UnsatisfiedLinkError: no prism_jni in
 java.library.path` — the library directory is not on the path and no

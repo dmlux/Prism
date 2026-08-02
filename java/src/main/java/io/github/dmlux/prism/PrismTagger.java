@@ -1,11 +1,15 @@
 package io.github.dmlux.prism;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -42,8 +46,9 @@ public final class PrismTagger implements AutoCloseable {
     /**
      * Loads the native library from an explicit path (for example
      * {@code libprism_jni.dylib} or {@code libprism_jni.so}). Optional:
-     * without this call, {@link #load(Path)} resolves {@code prism_jni}
-     * through {@code java.library.path}.
+     * without this call, {@link #load(Path)} first extracts a native
+     * library embedded in the JAR for the current platform and falls back
+     * to resolving {@code prism_jni} through {@code java.library.path}.
      */
     public static synchronized void loadNativeLibrary(Path library) {
         System.load(library.toAbsolutePath().toString());
@@ -99,11 +104,63 @@ public final class PrismTagger implements AutoCloseable {
         if (!nativeLibraryLoaded) {
             synchronized (PrismTagger.class) {
                 if (!nativeLibraryLoaded) {
-                    System.loadLibrary("prism_jni");
+                    if (!loadEmbeddedNativeLibrary()) {
+                        System.loadLibrary("prism_jni");
+                    }
                     nativeLibraryLoaded = true;
                 }
             }
         }
+    }
+
+    /**
+     * Loads the native library embedded in the JAR (the sqlite-jdbc
+     * pattern): the resource under
+     * {@code /io/github/dmlux/prism/native/<os>-<arch>/} matching the
+     * current platform is extracted to a temporary directory and loaded.
+     * Returns false when the JAR carries no native for this platform, in
+     * which case resolution falls back to {@code java.library.path}.
+     */
+    private static boolean loadEmbeddedNativeLibrary() {
+        String fileName = System.mapLibraryName("prism_jni");
+        String resource = "/io/github/dmlux/prism/native/"
+                + operatingSystemClassifier() + "-" + architectureClassifier()
+                + "/" + fileName;
+        try (InputStream stream = PrismTagger.class.getResourceAsStream(resource)) {
+            if (stream == null) {
+                return false;
+            }
+            Path directory = Files.createTempDirectory("prism-native");
+            Path target = directory.resolve(fileName);
+            Files.copy(stream, target);
+            target.toFile().deleteOnExit();
+            directory.toFile().deleteOnExit();
+            System.load(target.toAbsolutePath().toString());
+            return true;
+        } catch (IOException error) {
+            throw new PrismException(
+                    "Cannot extract the embedded native library: "
+                            + error.getMessage());
+        }
+    }
+
+    private static String operatingSystemClassifier() {
+        String name = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        if (name.contains("mac") || name.contains("darwin")) {
+            return "macos";
+        }
+        if (name.contains("win")) {
+            return "windows";
+        }
+        return "linux";
+    }
+
+    private static String architectureClassifier() {
+        String arch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
+        if (arch.equals("aarch64") || arch.equals("arm64")) {
+            return "aarch64";
+        }
+        return "x86_64";
     }
 
     private long requireHandle() {

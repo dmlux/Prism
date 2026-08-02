@@ -208,12 +208,13 @@ prism_tagger_destroy(tagger);
 
 ### Java (and Kotlin)
 
-Depend on `io.github.dmlux:prism` (or the CMake-built `prism.jar`) and
-make the native library resolvable
-(`-Djava.library.path=...` or `PrismTagger.loadNativeLibrary(...)`).
-The C++ build above produces both files in one go — `prism.jar` plus
-`libprism_jni` for your platform; the JNI mechanics are explained in
-[INTEGRATION.md](docs/INTEGRATION.md).
+Depend on `io.github.dmlux:prism` (or the CMake-built `prism.jar`).
+JARs with embedded natives work out of the box — the right library for
+your platform is extracted and loaded automatically; otherwise make it
+resolvable via `-Djava.library.path=...` or
+`PrismTagger.loadNativeLibrary(...)`. The C++ build produces both
+`prism.jar` and `libprism_jni` in one go; packaging and the JNI
+mechanics are explained in [INTEGRATION.md](docs/INTEGRATION.md).
 
 ```java
 import io.github.dmlux.prism.PrismTagger;
