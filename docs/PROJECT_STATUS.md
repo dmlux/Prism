@@ -3073,24 +3073,24 @@ python -m prism.languages.norwegian.export_artifact \
   --artifact-version 0.1.0
 ```
 
-## Vorläufiger Architektur-Cleanup
+## Interim architecture cleanup
 
-Der angekündigte Cleanup ist abgeschlossen. Entfernt wurden der abgelehnte
-Agreement-Refiner, die Task-Familien-Adapter, die nicht mehr benötigten
-Task-Head-Zwischenarchitekturen, der alte Gradient-Isolations-Alias und das
-abgeschlossene Frozen-Head-Probe-Werkzeug einschließlich CLI-, Checkpoint- und
-Testpfaden. Nach seiner Messung wurde auch der verworfene adaptive
-Fusions-Probe vollständig aus den ausführbaren Pfaden entfernt. Diese
-Experimente bleiben in `docs/benchmarks.md` als Auswahlhistorie
-nachvollziehbar, sind aber nicht länger Teil der Produktionsoberfläche.
+The announced cleanup is complete. Removed were the rejected agreement
+refiner, the task-family adapters, the no-longer-needed intermediate
+task-head architectures, the old gradient-isolation alias, and the finished
+frozen-head probe tooling including their CLI, checkpoint, and test paths.
+After its measurement, the rejected adaptive fusion probe was also removed
+completely from the executable paths. These experiments remain traceable in
+`docs/benchmarks.md` as selection history but are no longer part of the
+production surface.
 
-Erhalten bleiben die ausgewählte vollständige Student-Architektur, der
-`linear`-Kontrollpfad, `identity` zur Reproduktion der Morphologie-Vorprojektion,
-alle drei expliziten Bundle-Gradient-Scopes, der ausgewählte lineare
-Bundle-Scorer, der unmittelbar für die geplante Fusion relevante
-kompositionelle Scorer sowie die Evaluation-Audits. Alte Checkpoints der
-entfernten Forschungsarchitekturen werden nicht mehr geladen; der ausgewählte
-Produktionscheckpoint und sein Format-3-Vertrag bleiben unverändert.
+Retained are the selected complete student architecture, the `linear`
+control path, `identity` for reproducing the morphology pre-projection, all
+three explicit bundle-gradient scopes, the selected linear bundle scorer,
+the compositional scorer directly relevant to the planned fusion, and the
+evaluation audits. Old checkpoints of the removed research architectures are
+no longer loaded; the selected production checkpoint and its format-3
+contract remain unchanged.
 
 ## PrismKit (Swift package, native phase)
 
