@@ -105,7 +105,7 @@ java -Djava.library.path=cpp/build -cp "cpp/build/prism.jar:cpp/build/prism_java
   io.github.dmlux.prism.PrismChapterBenchmark models/prism-no-0.2.2-fast data/examples/hp7kap1.txt
 
 # Swift (release mode; PRISM_ARTIFACT selects the artifact directory)
-cd swift && PRISM_ARTIFACT=models/prism-no-0.2.2-fast \
+PRISM_ARTIFACT=models/prism-no-0.2.2-fast \
   swift test -c release --filter ChapterBenchmarkTests
 
 # Thread sweep

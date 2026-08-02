@@ -111,9 +111,11 @@ segmentation and byte-level BPE, parity-tested against the reference —
 so no external tokenization framework is required.
 
 - **Opening in Xcode:** open `Prism.xcworkspace` at the repository root
-  (or `swift/Package.swift` directly) — Swift packages are native Xcode
-  projects, so no generated `.xcodeproj` is committed.
-- **Adding to an app:** depend on the package at `swift/` and on the
+  (or the root `Package.swift` directly) — Swift packages are native
+  Xcode projects, so no generated `.xcodeproj` is committed.
+- **Adding to an app:** depend on the Prism package (the manifest lives
+  at the repository root so version pins resolve through the released
+  `v*` tags, e.g. `.package(url: ..., from: "0.2.0")`) and on the
   ExecuTorch products `executorch`, `backend_xnnpack`,
   `kernels_optimized`, and `kernels_quantized`. Use a current
   `swiftpm-*` snapshot branch — the prebuilt frameworks must be
@@ -152,6 +154,17 @@ regex engine, no ICU), parity-tested against the shared fixtures.
 - **Linking:** the CMake target `prism` aggregates every library and
   include directory: `target_link_libraries(app PRIVATE prism)`, then
   `#include <prism>`.
+- **Pinning a release:** consume the repository via FetchContent (or a
+  submodule) pinned to a released `v*` tag:
+
+  ```cmake
+  FetchContent_Declare(prism
+      GIT_REPOSITORY https://github.com/dmlux/Prism.git
+      GIT_TAG v0.2.0
+      SOURCE_SUBDIR cpp)
+  FetchContent_MakeAvailable(prism)
+  target_link_libraries(app PRIVATE prism)
+  ```
 - **Torch headers:** the ExecuTorch build resolves torch headers
   through a Python interpreter; the repository virtual environment is
   wired as the default (`Python3_EXECUTABLE` overrides it).

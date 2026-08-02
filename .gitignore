@@ -64,8 +64,8 @@ temp/
 
 
 # Swift package build directory
-swift/.build/
-swift/.swiftpm/
+.build/
+.swiftpm/
 cpp/build/
 java/target/
 Prism.xcworkspace/xcuserdata/

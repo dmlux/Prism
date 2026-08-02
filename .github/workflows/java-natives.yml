@@ -3,7 +3,8 @@
 # PrismTagger — see docs/INTEGRATION.md).
 #
 # Triggers: manually via workflow_dispatch, or by pushing a tag like
-# `prism-java-0.2.0`. Tag runs additionally attach the assembled JAR to
+# `v0.2.0` (the shared library-release tag family for the Swift, C++,
+# C, and Java bindings). Tag runs additionally attach the assembled JAR to
 # the GitHub release of that tag.
 #
 # Notes for the first runs:
@@ -22,7 +23,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - "prism-java-*"
+      - "v*"
 
 jobs:
   build-native:
@@ -144,8 +145,8 @@ jobs:
       - name: Rename with platform summary
         run: |
           version=$(mvn -q -f java/pom.xml help:evaluate -Dexpression=project.version -DforceStdout)
-          cp "java/target/prism-${version}.jar" "prism-${version}-all.jar"
-          echo "JAR_NAME=prism-${version}-all.jar" >> "$GITHUB_ENV"
+          cp "java/target/prism-${version}.jar" "prism-${version}-all-platforms.jar"
+          echo "JAR_NAME=prism-${version}-all-platforms.jar" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -154,7 +155,7 @@ jobs:
           if-no-files-found: error
 
       - name: Attach to release (tag builds only)
-        if: startsWith(github.ref, 'refs/tags/prism-java-')
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${GITHUB_REF_NAME}" "${JAR_NAME}" --clobber

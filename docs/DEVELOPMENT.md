@@ -101,8 +101,8 @@ cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
 cmake --build cpp/build --parallel
 ctest --test-dir cpp/build --output-on-failure
 
-# Swift
-cd swift && swift test
+# Swift (package manifest at the repository root)
+swift test
 ```
 
 The native suites validate against the local `models/` artifacts and
@@ -127,7 +127,7 @@ Prism/
 │   ├── src/prism/       data/ evaluation/ exporting/ languages/
 │   │                    modeling/ schema/ training/
 │   └── tests/
-├── swift/               PrismKit (SwiftPM package)
+├── swift/               PrismKit sources (manifest: root Package.swift)
 ├── Prism.xcworkspace/   open this in Xcode
 └── README.md
 ```

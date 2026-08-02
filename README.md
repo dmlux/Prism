@@ -141,7 +141,8 @@ per platform.
 
 ### Swift
 
-Add the package under `swift/` plus the ExecuTorch products
+Add the Prism package (repository root; pin released `v*` tags with
+`from: "0.2.0"`) plus the ExecuTorch products
 (`executorch`, `backend_xnnpack`, `kernels_optimized`,
 `kernels_quantized`) to your app target — details in
 [INTEGRATION.md](docs/INTEGRATION.md).

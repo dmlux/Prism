@@ -17,6 +17,9 @@ let package = Package(
         )
     ],
     targets: [
+        // The manifest lives at the repository root so SwiftPM consumers
+        // can pin released versions through plain `v*` git tags; the
+        // sources stay under swift/ next to the other language bindings.
         .target(
             name: "PrismKit",
             dependencies: [
@@ -26,7 +29,8 @@ let package = Package(
                 // int8 (fast) artifacts fuse the embedding lookup into
                 // quantized_decomposed ops; this library provides them.
                 .product(name: "kernels_quantized", package: "executorch"),
-            ]
+            ],
+            path: "swift/Sources/PrismKit"
         ),
         .testTarget(
             name: "PrismKitTests",
@@ -34,6 +38,7 @@ let package = Package(
                 "PrismKit",
                 .product(name: "backend_xnnpack", package: "executorch"),
             ],
+            path: "swift/Tests/PrismKitTests",
             resources: [.process("Resources")],
             linkerSettings: [
                 .unsafeFlags(["-Xlinker", "-all_load"])
