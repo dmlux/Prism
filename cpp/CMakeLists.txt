@@ -4,6 +4,11 @@ project(prism-cpp LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# The JNI bridge is a shared library; on Linux, every static archive
+# linked into it (including the fetched ExecuTorch libraries) must be
+# compiled position-independent.
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 # Compiler portability: MSVC neither accepts GCC/Clang warning flags nor
 # tolerates the Windows min/max macros inside the ExecuTorch sources.
 if(MSVC)
