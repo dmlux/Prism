@@ -3456,3 +3456,26 @@ matrix and the development-split quality table live in
 docs/BENCHMARKS.md. All suites green: Python 302/302, C++/Java ctest
 2/2 (including fast fixture parity and fast reference decisions),
 Swift 17/17.
+
+### CI-built self-contained Java JAR, verified end to end
+
+The java-natives workflow is green: four platform legs (macOS arm64,
+macOS x86_64, Linux x86_64, Linux aarch64) build the JNI library and
+the assembly job packages `prism-0.2.0-all-platforms.jar` with all four
+natives embedded (~14 MB). The end-to-end proof: the CI-built JAR,
+downloaded and run locally with no `java.library.path`, extracts the
+right library and reproduces the reference decisions against the fast
+artifact. Getting there took five iterations worth recording: unbounded
+build parallelism OOM-killed the Linux runners (bounded to 2); MSVC
+rejects GCC warning flags and needs NOMINMAX (fixed, though Windows
+stays experimental — ExecuTorch v1.3.1's portable kernels do not
+compile under MSVC; revisit with the 1.4 pin upgrade); Linux shared
+libraries need position-independent static archives (global PIC); and
+GitHub retired its Intel macOS runners, so the x86_64 library is
+cross-compiled on the arm64 runner — which requires CMAKE_SYSTEM_NAME
+to enter real cross-compiling mode, because a bare
+CMAKE_SYSTEM_PROCESSOR override is ignored and ExecuTorch's arm-kernel
+gates otherwise inject armv8 flags into the x86_64 build. Library
+releases are unified on v* tags across Swift (root Package.swift for
+SwiftPM version resolution), C++ (FetchContent SOURCE_SUBDIR), C, and
+Java; a v* tag automatically attaches the platform JAR to its release.
