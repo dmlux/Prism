@@ -254,9 +254,11 @@ PrismTagger.loadNativeLibrary(Path.of("/path/to/libprism_jni.dylib"));
 try (PrismTagger tagger = PrismTagger.load(artifactDirectory)) { ... }
 ```
 
-Maven/Gradle consumers can build and install the JAR from
-`java/pom.xml` (`mvn install`, coordinates `io.github.dmlux:prism`) —
-the POM covers the Java layer; the native library still comes from the
+Maven/Gradle consumers normally just depend on the published
+`io.github.dmlux:prism` from Maven Central (see below — it embeds the
+common platform natives). For local development against unreleased
+changes, build and install from `java/pom.xml` (`mvn install`); that
+POM covers the Java layer, and the native library still comes from the
 CMake build once per platform.
 
 ### Self-contained JARs (embedded natives)
@@ -298,9 +300,11 @@ cd java && mvn install                    # JAR now works without java.library.p
 ```
 
 Consumers of such a JAR need nothing beyond the dependency and a model
-artifact. Building the natives for all platforms in CI (one runner per
-OS/architecture) and publishing the combined JAR is the release-side
-counterpart of this mechanism.
+artifact. This is exactly what the released JAR provides: CI builds the
+natives for macOS (arm64, x86_64) and Linux (x86_64, aarch64) — one
+runner per OS/architecture — and the combined JAR is published to
+Maven Central as `io.github.dmlux:prism` and attached to the matching
+GitHub `v*` release.
 
 Common failure modes: `UnsatisfiedLinkError: no prism_jni in
 java.library.path` — the library directory is not on the path and no

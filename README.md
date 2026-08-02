@@ -209,13 +209,29 @@ prism_tagger_destroy(tagger);
 
 ### Java (and Kotlin)
 
-Depend on `io.github.dmlux:prism` (or the CMake-built `prism.jar`).
-JARs with embedded natives work out of the box — the right library for
-your platform is extracted and loaded automatically; otherwise make it
-resolvable via `-Djava.library.path=...` or
-`PrismTagger.loadNativeLibrary(...)`. The C++ build produces both
-`prism.jar` and `libprism_jni` in one go; packaging and the JNI
-mechanics are explained in [INTEGRATION.md](docs/INTEGRATION.md).
+Prism is on [Maven Central](https://central.sonatype.com/artifact/io.github.dmlux/prism)
+with embedded native libraries for macOS (arm64, x86_64) and Linux
+(x86_64, aarch64) — the right one is extracted and loaded
+automatically, no further setup:
+
+```xml
+<dependency>
+  <groupId>io.github.dmlux</groupId>
+  <artifactId>prism</artifactId>
+  <version>0.2.0</version>
+</dependency>
+```
+
+```kotlin
+implementation("io.github.dmlux:prism:0.2.0")
+```
+
+The same JAR is attached to each [`v*` release](https://github.com/dmlux/Prism/releases)
+for manual use without a build tool. On other platforms, build
+`prism.jar` plus `libprism_jni` yourself (one CMake run) and load via
+`-Djava.library.path=...` or `PrismTagger.loadNativeLibrary(...)`;
+packaging and the JNI mechanics are explained in
+[INTEGRATION.md](docs/INTEGRATION.md).
 
 ```java
 import io.github.dmlux.prism.PrismTagger;
