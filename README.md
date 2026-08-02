@@ -62,7 +62,7 @@ stage.
 | Fact | Value |
 | --- | --- |
 | Parameters | 17.6 M (16.9 M backbone incl. 9.8 M embedding, 0.7 M heads + character CNN) |
-| Architecture | 16-layer encoder-only Transformer (NorBERT4-xsmall: hidden 192, 3 attention heads), distilled from NorBERT4-base |
+| Architecture | 16-layer encoder-only Transformer (NorBERT4-xsmall: hidden 192, 3 attention heads), distilled from NorBERT4-large |
 | Tasks and label spaces | 17 UPOS tags · 18 morphology features · 1,059 lemma edit rules |
 | Vocabulary | 51,200 byte-level BPE subwords · 120-character vocabulary for the character CNN |
 | Languages | Norwegian Bokmål (`nb`) and Nynorsk (`nn`), one shared set of weights |

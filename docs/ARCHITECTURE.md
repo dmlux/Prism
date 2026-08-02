@@ -614,13 +614,15 @@ The teacher–student architecture uses two models for different goals:
 The current role assignment:
 
 - `ltg/norbert4-xsmall` is the selected backbone of the compact student;
-- `ltg/norbert4-base` is the accepted format-3 teacher backbone; its
+- `ltg/norbert4-base` was the first accepted format-3 teacher backbone; its
   character-aware checkpoint uses the same schema and task architecture as
   the student and beats it on both written standards including Rare/OOV;
-- the earlier base teacher belongs to the historical format-2 contract and
-  remains an incompatible comparison value;
-- `ltg/norbert4-large` remains a later teacher comparison in case base does
-  not improve the final student enough.
+- `ltg/norbert4-large` is the final teacher behind the shipped model: once
+  the student had closed most of the distance to the base labeler, the
+  large teacher lifted the labeling ceiling, and the released student is
+  trained on its silver labels and distilled from its logits;
+- the earlier base teacher of the historical format-2 contract remains an
+  incompatible comparison value.
 
 NorBERT4-xsmall is only the pretrained student backbone of the Norwegian
 language profile, not the finished Prism model. Prism adds layer mixing,
@@ -1625,7 +1627,7 @@ plausible.
 ```mermaid
 flowchart TB
     Gold[("UD gold data<br/>training split")]
-    Teacher["Large format-3 teacher<br/>NorBERT4-base backbone"]
+    Teacher["Large format-3 teacher<br/>NorBERT4-large backbone"]
     TeacherLogits["Teacher logits<br/>per task and token"]
     Student["Compact student<br/>NorBERT4-xsmall + selected Prism architecture"]
     StudentLogits["Student logits<br/>per task and token"]
@@ -1679,9 +1681,10 @@ features. Multi-valued morphology has several simultaneously correct values
 and thus no single target class; it stays with the existing binary KL
 contract. This boundary is schema-driven, not hard-coded to Norwegian.
 
-The selected NorBERT4-base teacher uses the same character-aware format-3
-task contract as the student. Historical format-2 teachers remain
-incompatible comparison values and must not be loaded into this path.
+Both format-3 teachers (NorBERT4-base first, NorBERT4-large for the shipped
+model) use the same character-aware format-3 task contract as the student.
+Historical format-2 teachers remain incompatible comparison values and must
+not be loaded into this path.
 
 The teacher transfers no weights directly; it supplies additional training
 signals. The student is compared against the same architecture without
@@ -1868,8 +1871,8 @@ The implemented data and model contract currently includes:
 - subword-to-token alignment and padded token masks;
 - a language-independent adapter from `PretokenizedSentence` to the
   `TokenizedBatch`, verified with the real pinned NorBERT4 tokenizer;
-- NorBERT4-xsmall and NorBERT4-base as interchangeable student and teacher
-  backbones of the Norwegian language profile;
+- NorBERT4-xsmall as student backbone and NorBERT4-base plus NorBERT4-large
+  as pinned teacher backbones of the Norwegian language profile;
 - a trainable, scaled mixture of the last four backbone layers;
 - first pooling and the selected mean pooling over complete subword spans;
 - the non-affine shared normalization and the selected residual
@@ -2032,6 +2035,7 @@ in every student epoch.
 - [NorBERT4-xsmall model card](https://huggingface.co/ltg/norbert4-xsmall)
 - [NorBERT4-xsmall configuration](https://huggingface.co/ltg/norbert4-xsmall/blob/7483327d36a2daa5dbe936c68aa277149c6f9632/config.json)
 - [NorBERT4-base model card](https://huggingface.co/ltg/norbert4-base)
+- [NorBERT4-large model card](https://huggingface.co/ltg/norbert4-large)
 - [Prism model strategy](MODEL_STRATEGY.md)
 - [Confirmed project status](PROJECT_STATUS.md)
 - [Benchmarks](BENCHMARKS.md) and [per-artifact benchmarks](benchmarks/)

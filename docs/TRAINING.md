@@ -69,8 +69,8 @@ supervise the student:
 ```bash
 python -m prism.languages.norwegian.train_baseline \
   --model-role teacher \
-  --teacher-backbone base \
-  --checkpoint runs/no-teacher-base/best.pt
+  --teacher-backbone large \
+  --checkpoint runs/no-teacher-large/best.pt
 ```
 
 ### 2. (Optional but selected) Prepare and label silver data
@@ -190,7 +190,8 @@ without code changes. A new language needs four things:
    multilingual one), pinned to a revision. Two sizes work best: a
    compact student for deployment and a larger teacher for
    distillation. For Norwegian these are `ltg/norbert4-xsmall` and
-   `ltg/norbert4-base`.
+   `ltg/norbert4-large` (with `ltg/norbert4-base` as a registered
+   alternate teacher; the released model was distilled from large).
 3. **A language profile** — a `LanguageProfileSpec` wiring tags, names,
    backbones, and treebank paths together
    (`python/src/prism/languages/<language>/profile.py`):
