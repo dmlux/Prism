@@ -53,6 +53,9 @@ if(PRISM_ENGINE)
     set(EXECUTORCH_BUILD_EXTENSION_FLAT_TENSOR ON CACHE BOOL "" FORCE)
     set(EXECUTORCH_BUILD_XNNPACK ON CACHE BOOL "" FORCE)
     set(EXECUTORCH_BUILD_KERNELS_OPTIMIZED ON CACHE BOOL "" FORCE)
+    # int8 artifacts fuse the embedding into quantized_decomposed ops
+    # (embedding_byte); the quantized kernel library provides them.
+    set(EXECUTORCH_BUILD_KERNELS_QUANTIZED ON CACHE BOOL "" FORCE)
     FetchContent_Declare(
         executorch
         GIT_REPOSITORY https://github.com/pytorch/executorch.git
@@ -72,7 +75,10 @@ if(PRISM_ENGINE)
     # final binary must keep every archive member.
     executorch_target_link_options_shared_lib(optimized_native_cpu_ops_lib)
     executorch_target_link_options_shared_lib(xnnpack_backend)
-    target_link_libraries(prism_engine PRIVATE optimized_native_cpu_ops_lib xnnpack_backend)
+    executorch_target_link_options_shared_lib(quantized_ops_lib)
+    target_link_libraries(prism_engine
+        PRIVATE optimized_native_cpu_ops_lib xnnpack_backend quantized_ops_lib
+    )
 
     add_library(prism_tagger src/tagger.cpp)
     target_include_directories(prism_tagger PUBLIC include)
