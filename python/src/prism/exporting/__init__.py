@@ -29,7 +29,9 @@ from prism.exporting.artifact import (
 )
 from prism.exporting.backbone import BackboneExportAdapter
 from prism.exporting.lowering import (
+    fold_scaled_linear_parametrizations,
     lower_to_executorch_xnnpack,
+    quantize_adapter_int8,
     maximum_absolute_difference,
     run_executorch_program,
 )
@@ -70,7 +72,9 @@ __all__ = [
     "build_labels_payload",
     "decoded_sentence_predictions",
     "deserialize_tensor",
+    "fold_scaled_linear_parametrizations",
     "lower_to_executorch_xnnpack",
+    "quantize_adapter_int8",
     "maximum_absolute_difference",
     "maximum_task_probability_difference",
     "pad_character_token_batch",

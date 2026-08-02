@@ -127,6 +127,17 @@ complete integration contract for native runtimes:
   development aid for validating a native integration and is not part of
   the shipped bundle.
 
+Each model version ships in two precisions, and an application bundles
+exactly one: the fp32 artifact (for example `prism-no-0.2.2`, ≈ 94 MB)
+is the exact reference; the **fast** artifact (`prism-no-0.2.2-fast`,
+≈ 45 MB) quantizes linears and embeddings to int8 for less than half
+the size and roughly twice the speed, with development-split quality
+within a few thousandths of a percentage point of fp32 (see
+`docs/benchmarks.md`). The runtimes read either artifact unchanged; the
+fast artifact requires the quantized kernel library, which the C++
+build links automatically and the Swift package pulls in via the
+`kernels_quantized` product.
+
 ### Tokenization: use the shipped definition or implement the contract
 
 The model consumes pre-split words; turning words into subword IDs is the
@@ -197,6 +208,10 @@ Integration notes:
 - **Multi-shape artifacts:** when the artifact ships several fixed-shape
   programs, `PrismTagger` sorts sentences by length and runs every batch
   on the smallest program it fits into — no configuration required.
+- **Threads:** `PrismTagger` installs a measured CPU thread-count
+  default (the runtime's own default oversubscribes small fixed-shape
+  batches); `ComputeThreads.setThreadCount(_:)` before creating the
+  tagger overrides it.
 - **Artifact placement:** ship the artifact directory (program files plus
   `vocabulary.json`, `labels.json`, `calibration.json`, `manifest.json`)
   as app resources; `fixtures.json` is a development aid and does not

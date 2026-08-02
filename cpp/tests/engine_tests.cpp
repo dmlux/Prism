@@ -35,15 +35,19 @@ prism::engine::InputTensor InputFromJson(const nlohmann::json& payload)
     return input;
 }
 
-TEST(Engine, ExecutesFixtureBatchWithRecordedParity)
+void ExpectFixtureParity(const std::string& artifact)
 {
-    const auto artifact = kRoot + "/models/prism-no-0.2.2";
     std::ifstream fixtures_file(artifact + "/fixtures.json");
     if (!fixtures_file) {
         GTEST_SKIP() << "Local artifact is not present.";
     }
     const auto fixtures = nlohmann::json::parse(fixtures_file);
     const auto& fixture = fixtures.at("fixtures").at(0);
+    // The tolerance travels with the artifact: fp32 fixtures record eager
+    // outputs (tight), int8 fixtures record the quantized eager twin,
+    // whose gap to the XNNPACK int8 kernels is inherently wider.
+    const auto tolerance = fixtures.at("comparison")
+                               .value("probability_tolerance", 5e-3);
 
     std::vector<prism::engine::InputTensor> inputs;
     for (const auto& payload : fixture.at("inputs")) {
@@ -78,7 +82,7 @@ TEST(Engine, ExecutesFixtureBatchWithRecordedParity)
         largest_difference = std::max(largest_difference,
             std::abs(outputs[0].data[index] - expected_upos.at(index).get<float>()));
     }
-    EXPECT_LE(largest_difference, 5e-3F);
+    EXPECT_LE(largest_difference, static_cast<float>(tolerance));
 
     // Every row must be a probability distribution over the UPOS labels.
     const auto label_count = static_cast<std::size_t>(outputs[0].shape.sizes.back());
@@ -88,6 +92,19 @@ TEST(Engine, ExecutesFixtureBatchWithRecordedParity)
     }
     EXPECT_NEAR(row_sum, 1.0F, 1e-3F);
     std::cout << "engine parity: max |delta| = " << largest_difference << "\n";
+}
+
+TEST(Engine, ExecutesFixtureBatchWithRecordedParity)
+{
+    ExpectFixtureParity(kRoot + "/models/prism-no-0.2.2");
+}
+
+// The fast artifact's fixtures record its quantized eager twin; parity
+// against them validates the int8 program end to end, including the
+// quantized kernels (embedding_byte) the runtime must provide.
+TEST(Engine, ExecutesFastArtifactFixturesWithRecordedParity)
+{
+    ExpectFixtureParity(kRoot + "/models/prism-no-0.2.2-fast");
 }
 
 } // namespace

@@ -23,6 +23,9 @@ let package = Package(
                 .product(name: "executorch", package: "executorch"),
                 .product(name: "backend_xnnpack", package: "executorch"),
                 .product(name: "kernels_optimized", package: "executorch"),
+                // int8 (fast) artifacts fuse the embedding lookup into
+                // quantized_decomposed ops; this library provides them.
+                .product(name: "kernels_quantized", package: "executorch"),
             ]
         ),
         .testTarget(

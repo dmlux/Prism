@@ -23,11 +23,102 @@ def _require_executorch_module(module_path: str) -> object:
         ) from error
 
 
+def fold_scaled_linear_parametrizations(root: nn.Module) -> int:
+    """Replace scale-parametrized linears with plain, pre-folded nn.Linear.
+
+    The NorBERT4 backbone computes every linear weight as
+    ``weight * (scale + 1)`` on each forward (``CastedLinearIn``) and
+    derives the fused query/key weights by concatenating parameter lists
+    (``MultiCastedLinearOrthoIn``). Folding performs the identical
+    multiplication exactly once, so the replacement is numerically exact
+    (the forward computes the same product from the same operands) while
+    quantizers and delegate partitioners see standard static weights.
+    """
+
+    replaced = 0
+    for _, parent in list(root.named_modules()):
+        for child_name, child in list(parent.named_children()):
+            type_name = type(child).__name__
+            if type_name == "CastedLinearIn":
+                with torch.no_grad():
+                    folded = child.weight * (child.scale + 1.0).unsqueeze(0)
+            elif type_name == "MultiCastedLinearOrthoIn":
+                with torch.no_grad():
+                    folded = torch.cat(list(child.weights), dim=0) * (
+                        child.scale + 1.0
+                    ).unsqueeze(0)
+            else:
+                continue
+            linear = nn.Linear(
+                child.in_features,
+                folded.shape[0],
+                bias=child.bias is not None,
+            )
+            with torch.no_grad():
+                linear.weight.copy_(folded)
+                if child.bias is not None:
+                    linear.bias.copy_(child.bias)
+            setattr(parent, child_name, linear)
+            replaced += 1
+    return replaced
+
+
+def quantize_adapter_int8(
+    *,
+    adapter: nn.Module,
+    calibration_batches: Sequence[tuple[Tensor, ...]],
+) -> nn.Module:
+    """Quantize an export adapter to int8 and return its eager twin.
+
+    Linear layers become dynamically quantized (per-channel int8 weights,
+    runtime-quantized activations); embedding tables become per-channel
+    int8 (fused into ``embedding_byte`` during lowering). The returned
+    module executes in eager PyTorch as the numerical twin of the lowered
+    program, so quality gates and fixtures run against it directly.
+    """
+
+    xnnpack_quantizer_module = _require_executorch_module(
+        "executorch.backends.xnnpack.quantizer.xnnpack_quantizer"
+    )
+    quantize_pt2e = _require_executorch_module(
+        "torchao.quantization.pt2e.quantize_pt2e"
+    )
+    composable = _require_executorch_module(
+        "torchao.quantization.pt2e.quantizer.composable_quantizer"
+    )
+    embedding = _require_executorch_module(
+        "torchao.quantization.pt2e.quantizer.embedding_quantizer"
+    )
+
+    adapter.eval()
+    training_module = torch.export.export(
+        adapter,
+        tuple(calibration_batches[0]),
+        strict=True,
+    ).module()
+    xnnpack_quantizer = xnnpack_quantizer_module.XNNPACKQuantizer()
+    xnnpack_quantizer.set_global(
+        xnnpack_quantizer_module.get_symmetric_quantization_config(
+            is_per_channel=True,
+            is_dynamic=True,
+        )
+    )
+    quantizer = composable.ComposableQuantizer(
+        [embedding.EmbeddingQuantizer(), xnnpack_quantizer]
+    )
+    prepared = quantize_pt2e.prepare_pt2e(training_module, quantizer)
+    with torch.no_grad():
+        for batch in calibration_batches:
+            prepared(*batch)
+    return quantize_pt2e.convert_pt2e(prepared)
+
+
 def lower_to_executorch_xnnpack(
     *,
     adapter: nn.Module,
     example_inputs: tuple[Tensor, ...],
     external_data_name: str | None = None,
+    quantized: bool = False,
 ) -> "LoweredXnnpackProgram":
     """Capture an export adapter strictly and lower it to an XNNPACK program.
 
@@ -36,6 +127,17 @@ def lower_to_executorch_xnnpack(
     content hash and ``write_data_files`` writes them into a shared
     ``<name>.ptd`` file. Programs lowered from the same adapter share the
     hashes, so several fixed-shape programs can load one data file.
+
+    With ``quantized``, the adapter must be the floating (folded) module;
+    it is quantized here at the example shapes, because converted PT2E
+    twins carry shape guards and cannot be re-exported for other fixed
+    shapes. Weight quantization is deterministic (dynamic linears,
+    weight-only embeddings), so every shape produces byte-identical
+    weights and the shared data file stays valid across programs.
+    Dynamically quantized linears are delegated one op per partition (the
+    grouped partitioner trips over pass-through arguments on this graph),
+    and the embedding lookup is fused into ``embedding_byte``, which
+    requires the quantized kernel library at runtime.
     """
 
     xnnpack_partitioner = _require_executorch_module(
@@ -43,13 +145,20 @@ def lower_to_executorch_xnnpack(
     )
     exir = _require_executorch_module("executorch.exir")
 
-    adapter.eval()
+    if quantized:
+        adapter = quantize_adapter_int8(
+            adapter=adapter,
+            calibration_batches=(example_inputs,),
+        )
+    else:
+        adapter.eval()
     exported_program = torch.export.export(
         adapter,
         example_inputs,
         strict=True,
     )
-    backend_config = exir.ExecutorchBackendConfig()
+    backend_passes = []
+    external_constants = None
     if external_data_name is not None:
         # Two complementary passes cover every weight: the delegate pass
         # tags constants consumed by the XNNPACK payload (linear weights),
@@ -68,12 +177,40 @@ def lower_to_executorch_xnnpack(
             example_inputs,
             strict=True,
         )
-        backend_config = exir.ExecutorchBackendConfig(
-            external_constants=lambda _node: external_data_name,
+        external_constants = lambda _node: external_data_name  # noqa: E731
+
+    if quantized:
+        xnnpack_config = _require_executorch_module(
+            "executorch.backends.xnnpack.partition.config.xnnpack_config"
         )
+        quant_fusion = _require_executorch_module(
+            "executorch.exir.passes.quant_fusion_pass"
+        )
+        partitioners = [
+            xnnpack_partitioner.XnnpackPartitioner(
+                config_precisions=xnnpack_config.ConfigPrecisionType.DYNAMIC_QUANT,
+                per_op_mode=True,
+            ),
+            xnnpack_partitioner.XnnpackPartitioner(
+                config_precisions=xnnpack_config.ConfigPrecisionType.FP32,
+                per_op_mode=True,
+            ),
+        ]
+        backend_passes.append(quant_fusion.QuantFusionPass())
+    else:
+        partitioners = [xnnpack_partitioner.XnnpackPartitioner()]
+
+    backend_config = exir.ExecutorchBackendConfig(
+        passes=backend_passes,
+        **(
+            {"external_constants": external_constants}
+            if external_constants is not None
+            else {}
+        ),
+    )
     executorch_program = exir.to_edge_transform_and_lower(
         exported_program,
-        partitioner=[xnnpack_partitioner.XnnpackPartitioner()],
+        partitioner=partitioners,
     ).to_executorch(backend_config)
 
     return LoweredXnnpackProgram(

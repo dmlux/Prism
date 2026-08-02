@@ -152,6 +152,33 @@ TEST_F(TaggerTest, CAbiExposesTheFullResultSurface)
     prism_tagger_destroy(tagger);
 }
 
+// The fast (int8) artifact must reproduce the same reference decisions;
+// quality is gated on the development split at export time, and this
+// test pins the end-to-end runtime behaviour.
+TEST(TaggerFast, TagsRawTextWithReferenceDecisions)
+{
+    const auto artifact = kRoot + "/models/prism-no-0.2.2-fast";
+    if (!std::ifstream(artifact + "/manifest.json")) {
+        GTEST_SKIP() << "Local fast artifact is not present.";
+    }
+    prism::tagger::Tagger tagger(artifact);
+
+    const auto sentences = tagger.TagText("Hun kjøpte tre gamle bøker den 17. mai.");
+
+    ASSERT_EQ(sentences.size(), 1U);
+    const auto& tokens = sentences[0].tokens;
+    const std::vector<std::string> expected_upos{
+        "PRON", "VERB", "NUM", "ADJ", "NOUN", "DET", "ADJ", "NOUN", "PUNCT"};
+    const std::vector<std::string> expected_lemmas{
+        "hun", "kjøpe", "tre", "gammel", "bok", "den", "17.", "mai", "."};
+    ASSERT_EQ(tokens.size(), expected_upos.size());
+    for (std::size_t index = 0; index < tokens.size(); ++index) {
+        EXPECT_EQ(tokens[index].upos, expected_upos[index]);
+        EXPECT_EQ(tokens[index].lemma, expected_lemmas[index]);
+        EXPECT_GT(tokens[index].upos_confidence, 0.9);
+    }
+}
+
 TEST(TaggerCAbi, ReportsErrorsThroughLastError)
 {
     prism_tagger* tagger = prism_tagger_create("/nonexistent/artifact");

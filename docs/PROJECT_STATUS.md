@@ -3382,3 +3382,77 @@ native field; eager Python remains at 1.6 s as the dynamic-shape
 bound. All suites verified against 0.2.2: Python 302/302, Swift 17/17,
 C++/Java ctest 2/2; every added program passes the parity gate against
 the shared data file.
+
+### int8 quantization: the fast artifact (prism-no-0.2.2-fast)
+
+The size lever for the many-language outlook, delivered as a separate
+artifact so an app bundle ships exactly one precision. The complete
+methodology, in the order the problems appeared:
+
+1. **Weight folding (exact).** NorBERT4 parametrizes every linear as
+   `weight * (scale + 1)` recomputed on each forward (`CastedLinearIn`),
+   and derives the fused query/key projection by concatenating parameter
+   lists (`MultiCastedLinearOrthoIn`). Both static PT2E quantization and
+   XNNPACK's dynamic-quant partitioner reject such computed weights —
+   three lowering attempts failed on exactly this. The exporter now
+   folds the multiplication once before quantization
+   (`fold_scaled_linear_parametrizations`): numerically exact (measured
+   drift 0.00e+00, same operation on the same operands), and quantizers
+   see 80 standard static linears.
+2. **Quantization recipe.** Dynamically quantized linears (per-channel
+   int8 weights, activations quantized at runtime — no calibration
+   dependence) composed with weight-only per-channel int8 embeddings
+   (`ComposableQuantizer(EmbeddingQuantizer, XNNPACKQuantizer)` through
+   the PT2E flow). The embedding lookup is fused into the
+   `embedding_byte` op by `QuantFusionPass`, shrinking the dominant
+   52 MB table to 13 MB.
+3. **Partitioning workaround.** The grouped XNNPACK partitioner trips
+   over a pass-through-argument case on this graph; dynamically
+   quantized linears and the fp32 remainder are therefore delegated one
+   op per partition (`per_op_mode`), which measurement shows costs
+   nothing — int8 still runs ~2x faster than fp32 on the same shape.
+4. **Per-shape quantization.** Converted PT2E twins carry shape guards,
+   so every fixed-shape program re-quantizes the floating adapter at its
+   own shapes. Weight quantization is deterministic, so all programs
+   reference byte-identical tensors in the shared model.ptd.
+5. **Gate policy.** The Python ExecuTorch wheel ships no quantized
+   runtime kernels, so int8 artifacts cannot run their in-export parity
+   gate. Instead: fixtures record the quantized *eager twin* (the
+   converted module, numerically the lowered program modulo XNNPACK
+   kernels), and the C++ suite — whose runtime links the quantized
+   kernel library — executes the shipped program against those fixtures.
+   The C++/Java reference-decision tests pass against the int8 artifact.
+6. **Quality, measured on the full development split** (67,619 tokens,
+   both standards, eager fp32 versus eager int8 twin, identical decoding
+   policy): UPOS -0.008/+0.006 pp, exact UFeats -0.014/-0.010 pp, lemma
+   -0.006/-0.006 pp (nb/nn); decision flips 0.04-0.27%. An order of
+   magnitude below seed-to-seed training variance — quality is
+   effectively unchanged. The official test splits remain untouched;
+   the frozen test evaluation belongs to the fp32 model.
+7. **Runtime wiring.** C++ builds with
+   `EXECUTORCH_BUILD_KERNELS_QUANTIZED` and whole-archive-links
+   `quantized_ops_lib`; the Swift package adds the `kernels_quantized`
+   product; Java inherits the C++ path; the Python runtime keeps running
+   the fp32 checkpoint eagerly.
+
+### Fast artifact shipped and measured
+
+`models/prism-no-0.2.2-fast` is exported through the integrated
+`--precision int8` pipeline (four shapes, shared int8 model.ptd of
+33.5 MiB, programs 1.5 MiB each, bundle ≈ 45 MB versus ≈ 94 MB fp32).
+Two runtime pieces landed alongside: the engine fixture-parity test now
+reads the tolerance from the artifact (fp32 records tight eager parity,
+int8 records the twin with the measured XNNPACK-kernel gap of ≤3e-2),
+and runs against both artifacts; and PrismKit gained thread control —
+the prebuilt frameworks bundle the threadpool but do not expose it in
+the Objective-C API, so `ComputeThreads` binds the two exported
+Itanium-mangled symbols directly and the tagger installs the measured
+six-thread default like the C++ side. Chapter results (warm): fast runs
+in 1.2 s on C++/Java and 1.5 s on Swift — at or below the eager-Python
+1.6 s bound; the Swift thread cap also pulled fp32 from 2.5 s to 1.5 s
+and exposed that the swiftpm-1.4 runtime's newer XNNPACK outruns the
+C++ v1.3.1 pin on fp32 GEMMs (upgrade documented as follow-up). Full
+matrix and the development-split quality table live in
+docs/benchmarks.md. All suites green: Python 302/302, C++/Java ctest
+2/2 (including fast fixture parity and fast reference decisions),
+Swift 17/17.

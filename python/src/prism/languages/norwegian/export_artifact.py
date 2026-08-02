@@ -42,7 +42,9 @@ from prism.exporting import (
     build_fixtures_payload,
     build_labels_payload,
     decoded_sentence_predictions,
+    fold_scaled_linear_parametrizations,
     lower_to_executorch_xnnpack,
+    quantize_adapter_int8,
     maximum_task_probability_difference,
     pad_character_token_batch,
     pad_tokenized_batch,
@@ -199,12 +201,15 @@ def parse_artifact_export_arguments(
     )
     parser.add_argument(
         "--precision",
-        choices=("fp32", "fp16", "fp16-backbone"),
+        choices=("fp32", "fp16", "fp16-backbone", "int8"),
         default="fp32",
         help=(
-            "Floating-point precision of the lowered program weights; "
-            "fp16-backbone halves the backbone while task heads, correction, "
-            "and calibration stay fp32."
+            "Precision of the lowered program weights. fp16-backbone halves "
+            "the backbone while task heads, correction, and calibration stay "
+            "fp32. int8 quantizes linears dynamically and embeddings "
+            "per-channel; fixtures then record the quantized eager twin and "
+            "the runtime parity gate moves to the C++ test suite (the "
+            "Python runtime lacks the quantized kernels)."
         ),
     )
     parser.add_argument(
@@ -587,12 +592,51 @@ def main() -> None:
         ),
         calibration=calibration,
     )
+    lowering_adapter = adapter
     if arguments.precision == "fp16":
         adapter = adapter.to(torch.float16)
+        lowering_adapter = adapter
         print("Precision: fp16 (weights and activations)")
     elif arguments.precision == "fp16-backbone":
         tagger.model.backbone.to(torch.float16)
         print("Precision: fp16 backbone, fp32 task heads")
+    elif arguments.precision == "int8":
+        folded = fold_scaled_linear_parametrizations(adapter)
+        print(f"Folded {folded} scale-parametrized linears (exact).")
+        calibration_batches = []
+        for profile in profiles:
+            calibration_sentences = _fitting_fixture_sentences(
+                sentences=_pretokenized_development_sentences(
+                    profile.gold_treebank.development_path,
+                    tagger,
+                ),
+                tokenizer=tagger.tokenizer,
+                shapes=shapes,
+                fixture_sentence_count=arguments.fixture_sentence_count,
+            )
+            calibration_batches.append(
+                tuple(
+                    tensor
+                    for _, tensor in build_fixture_input_tensors(
+                        sentences=calibration_sentences,
+                        tagger=tagger,
+                        shapes=shapes,
+                    )
+                )
+            )
+        # Fixtures and quality references use the eager twin at the main
+        # shapes; lowering re-quantizes the floating adapter per shape
+        # (converted twins carry shape guards), which is deterministic for
+        # weights, so all programs share one data file.
+        lowering_adapter = adapter
+        adapter = quantize_adapter_int8(
+            adapter=adapter,
+            calibration_batches=calibration_batches,
+        )
+        print(
+            "Precision: int8 (dynamic linears, per-channel embeddings); "
+            "fixtures record the quantized eager twin."
+        )
 
     artifact_name = f"prism-{arguments.language_tag}"
     artifact_directory = (
@@ -688,9 +732,10 @@ def main() -> None:
     program_data_files: tuple[str, ...] = ()
     print("Lowering to ExecuTorch XNNPACK ...")
     lowered = lower_to_executorch_xnnpack(
-        adapter=adapter,
+        adapter=lowering_adapter,
         example_inputs=example_inputs,
         external_data_name=external_data_name,
+        quantized=arguments.precision == "int8",
     )
     program_bytes = lowered.program_bytes
     program_file_name = "model-xnnpack.pte"
@@ -709,11 +754,21 @@ def main() -> None:
         )
 
     largest_difference = 0.0
+    if arguments.precision == "int8":
+        # The Python runtime lacks the quantized kernels (embedding_byte),
+        # so the runtime parity gate for int8 artifacts is the C++ test
+        # suite, which executes the program against the recorded fixtures.
+        print(
+            "Runtime parity: gated by the C++ suite for int8 artifacts "
+            "(fixtures record the quantized eager twin)."
+        )
     for fixture, eager_outputs in zip(
         fixtures,
         eager_outputs_by_fixture,
         strict=True,
     ):
+        if arguments.precision == "int8":
+            break
         fixture_inputs = dict(fixture.input_tensors)
         runtime_outputs = run_executorch_program(
             program_bytes=program_bytes,
@@ -787,7 +842,15 @@ def main() -> None:
         artifact_directory / "fixtures.json",
         build_fixtures_payload(
             fixtures,
-            probability_tolerance=arguments.parity_tolerance,
+            # int8 fixtures record the quantized eager twin; the XNNPACK
+            # int8 kernels differ from the twin by up to ~3e-2 in
+            # calibrated probability (measured), so the recorded runtime
+            # tolerance is widened accordingly.
+            probability_tolerance=(
+                max(arguments.parity_tolerance, 5e-2)
+                if arguments.precision == "int8"
+                else arguments.parity_tolerance
+            ),
             lemma_top_k=arguments.fixture_lemma_top_k,
         ),
     )
@@ -831,15 +894,20 @@ def main() -> None:
             tagger=tagger,
             shapes=small_shapes,
         )
-        with torch.no_grad():
-            small_eager = tuple(
-                output.detach().clone()
-                for output in adapter(*(tensor for _, tensor in small_inputs))
-            )
+        small_eager = None
+        if arguments.precision != "int8":
+            # The int8 twin is shape-guarded to the main shapes; the gates
+            # below are skipped for int8, so no reference is needed here.
+            with torch.no_grad():
+                small_eager = tuple(
+                    output.detach().clone()
+                    for output in adapter(*(tensor for _, tensor in small_inputs))
+                )
         small_lowered = lower_to_executorch_xnnpack(
-            adapter=adapter,
+            adapter=lowering_adapter,
             example_inputs=tuple(tensor for _, tensor in small_inputs),
             external_data_name=external_data_name,
+            quantized=arguments.precision == "int8",
         )
         small_bytes = small_lowered.program_bytes
         small_file_name = (
@@ -847,67 +915,71 @@ def main() -> None:
         )
         (artifact_directory / small_file_name).write_bytes(small_bytes)
         print(f"Wrote {small_file_name}: {len(small_bytes) / (1 << 20):.1f} MiB")
-        # The small program references the shared data file by content
-        # hashes; executing it against the main program's model.ptd is the
-        # gate proving the weights are byte-identical across shapes.
-        small_runtime = run_executorch_program(
-            program_bytes=small_bytes,
-            inputs=tuple(tensor for _, tensor in small_inputs),
-            data_path=data_path,
-        )
         calibrated = calibration is not None
-        small_difference = maximum_task_probability_difference(
-            schema=tagger.schema,
-            reference_outputs=_decodable_flat_outputs(
-                small_eager, tagger=tagger, calibrated=calibrated
-            ),
-            candidate_outputs=_decodable_flat_outputs(
-                small_runtime, tagger=tagger, calibrated=calibrated
-            ),
-            token_mask=dict(small_inputs)["token_mask"],
-        )
-        small_batch_tokens = tuple(
-            sentence.tokens
-            for sentence in repeat_pad_sentences(
-                small_sentences, batch_size=small_shapes.batch_size
+        small_difference = 0.0
+        if arguments.precision == "int8":
+            print("Runtime parity small program: gated by the C++ suite.")
+        else:
+            # The small program references the shared data file by content
+            # hashes; executing it against the main program's model.ptd is
+            # the gate proving weights are byte-identical across shapes.
+            small_runtime = run_executorch_program(
+                program_bytes=small_bytes,
+                inputs=tuple(tensor for _, tensor in small_inputs),
+                data_path=data_path,
             )
-        )
-        small_eager_decoded = decoded_sentence_predictions(
-            schema=tagger.schema,
-            logits=token_task_logits_from_flat_outputs(
-                _decodable_flat_outputs(
+            small_difference = maximum_task_probability_difference(
+                schema=tagger.schema,
+                reference_outputs=_decodable_flat_outputs(
                     small_eager, tagger=tagger, calibrated=calibrated
                 ),
-                schema=tagger.schema,
-            ),
-            token_mask=dict(small_inputs)["token_mask"],
-            sentence_tokens=small_batch_tokens,
-        )
-        small_runtime_decoded = decoded_sentence_predictions(
-            schema=tagger.schema,
-            logits=token_task_logits_from_flat_outputs(
-                _decodable_flat_outputs(
+                candidate_outputs=_decodable_flat_outputs(
                     small_runtime, tagger=tagger, calibrated=calibrated
                 ),
+                token_mask=dict(small_inputs)["token_mask"],
+            )
+            small_batch_tokens = tuple(
+                sentence.tokens
+                for sentence in repeat_pad_sentences(
+                    small_sentences, batch_size=small_shapes.batch_size
+                )
+            )
+            small_eager_decoded = decoded_sentence_predictions(
                 schema=tagger.schema,
-            ),
-            token_mask=dict(small_inputs)["token_mask"],
-            sentence_tokens=small_batch_tokens,
-        )
-        if tuple(small_runtime_decoded) != tuple(small_eager_decoded):
-            raise SystemExit(
-                "Small-program decoded predictions diverge from eager output."
+                logits=token_task_logits_from_flat_outputs(
+                    _decodable_flat_outputs(
+                        small_eager, tagger=tagger, calibrated=calibrated
+                    ),
+                    schema=tagger.schema,
+                ),
+                token_mask=dict(small_inputs)["token_mask"],
+                sentence_tokens=small_batch_tokens,
             )
-        if small_difference > arguments.parity_tolerance:
-            raise SystemExit(
-                "Small-program parity difference "
-                f"{small_difference} exceeds {arguments.parity_tolerance}."
+            small_runtime_decoded = decoded_sentence_predictions(
+                schema=tagger.schema,
+                logits=token_task_logits_from_flat_outputs(
+                    _decodable_flat_outputs(
+                        small_runtime, tagger=tagger, calibrated=calibrated
+                    ),
+                    schema=tagger.schema,
+                ),
+                token_mask=dict(small_inputs)["token_mask"],
+                sentence_tokens=small_batch_tokens,
             )
-        print(
-            "Runtime parity small program:",
-            f"max probability |\u0394| = {small_difference:.2e},",
-            "decoded predictions identical",
-        )
+            if tuple(small_runtime_decoded) != tuple(small_eager_decoded):
+                raise SystemExit(
+                    "Small-program decoded predictions diverge from eager output."
+                )
+            if small_difference > arguments.parity_tolerance:
+                raise SystemExit(
+                    "Small-program parity difference "
+                    f"{small_difference} exceeds {arguments.parity_tolerance}."
+                )
+            print(
+                "Runtime parity small program:",
+                f"max probability |\u0394| = {small_difference:.2e},",
+                "decoded predictions identical",
+            )
         small_program_entries.append(
             ModelProgramEntry(
                 file_name=small_file_name,

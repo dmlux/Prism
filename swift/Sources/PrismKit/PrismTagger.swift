@@ -43,6 +43,9 @@ public final class PrismTagger {
     private static let firstLiteralCharacterId = 5
 
     public init(artifactURL: URL, device: ComputeDevice = .automatic) throws {
+        // Six threads is the measured sweet spot for the small fixed-shape
+        // batches; an explicit ComputeThreads.setThreadCount wins.
+        ComputeThreads.installDefault(6)
         artifact = try PrismArtifact(contentsOf: artifactURL)
         programs = try artifact.programs(for: device)
         tokenizer = try SubwordTokenizer(
