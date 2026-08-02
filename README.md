@@ -89,12 +89,14 @@ bundles exactly one:
 
 ```bash
 curl -LO https://github.com/dmlux/Prism/releases/download/prism-no-0.2.2/prism-no-0.2.2-fast.tar.gz
-tar -xzf prism-no-0.2.2-fast.tar.gz
+tar -xzf prism-no-0.2.2-fast.tar.gz   # unpacks the prism-no-0.2.2-fast/ folder
 ```
 
-Verify downloads against the release's `SHA256SUMS`. The unpacked
-directory is everything the runtimes need. Details of the artifact
-contract: [docs/INTEGRATION.md](docs/INTEGRATION.md).
+Unpack it wherever suits your project — the folder's path is what you
+hand to the tagger APIs below. Verify downloads against the release's
+`SHA256SUMS`. The unpacked directory is everything the runtimes need;
+its contents are documented in
+[docs/INTEGRATION.md](docs/INTEGRATION.md).
 
 ## Quick start
 
@@ -102,6 +104,16 @@ All bindings share the same shape: point a tagger at an artifact
 directory, put text in, get sentences of tokens with UPOS, morphology,
 lemma, and confidences out. Sensible defaults (thread count, program
 selection) are built in.
+
+**The artifact argument is a local filesystem path, not a model ID.**
+Unlike Hugging Face-style APIs, nothing is downloaded at runtime:
+`"prism-no-0.2.2-fast"` in the snippets below means *the unpacked
+folder from the release, addressed relative to your process's working
+directory*. In practice you either pass an absolute path, or ship the
+folder with your application and resolve it from there — as bundle
+resources on macOS/iOS, next to the executable or in your resources
+directory on Windows/Linux/JVM. The snippets note the idiomatic place
+per platform.
 
 ### Swift
 
@@ -113,10 +125,12 @@ Add the package under `swift/` plus the ExecuTorch products
 ```swift
 import PrismKit
 
-let tagger = try PrismTagger(
-    artifactURL: artifactDirectory,   // .../prism-no-0.2.2-fast
-    device: .cpu
-)
+// Ship the artifact folder as a bundle resource (drag it into Xcode as
+// a folder reference) and resolve it from the bundle:
+let artifactDirectory = Bundle.main.resourceURL!
+    .appendingPathComponent("prism-no-0.2.2-fast")
+
+let tagger = try PrismTagger(artifactURL: artifactDirectory, device: .cpu)
 for sentence in try tagger.tag(text: "Hun kjøpte tre gamle bøker.") {
     for token in sentence.tokens {
         print(token.text, token.upos, token.lemma, token.uposConfidence)
@@ -132,6 +146,10 @@ link the aggregate target: `target_link_libraries(app PRIVATE prism)`.
 ```cpp
 #include <prism>
 
+// The argument is a local directory path. A bare name like this is
+// resolved relative to the working directory of your process — for
+// anything beyond experiments, build an absolute path (for example
+// from your executable's location or your app's data directory).
 prism::tagger::Tagger tagger("prism-no-0.2.2-fast");
 for (const auto& sentence : tagger.TagText("Hun kjøpte tre gamle bøker.")) {
     for (const auto& token : sentence.tokens) {
@@ -149,6 +167,8 @@ interface):
 ```c
 #include <prism/prism_c.h>
 
+/* Local directory path, resolved like any relative path in C —
+ * against the process working directory. Prefer an absolute path. */
 prism_tagger* tagger = prism_tagger_create("prism-no-0.2.2-fast");
 prism_result* result = prism_tagger_tag_text(tagger, "Hun kjøpte tre gamle bøker.");
 for (size_t t = 0; t < prism_result_token_count(result, 0); ++t) {
@@ -167,11 +187,20 @@ prism_tagger_destroy(tagger);
 Depend on `io.github.dmlux:prism` (or the CMake-built `prism.jar`) and
 make the native library resolvable
 (`-Djava.library.path=...` or `PrismTagger.loadNativeLibrary(...)`).
+The C++ build above produces both files in one go — `prism.jar` plus
+`libprism_jni` for your platform; the JNI mechanics are explained in
+[INTEGRATION.md](docs/INTEGRATION.md).
 
 ```java
 import io.github.dmlux.prism.PrismTagger;
 
-try (PrismTagger tagger = PrismTagger.load(Path.of("prism-no-0.2.2-fast"))) {
+// The Path must point to a real directory on disk. Ship the artifact
+// in your application's resources/installation directory — note that
+// a folder packed *inside* a JAR is not a filesystem path; extract it
+// to a data directory on first run, then load from there.
+Path artifact = Path.of("prism-no-0.2.2-fast");
+
+try (PrismTagger tagger = PrismTagger.load(artifact)) {
     for (var sentence : tagger.tagText("Hun kjøpte tre gamle bøker.")) {
         for (var token : sentence.tokens()) {
             System.out.println(token.text() + " " + token.upos() + " "
@@ -183,21 +212,40 @@ try (PrismTagger tagger = PrismTagger.load(Path.of("prism-no-0.2.2-fast"))) {
 
 ### Python
 
-The Python package is the research and reference runtime — it runs the
-frozen checkpoint eagerly through PyTorch and requires the repository
-setup ([DEVELOPMENT.md](docs/DEVELOPMENT.md)) rather than a released
-artifact:
+The Python package is the research and reference runtime: it runs the
+frozen *checkpoint* eagerly through PyTorch (a trained-weights file
+under `runs/`, produced by training — not the released artifact), and
+it is the implementation every native binding is parity-tested against.
+Use it for research, evaluation, and training; use the native bindings
+for applications.
+
+**Recommended: Python 3.12** — it has the broadest compatibility with
+the current PyTorch/ExecuTorch ecosystem. Set up an isolated virtual
+environment inside the repository (a "venv" keeps Prism's dependencies
+out of your system Python; the activate step is per terminal session):
+
+```bash
+git clone https://github.com/dmlux/Prism.git
+cd Prism
+python3.12 -m venv .venv          # create the environment once
+source .venv/bin/activate         # activate it (Windows: .venv\Scripts\activate)
+python -m pip install -e './python[dev]'
+```
 
 ```python
 from prism.languages.norwegian.tagger import NorwegianTagger
 
 tagger = NorwegianTagger(
-    checkpoint_path=checkpoint, calibration_path=calibration
+    checkpoint_path=checkpoint,     # e.g. runs/<run>/best-development-task-accuracy.pt
+    calibration_path=calibration,   # the calibration.json fitted for it
 )
 for sentence in tagger.tag_text("Hun kjøpte tre gamle bøker."):
     for token in sentence.tokens:
         print(token.text, token.upos, token.lemma, token.upos_confidence)
 ```
+
+Training your own checkpoint (or reproducing the released one) is
+covered in [docs/TRAINING.md](docs/TRAINING.md).
 
 Every binding also accepts pretokenized input (`tag(pretokenized:)`,
 `TagPretokenized`, `tagPretokenized`, `prism_tagger_tag_tokens`) when
