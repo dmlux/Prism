@@ -214,6 +214,8 @@ with embedded native libraries for macOS (arm64, x86_64) and Linux
 (x86_64, aarch64) — the right one is extracted and loaded
 automatically, no further setup:
 
+Maven (`pom.xml`):
+
 ```xml
 <dependency>
   <groupId>io.github.dmlux</groupId>
@@ -221,6 +223,9 @@ automatically, no further setup:
   <version>0.2.0</version>
 </dependency>
 ```
+
+Gradle (`build.gradle.kts`, or the same line without parentheses in a
+Groovy `build.gradle`):
 
 ```kotlin
 implementation("io.github.dmlux:prism:0.2.0")
