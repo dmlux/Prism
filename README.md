@@ -47,6 +47,20 @@ Decoding policy and calibration are baked into the exported graph —
 integrations do argmax and one threshold, nothing more. The full design
 is documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+**Model facts** (prism-no 0.2.2)
+
+| | |
+| --- | --- |
+| Parameters | 17.6 M (16.9 M backbone incl. 9.8 M embedding, 0.7 M heads + character CNN) |
+| Architecture | 16-layer encoder-only Transformer (NorBERT4-xsmall: hidden 192, 3 attention heads), distilled from NorBERT4-base |
+| Tasks and label spaces | 17 UPOS tags · 18 morphology features · 1,059 lemma edit rules |
+| Vocabulary | 51,200 byte-level BPE subwords · 120-character vocabulary for the character CNN |
+| Languages | Norwegian Bokmål (`nb`) and Nynorsk (`nn`), one shared set of weights |
+| Sentence capacity | up to 96 tokens / 160 subwords per sentence (longer sentences are chunked automatically); fixed batch of 8 |
+| Precision variants | fp32 (≈ 94 MB) and int8 "fast" (≈ 45 MB) |
+| Training data | gold UD treebanks plus teacher-labeled silver text (NBdigital, municipal documents, Nynorsk Wikipedia) — details below |
+| Runtime | ExecuTorch / XNNPACK, CPU only, offline |
+
 ## Quality and speed
 
 Evaluated once on the untouched official UD test splits against UDPipe
