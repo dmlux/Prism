@@ -27,16 +27,18 @@ Norwegian: Bokmål (`nb`) and Nynorsk (`nn`) in one set of weights.
 
 ## How it works
 
-```text
-raw text ──► sentence segmentation ──► byte-level BPE subwords
-                                             │
-                              compact Transformer backbone
-                              (NorBERT4-xsmall, distilled)
-                                             │
-                token representations + character-CNN features
-                     │               │                │
-                 UPOS head    morphology heads   lemma-rule head
-                     └──── calibrated probabilities ────┘
+```mermaid
+flowchart TB
+    Text["raw text"] --> Seg["sentence segmentation"]
+    Seg --> BPE["byte-level BPE subwords"]
+    BPE --> Backbone["compact Transformer backbone<br/>(NorBERT4-xsmall, distilled)"]
+    Backbone --> Tokens["token representations<br/>+ character-CNN features"]
+    Tokens --> Upos["UPOS head"]
+    Tokens --> Morph["morphology heads"]
+    Tokens --> Lemma["lemma-rule head"]
+    Upos --> Out["calibrated probabilities<br/>one result per token"]
+    Morph --> Out
+    Lemma --> Out
 ```
 
 The model is a compact Transformer student distilled from a larger
@@ -44,8 +46,16 @@ teacher and exported to [ExecuTorch](https://pytorch.org/executorch)
 programs with fixed shapes; runtimes pick the smallest program each
 batch fits into, so short sentences never pay long-sentence padding.
 Decoding policy and calibration are baked into the exported graph —
-integrations do argmax and one threshold, nothing more. The full design
-is documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+integrations do argmax and one threshold, nothing more.
+
+Want the full picture? **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
+is the complete technical reference behind this diagram — written as a
+learning text that follows the data from an incoming token to the
+finished prediction: the NorBERT4 block structure, the learned layer
+mixture and pooling, the character CNN, the hybrid morphology contract,
+the structured decoder, distillation, calibration, and export, with
+every number verified against the implementation and diagrams for each
+stage.
 
 **Model facts** (prism-no 0.2.2)
 
