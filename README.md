@@ -162,59 +162,25 @@ for (const auto& sentence : tagger.TagText("Hun kjøpte tre gamle bøker.")) {
 ### C
 
 For application cores that link plain C (or any foreign-function
-interface). The C ABI is a complete surface over the same tagger:
-opaque handles, create/destroy pairs, and accessors returning only C
-strings and scalars. A minimal but complete program:
+interface):
 
 ```c
-#include <stdio.h>
 #include <prism/prism_c.h>
 
-int main(void) {
-    /* Local directory path, resolved like any relative path in C —
-     * against the process working directory. Prefer an absolute path. */
-    prism_tagger* tagger = prism_tagger_create("prism-no-0.2.2-fast");
-    if (tagger == NULL) {
-        fprintf(stderr, "cannot load model: %s\n", prism_last_error());
-        return 1;
-    }
-
-    prism_result* result =
-        prism_tagger_tag_text(tagger, "Hun kjøpte tre gamle bøker. Katten sov.");
-    if (result == NULL) {
-        fprintf(stderr, "tagging failed: %s\n", prism_last_error());
-        prism_tagger_destroy(tagger);
-        return 1;
-    }
-
-    for (size_t s = 0; s < prism_result_sentence_count(result); ++s) {
-        for (size_t t = 0; t < prism_result_token_count(result, s); ++t) {
-            printf("%s\tUPOS=%s (%.3f)\tLemma=%s (%.3f)\tFeats=%s\n",
-                prism_result_token_text(result, s, t),
-                prism_result_token_upos(result, s, t),
-                prism_result_token_upos_confidence(result, s, t),
-                prism_result_token_lemma(result, s, t),
-                prism_result_token_lemma_confidence(result, s, t),
-                prism_result_token_features(result, s, t));
-                /* CoNLL-U style, e.g. "Gender=Fem|Number=Plur"; empty
-                 * when the token carries no features. Individual features
-                 * with confidences: prism_result_token_feature_count/
-                 * _name/_value/_confidence. */
-        }
-    }
-
-    prism_result_destroy(result);   /* frees every string it handed out */
-    prism_tagger_destroy(tagger);
-    return 0;
+/* Local directory path, resolved like any relative path in C —
+ * against the process working directory. Prefer an absolute path. */
+prism_tagger* tagger = prism_tagger_create("prism-no-0.2.2-fast");
+prism_result* result = prism_tagger_tag_text(tagger, "Hun kjøpte tre gamle bøker.");
+for (size_t t = 0; t < prism_result_token_count(result, 0); ++t) {
+    printf("%s %s %s %.3f\n",
+        prism_result_token_text(result, 0, t),
+        prism_result_token_upos(result, 0, t),
+        prism_result_token_lemma(result, 0, t),
+        prism_result_token_upos_confidence(result, 0, t));
 }
+prism_result_destroy(result);
+prism_tagger_destroy(tagger);
 ```
-
-Words already tokenized? `prism_tagger_tag_tokens(tagger, tokens,
-token_count)` takes a `const char* const*` array for one sentence.
-Results are plain data: every `const char*` stays valid until
-`prism_result_destroy`, out-of-range indices return `NULL`/`0` instead
-of crashing, and `prism_last_error()` is per-thread. Link exactly like
-the C++ quick start (the `prism` CMake target exports the C ABI too).
 
 ### Java (and Kotlin)
 
