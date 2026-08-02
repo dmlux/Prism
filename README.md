@@ -316,7 +316,7 @@ Pinned revisions and checksums travel inside every artifact
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how the model and the
   native inference stack are designed, explained from the ground up
 - [docs/benchmarks/](docs/benchmarks/) — quality and runtime benchmarks
-  per released artifact; [docs/benchmarks.md](docs/benchmarks.md) holds
+  per released artifact; [docs/BENCHMARKS.md](docs/BENCHMARKS.md) holds
   the model-development history
 - [docs/TRAINING.md](docs/TRAINING.md) — training models and adding new
   languages, from data format to released artifact

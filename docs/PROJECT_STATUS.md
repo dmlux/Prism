@@ -208,7 +208,7 @@ near parity on Bokmål and has a larger Nynorsk deficit. These are canonical
 model-quality values. The optional Nynorsk treebank output policy has not yet
 been rerun for the selected shared-MLP checkpoint and is not inferred from an
 older checkpoint. Full numbers and commands are recorded in
-`docs/benchmarks.md`. The official test splits remain unevaluated.
+`docs/BENCHMARKS.md`. The official test splits remain unevaluated.
 
 ### UFeats recovery plan
 
@@ -458,7 +458,7 @@ gold-only student reference for Nynorsk and later teacher-distillation
 comparisons. Final output thresholds and confidence calibration remain
 deferred.
 
-Complete feature and label results are recorded in `docs/benchmarks.md`.
+Complete feature and label results are recorded in `docs/BENCHMARKS.md`.
 
 ## Nynorsk gold-only student
 
@@ -3081,7 +3081,7 @@ task-head architectures, the old gradient-isolation alias, and the finished
 frozen-head probe tooling including their CLI, checkpoint, and test paths.
 After its measurement, the rejected adaptive fusion probe was also removed
 completely from the executable paths. These experiments remain traceable in
-`docs/benchmarks.md` as selection history but are no longer part of the
+`docs/BENCHMARKS.md` as selection history but are no longer part of the
 production surface.
 
 Retained are the selected complete student architecture, the `linear`
@@ -3453,6 +3453,6 @@ in 1.2 s on C++/Java and 1.5 s on Swift — at or below the eager-Python
 and exposed that the swiftpm-1.4 runtime's newer XNNPACK outruns the
 C++ v1.3.1 pin on fp32 GEMMs (upgrade documented as follow-up). Full
 matrix and the development-split quality table live in
-docs/benchmarks.md. All suites green: Python 302/302, C++/Java ctest
+docs/BENCHMARKS.md. All suites green: Python 302/302, C++/Java ctest
 2/2 (including fast fixture parity and fast reference decisions),
 Swift 17/17.

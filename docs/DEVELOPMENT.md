@@ -118,8 +118,8 @@ Prism/
 │   ├── src/  tests/  tools/  vendor/
 ├── docs/
 │   ├── ARCHITECTURE.md  INTEGRATION.md  DEVELOPMENT.md
-│   ├── PROJECT_STATUS.md  model-strategy.md
-│   ├── benchmarks.md    (model-development history)
+│   ├── PROJECT_STATUS.md  MODEL_STRATEGY.md
+│   ├── BENCHMARKS.md    (model-development history)
 │   └── benchmarks/      (one file per released artifact)
 ├── java/                Java API (Maven layout, pom.xml)
 ├── logos/

@@ -1,7 +1,7 @@
 """Export the selected Norwegian checkpoint as a versioned model artifact.
 
 The resulting directory is the cross-platform release contract from
-``docs/model-strategy.md``: a lowered ExecuTorch program with static shapes,
+``docs/MODEL_STRATEGY.md``: a lowered ExecuTorch program with static shapes,
 the manifest, the label schema, the subword vocabulary, recorded parity
 fixtures, and license provenance. The morphology logit correction is embedded
 in the exported graph, so native runtimes decode plain logits.

@@ -10,7 +10,7 @@ Student **kleiner**, **schneller** und **besser** werden kann. Jeder Vorschlag
 nennt: was er bewirkt, warum er zu Prism passt, sowie geschätzten Aufwand und
 Risiko. Die Reihenfolge ist grob nach erwartetem Nutzen sortiert. Jede
 Qualitätsbehauptung muss vor Übernahme mit einem Benchmark auf den gepinnten
-Splits belegt werden – wie in `docs/model-strategy.md` gefordert.
+Splits belegt werden – wie in `docs/MODEL_STRATEGY.md` gefordert.
 
 Begriffe sind bewusst einfach erklärt, weil das Projekt auch ein Lerntext ist.
 
@@ -33,7 +33,7 @@ Knowledge Distillation (2022) und die aktuellen Prune-then-Distill-Rezepte
 anwendbar. Dieses Dokument bleibt daher bewusst in der Encoder-Tradition; das ist
 keine Rückständigkeit, sondern die passende Wahl.
 
-**Empirischer Realitätscheck.** `docs/benchmarks.md` zeigt, dass der distillierte
+**Empirischer Realitätscheck.** `docs/BENCHMARKS.md` zeigt, dass der distillierte
 Student den gold-only Student bislang nur minimal schlägt (UPOS 98,64 % →
 98,66 %). Das ist selbst der stärkste Beleg dafür, dass **reine globale
 Logit-Distillation auf den ~244k Gold-Tokens ausgereizt ist**. Die drei größten
@@ -293,7 +293,7 @@ Situation.
 
 **Warum es hilft:** Der Student lernt *wie* der Teacher Kontext verknüpft, nicht
 nur *was* am Ende herauskommt. Das überträgt mehr Wissen pro Trainingsschritt –
-und greift genau dort, wo reine Logit-Distillation laut `benchmarks.md` schon
+und greift genau dort, wo reine Logit-Distillation laut `BENCHMARKS.md` schon
 ausgereizt ist.
 
 **Besonders günstig für Prism:** Teacher (`norbert4-base`) und Student
@@ -338,7 +338,7 @@ Ergänzend: **klassenbalancierte Morphologie-Distillation** (seltene Werte gezie
 gewichten) und optional eine **learnbare/dynamische Temperatur** pro Kopf
 (CTKD/LSKD) statt fixer Werte.
 
-**Warum es hilft:** In `docs/benchmarks.md` steht, dass eine globale Temperatur
+**Warum es hilft:** In `docs/BENCHMARKS.md` steht, dass eine globale Temperatur
 2.0 die binären Morphologie-Ausgaben und die Lemma-Verteilung „über-glättet".
 DKD behebt genau das, weil man die NCKD-Komponente (die für das Über-Glätten
 verantwortliche „Dunkelwissen"-Verteilung) unabhängig von der Zielklasse steuern
@@ -568,7 +568,7 @@ mathematisch fundierte „ich bin hier unsicher"-Aussage ist wertvoller als eine
 überoptimistische Einzelzahl – und ein echtes Alleinstellungsmerkmal gegenüber
 UDPipe. Die Mondrian-Konditionierung ist gerade für Prism entscheidend, weil
 häufige Klassen sonst die schwachen seltenen Morphologie-Labels „überdecken"
-(genau die, die in `benchmarks.md` noch schwächeln). Der Rahmen ist aktuell gut
+(genau die, die in `BENCHMARKS.md` noch schwächeln). Der Rahmen ist aktuell gut
 belegt (Conformal-Prediction-Survey für NLP, TACL 2024; Abstention-Arbeiten
 2025).
 **Aufwand:** niedrig-mittel. **Risiko:** niedrig. **Passung:** deckt die
@@ -592,7 +592,7 @@ Tokens/Sekunde, Peak-Speicher und Paketgröße.
 **Warum es hilft:** Macht die Kernbehauptung des Projekts überhaupt erst
 belegbar – und glaubwürdig, weil auch gegen aktuelle Modelle verglichen wird.
 **Aufwand:** mittel. **Risiko:** niedrig. **Passung:** bereits als Pflicht in
-`docs/model-strategy.md` verankert, aber noch offen.
+`docs/MODEL_STRATEGY.md` verankert, aber noch offen.
 
 ---
 
@@ -678,7 +678,7 @@ für den geplanten zeichenbewussten Zweig.
 strukturierter Decoder (klassisches CRF oder eine kleine Autoregression über die
 Köpfe) benachbarte Entscheidungen.
 
-**Warum es zu Prism passt:** Adressiert direkt die in `benchmarks.md` genannten
+**Warum es zu Prism passt:** Adressiert direkt die in `BENCHMARKS.md` genannten
 *inkonsistenten* seltenen Fehler (z.B. Tempus auf einem Nomen), ist billig und
 exportierbar und ergänzt jeden Motor.
 **Aufwand:** niedrig-mittel. **Risiko:** niedrig-mittel (CRF-Export nach

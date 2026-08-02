@@ -3,11 +3,11 @@
 ## Start here
 
 - Before planning or changing the project, read `README.md`,
-  `docs/PROJECT_STATUS.md`, and `docs/benchmarks.md`.
+  `docs/PROJECT_STATUS.md`, and `docs/BENCHMARKS.md`.
 - Treat `docs/PROJECT_STATUS.md` as the handoff for the confirmed current state
   and update it whenever a milestone, benchmark, or architectural decision
   changes materially.
-- Read `docs/model-strategy.md` before changing model architecture, task heads,
+- Read `docs/MODEL_STRATEGY.md` before changing model architecture, task heads,
   export formats, native runtimes, or the Python package layout.
 - Verify the repository instead of assuming that an older handoff is still
   current.
@@ -57,7 +57,7 @@
 - Accuracy and calibrated uncertainty matter because predictions may be shown
   in learning software. Do not present a single aggregate accuracy as proof
   that every class or prediction is dependable.
-- Follow the accepted teacher-student direction in `docs/model-strategy.md`:
+- Follow the accepted teacher-student direction in `docs/MODEL_STRATEGY.md`:
   use a high-capacity Norwegian teacher for quality-oriented training and ship
   only a compact, measured student for local inference.
 - The first new production model bundle covers UPOS, the supported Norwegian
@@ -161,7 +161,7 @@
 - For model export, verify numerical parity between PyTorch and the exported
   artifact. For production-runtime changes, measure the 6,000-token,
   200-sentence document fixture using the protocol in
-  `docs/model-strategy.md`.
+  `docs/MODEL_STRATEGY.md`.
 - Check `git diff --check` before handing off code changes.
 - Never claim a benchmark improved without evaluating the fixed checkpoint on
   the appropriate split and recording the exact result.

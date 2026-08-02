@@ -1337,7 +1337,7 @@ production architecture and the small format-3 control path:
 
 The earlier `shared-mlp`, `wide-shared-mlp`, task-adapter, and intermediate
 structured variants remain documented in the selection history and in
-`docs/benchmarks.md`, but after their completed ablations they are no longer
+`docs/BENCHMARKS.md`, but after their completed ablations they are no longer
 executable production paths in the enum.
 
 The residual connection preserves the direct normalized information path in
@@ -1958,7 +1958,7 @@ NorBERT4-xsmall
 The authoritative quality numbers live with the artifacts: the frozen
 one-shot test comparison against UDPipe 2.17 and the per-precision quality
 gates are recorded in [docs/benchmarks/](benchmarks/), the development
-history in [docs/benchmarks.md](benchmarks.md).
+history in [docs/BENCHMARKS.md](BENCHMARKS.md).
 
 Checkpoint format 3 is intentionally not weight-compatible with format 2:
 for exclusive features, the loss, interpretation, and partly the number of
@@ -2032,6 +2032,6 @@ in every student epoch.
 - [NorBERT4-xsmall model card](https://huggingface.co/ltg/norbert4-xsmall)
 - [NorBERT4-xsmall configuration](https://huggingface.co/ltg/norbert4-xsmall/blob/7483327d36a2daa5dbe936c68aa277149c6f9632/config.json)
 - [NorBERT4-base model card](https://huggingface.co/ltg/norbert4-base)
-- [Prism model strategy](model-strategy.md)
+- [Prism model strategy](MODEL_STRATEGY.md)
 - [Confirmed project status](PROJECT_STATUS.md)
-- [Benchmarks](benchmarks.md) and [per-artifact benchmarks](benchmarks/)
+- [Benchmarks](BENCHMARKS.md) and [per-artifact benchmarks](benchmarks/)
