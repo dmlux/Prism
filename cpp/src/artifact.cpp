@@ -54,6 +54,23 @@ Artifact::Artifact(const std::filesystem::path& directory)
 {
     const auto manifest = ParseJsonFile(directory / "manifest.json");
 
+    // Consumers decide language support from these manifest values; fail
+    // loudly instead of guessing from directory or artifact names.
+    for (const auto* required : {"artifact_name", "artifact_version", "language_tags"}) {
+        if (!manifest.contains(required)) {
+            throw std::runtime_error(
+                std::string("manifest.json misses required metadata: ") + required);
+        }
+    }
+    name_ = manifest.at("artifact_name").get<std::string>();
+    version_ = manifest.at("artifact_version").get<std::string>();
+    if (!manifest.at("language_tags").is_array()) {
+        throw std::runtime_error("manifest.json language_tags must be an array of strings.");
+    }
+    for (const auto& tag : manifest.at("language_tags")) {
+        language_tags_.push_back(tag.get<std::string>());
+    }
+
     const auto& tokenizer = manifest.at("tokenizer");
     tokenizer_.file_name = tokenizer.at("file_name").get<std::string>();
     tokenizer_.padding_token_id = tokenizer.at("padding_token_id").get<std::int64_t>();

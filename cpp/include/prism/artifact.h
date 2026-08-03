@@ -64,18 +64,30 @@ struct Labels {
 
 class Artifact {
 public:
-    // Throws std::runtime_error when the directory misses required files.
+    // Throws std::runtime_error when the directory misses required files or
+    // the manifest misses required metadata.
     explicit Artifact(const std::filesystem::path& directory);
 
     const std::filesystem::path& directory() const { return directory_; }
     const TokenizerContract& tokenizer() const { return tokenizer_; }
     const Labels& labels() const { return labels_; }
 
+    // Manifest metadata, straight from manifest.json. language_tags lists
+    // the BCP 47 tags the artifact supports (currently for example "nb" and
+    // "nn"), in manifest order; consumers decide language support from
+    // these tags, never from directory or artifact names.
+    const std::string& name() const { return name_; }
+    const std::string& version() const { return version_; }
+    const std::vector<std::string>& language_tags() const { return language_tags_; }
+
     // XNNPACK programs sorted by capacity, smallest first.
     const std::vector<Program>& programs() const { return programs_; }
 
 private:
     std::filesystem::path directory_;
+    std::string name_;
+    std::string version_;
+    std::vector<std::string> language_tags_;
     TokenizerContract tokenizer_;
     Labels labels_;
     std::vector<Program> programs_;

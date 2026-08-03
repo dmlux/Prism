@@ -48,13 +48,19 @@ struct prism_tagger {
     prism::tagger::Tagger tagger;
 };
 
+struct SentenceEntry {
+    std::vector<TokenEntry> tokens;
+    std::vector<prism::Utf8ByteRange> source_ranges;
+};
+
 struct prism_result {
     explicit prism_result(std::vector<prism::tagger::TaggedSentence> tagged)
     {
         sentences.reserve(tagged.size());
         for (auto& sentence : tagged) {
-            std::vector<TokenEntry> tokens;
-            tokens.reserve(sentence.tokens.size());
+            SentenceEntry sentence_entry;
+            sentence_entry.source_ranges = std::move(sentence.source_ranges);
+            sentence_entry.tokens.reserve(sentence.tokens.size());
             for (auto& token : sentence.tokens) {
                 TokenEntry entry;
                 // TaggedToken stores features in a std::map, so iteration
@@ -72,21 +78,26 @@ struct prism_result {
                     entry.features.push_back(std::move(feature));
                 }
                 entry.token = std::move(token);
-                tokens.push_back(std::move(entry));
+                sentence_entry.tokens.push_back(std::move(entry));
             }
-            sentences.push_back(std::move(tokens));
+            sentences.push_back(std::move(sentence_entry));
         }
+    }
+
+    const SentenceEntry* Sentence(size_t sentence) const
+    {
+        return sentence < sentences.size() ? &sentences[sentence] : nullptr;
     }
 
     const TokenEntry* Token(size_t sentence, size_t token) const
     {
-        if (sentence >= sentences.size() || token >= sentences[sentence].size()) {
+        if (sentence >= sentences.size() || token >= sentences[sentence].tokens.size()) {
             return nullptr;
         }
-        return &sentences[sentence][token];
+        return &sentences[sentence].tokens[token];
     }
 
-    std::vector<std::vector<TokenEntry>> sentences;
+    std::vector<SentenceEntry> sentences;
 };
 
 extern "C" {
@@ -113,6 +124,30 @@ prism_tagger* prism_tagger_create(const char* artifact_directory)
 void prism_tagger_destroy(prism_tagger* tagger)
 {
     delete tagger;
+}
+
+const char* prism_tagger_artifact_name(const prism_tagger* tagger)
+{
+    return tagger == nullptr ? nullptr : tagger->tagger.artifact().name().c_str();
+}
+
+const char* prism_tagger_artifact_version(const prism_tagger* tagger)
+{
+    return tagger == nullptr ? nullptr : tagger->tagger.artifact().version().c_str();
+}
+
+size_t prism_tagger_language_tag_count(const prism_tagger* tagger)
+{
+    return tagger == nullptr ? 0 : tagger->tagger.artifact().language_tags().size();
+}
+
+const char* prism_tagger_language_tag(const prism_tagger* tagger, size_t index)
+{
+    if (tagger == nullptr) {
+        return nullptr;
+    }
+    const auto& tags = tagger->tagger.artifact().language_tags();
+    return index < tags.size() ? tags[index].c_str() : nullptr;
 }
 
 const char* prism_last_error(void)
@@ -173,7 +208,7 @@ size_t prism_result_token_count(const prism_result* result, size_t sentence)
     if (result == nullptr || sentence >= result->sentences.size()) {
         return 0;
     }
-    return result->sentences[sentence].size();
+    return result->sentences[sentence].tokens.size();
 }
 
 const char* prism_result_token_text(
@@ -260,6 +295,60 @@ double prism_result_token_lemma_confidence(
 {
     const auto* entry = result == nullptr ? nullptr : result->Token(sentence, token);
     return entry == nullptr ? 0.0 : entry->token.lemma_confidence;
+}
+
+size_t prism_result_sentence_source_range_count(
+    const prism_result* result, size_t sentence)
+{
+    const auto* entry = result == nullptr ? nullptr : result->Sentence(sentence);
+    return entry == nullptr ? 0 : entry->source_ranges.size();
+}
+
+size_t prism_result_sentence_source_range_start(
+    const prism_result* result, size_t sentence, size_t range)
+{
+    const auto* entry = result == nullptr ? nullptr : result->Sentence(sentence);
+    if (entry == nullptr || range >= entry->source_ranges.size()) {
+        return 0;
+    }
+    return entry->source_ranges[range].start;
+}
+
+size_t prism_result_sentence_source_range_end(
+    const prism_result* result, size_t sentence, size_t range)
+{
+    const auto* entry = result == nullptr ? nullptr : result->Sentence(sentence);
+    if (entry == nullptr || range >= entry->source_ranges.size()) {
+        return 0;
+    }
+    return entry->source_ranges[range].end;
+}
+
+size_t prism_result_token_source_range_count(
+    const prism_result* result, size_t sentence, size_t token)
+{
+    const auto* entry = result == nullptr ? nullptr : result->Token(sentence, token);
+    return entry == nullptr ? 0 : entry->token.source_ranges.size();
+}
+
+size_t prism_result_token_source_range_start(
+    const prism_result* result, size_t sentence, size_t token, size_t range)
+{
+    const auto* entry = result == nullptr ? nullptr : result->Token(sentence, token);
+    if (entry == nullptr || range >= entry->token.source_ranges.size()) {
+        return 0;
+    }
+    return entry->token.source_ranges[range].start;
+}
+
+size_t prism_result_token_source_range_end(
+    const prism_result* result, size_t sentence, size_t token, size_t range)
+{
+    const auto* entry = result == nullptr ? nullptr : result->Token(sentence, token);
+    if (entry == nullptr || range >= entry->token.source_ranges.size()) {
+        return 0;
+    }
+    return entry->token.source_ranges[range].end;
 }
 
 } // extern "C"

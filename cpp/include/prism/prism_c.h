@@ -38,6 +38,16 @@ int prism_set_thread_count(size_t thread_count);
 prism_tagger* prism_tagger_create(const char* artifact_directory);
 void prism_tagger_destroy(prism_tagger* tagger);
 
+/* Artifact metadata straight from manifest.json. The returned strings stay
+ * valid for the lifetime of the tagger; NULL tagger yields NULL/0. The
+ * language tags list the BCP 47 languages the loaded artifact supports
+ * (currently for example "nb" and "nn"), in manifest order — consumers
+ * decide language support from these values, never from directory names. */
+const char* prism_tagger_artifact_name(const prism_tagger* tagger);
+const char* prism_tagger_artifact_version(const prism_tagger* tagger);
+size_t prism_tagger_language_tag_count(const prism_tagger* tagger);
+const char* prism_tagger_language_tag(const prism_tagger* tagger, size_t index);
+
 /* UTF-8 description of the most recent failure on the calling thread;
  * empty string when no failure has been recorded. The pointer stays valid
  * until the next failing Prism call on the same thread. */
@@ -91,6 +101,34 @@ const char* prism_result_token_lemma(
     const prism_result* result, size_t sentence, size_t token);
 double prism_result_token_lemma_confidence(
     const prism_result* result, size_t sentence, size_t token);
+
+/* Source mapping: half-open [start, end) UTF-8 byte ranges into the exact,
+ * unmodified text passed to prism_tagger_tag_text. The offsets never refer
+ * to internally repaired or transformed intermediate strings, and they are
+ * UTF-8 byte offsets — not UTF-16 code units and not character indices;
+ * consumers with another coordinate system convert against the original
+ * text. Range boundaries lie on UTF-8 codepoint boundaries; per token and
+ * per sentence the ranges are ordered and non-overlapping.
+ *
+ * A token normally has one range; a token assembled from several separated
+ * input fragments (for example a de-hyphenated line wrap) has one range per
+ * fragment. A sentence's ranges cover all its token fragments, bridging
+ * pure-whitespace gaps only. Results of prism_tagger_tag_tokens carry no
+ * source positions, so their counts are 0 — Prism never invents ranges.
+ *
+ * Out-of-range indices yield 0; use the *_count accessors to iterate. */
+size_t prism_result_sentence_source_range_count(
+    const prism_result* result, size_t sentence);
+size_t prism_result_sentence_source_range_start(
+    const prism_result* result, size_t sentence, size_t range);
+size_t prism_result_sentence_source_range_end(
+    const prism_result* result, size_t sentence, size_t range);
+size_t prism_result_token_source_range_count(
+    const prism_result* result, size_t sentence, size_t token);
+size_t prism_result_token_source_range_start(
+    const prism_result* result, size_t sentence, size_t token, size_t range);
+size_t prism_result_token_source_range_end(
+    const prism_result* result, size_t sentence, size_t token, size_t range);
 
 #ifdef __cplusplus
 } /* extern "C" */

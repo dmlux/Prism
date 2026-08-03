@@ -55,6 +55,53 @@ Argmax ArgmaxIn(const std::vector<float>& values, std::size_t offset, std::size_
     return best;
 }
 
+void ValidateRangeList(const std::vector<Utf8ByteRange>& ranges, const char* what,
+    std::size_t& previous_end)
+{
+    for (const auto& range : ranges) {
+        if (range.start >= range.end) {
+            throw std::invalid_argument(
+                std::string(what) + " contains an empty or inverted Utf8ByteRange.");
+        }
+        if (range.start < previous_end) {
+            throw std::invalid_argument(
+                std::string(what) + " contains unordered or overlapping Utf8ByteRanges.");
+        }
+        previous_end = range.end;
+    }
+}
+
+// Caller-supplied source mappings must uphold the Utf8ByteRange contract
+// before they travel through chunking and batching. Codepoint alignment
+// cannot be checked here because the raw text is not available; it stays
+// the caller's contract.
+void ValidateSourceMapping(const segmentation::PretokenizedSentence& sentence)
+{
+    std::size_t sentence_end = 0;
+    ValidateRangeList(
+        sentence.source_ranges, "PretokenizedSentence::source_ranges", sentence_end);
+    if (sentence.token_source_ranges.empty()) {
+        return;
+    }
+    if (sentence.token_source_ranges.size() != sentence.tokens.size()) {
+        throw std::invalid_argument(
+            "PretokenizedSentence::token_source_ranges must be empty or hold "
+            "exactly one range list per token.");
+    }
+    // Ordering and non-overlap hold across the whole sentence, so repeated
+    // identical tokens stay bound to their own occurrences.
+    std::size_t token_end = 0;
+    for (const auto& token_ranges : sentence.token_source_ranges) {
+        if (token_ranges.empty()) {
+            throw std::invalid_argument(
+                "PretokenizedSentence::token_source_ranges contains a token "
+                "without any Utf8ByteRange.");
+        }
+        ValidateRangeList(
+            token_ranges, "PretokenizedSentence::token_source_ranges", token_end);
+    }
+}
+
 } // namespace
 
 struct Tagger::Implementation {
@@ -256,11 +303,15 @@ struct Tagger::Implementation {
             const auto& sentence = sentences[row];
             TaggedSentence result;
             result.tokens.reserve(sentence.tokens.size());
+            result.source_ranges = sentence.source_ranges;
             for (std::size_t token = 0; token < sentence.tokens.size(); ++token) {
                 const auto flat = row * token_count + token;
                 TaggedToken tagged_token;
                 tagged_token.text = sentence.tokens[token];
                 tagged_token.has_space_before = sentence.has_space_before[token];
+                if (!sentence.token_source_ranges.empty()) {
+                    tagged_token.source_ranges = sentence.token_source_ranges[token];
+                }
 
                 const auto upos = ArgmaxIn(outputs[0].data, flat * upos_count, upos_count);
                 tagged_token.upos = labels.upos_labels[upos.index];
@@ -329,6 +380,11 @@ Tagger::Tagger(const std::filesystem::path& artifact_directory)
 
 Tagger::~Tagger() = default;
 
+const artifact::Artifact& Tagger::artifact() const
+{
+    return implementation_->artifact;
+}
+
 std::vector<TaggedSentence> Tagger::TagText(std::string_view text)
 {
     return Tag(segmentation::Segment(text, implementation_->policy));
@@ -360,6 +416,7 @@ std::vector<TaggedSentence> Tagger::Tag(
 
     std::vector<segmentation::PretokenizedSentence> prepared;
     for (const auto& sentence : sentences) {
+        ValidateSourceMapping(sentence);
         for (auto& chunk : segmentation::Chunk(
                  sentence, static_cast<std::size_t>(largest.token_count))) {
             prepared.push_back(std::move(chunk));

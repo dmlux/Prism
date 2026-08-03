@@ -46,6 +46,73 @@ final class PrismTaggerTests: XCTestCase {
         XCTAssertTrue(tokens.allSatisfy { $0.lemmaConfidence > 0.9 })
     }
 
+    func testRawTextResultsCarrySourceRanges() throws {
+        let tagger = try loadTagger()
+        let text = "Hun kjøpte tre gamle bøker den 17. mai."
+
+        let sentences = try tagger.tag(text: text)
+
+        XCTAssertEqual(sentences.count, 1)
+        // Byte offsets shared with the C++ and Java suites (parity).
+        XCTAssertEqual(
+            sentences[0].tokens.map(\.sourceRanges),
+            [
+                [Utf8ByteRange(start: 0, end: 3)],
+                [Utf8ByteRange(start: 4, end: 11)],
+                [Utf8ByteRange(start: 12, end: 15)],
+                [Utf8ByteRange(start: 16, end: 21)],
+                [Utf8ByteRange(start: 22, end: 28)],
+                [Utf8ByteRange(start: 29, end: 32)],
+                [Utf8ByteRange(start: 33, end: 36)],
+                [Utf8ByteRange(start: 37, end: 40)],
+                [Utf8ByteRange(start: 40, end: 41)],
+            ]
+        )
+        XCTAssertEqual(sentences[0].sourceRanges, [Utf8ByteRange(start: 0, end: 41)])
+        let boker = sentences[0].tokens[4].sourceRanges[0].range(in: text)!
+        XCTAssertEqual(String(text[boker]), "bøker")
+    }
+
+    func testPretokenizedInputCarriesNoSourceRanges() throws {
+        let tagger = try loadTagger()
+
+        let sentences = try tagger.tag(pretokenized: [["Katten", "sov", "."]])
+
+        XCTAssertEqual(sentences.count, 1)
+        XCTAssertTrue(sentences[0].sourceRanges.isEmpty)
+        XCTAssertTrue(sentences[0].tokens.allSatisfy(\.sourceRanges.isEmpty))
+    }
+
+    func testCallerProvidedSourceRangesPassThrough() throws {
+        let tagger = try loadTagger()
+        let sentence = PretokenizedSentence(
+            tokens: ["Katten", "sov", "."],
+            hasSpaceBefore: [false, true, false],
+            tokenSourceRanges: [
+                [Utf8ByteRange(start: 0, end: 6)],
+                [Utf8ByteRange(start: 7, end: 10)],
+                [Utf8ByteRange(start: 10, end: 11)],
+            ],
+            sourceRanges: [Utf8ByteRange(start: 0, end: 11)]
+        )
+
+        let sentences = try tagger.tag(sentences: [sentence])
+
+        XCTAssertEqual(sentences.count, 1)
+        XCTAssertEqual(sentences[0].sourceRanges, sentence.sourceRanges)
+        XCTAssertEqual(
+            sentences[0].tokens.map(\.sourceRanges), sentence.tokenSourceRanges
+        )
+    }
+
+    func testExposesArtifactMetadata() throws {
+        let tagger = try loadTagger()
+
+        XCTAssertEqual(tagger.artifactName, "prism-no")
+        XCTAssertEqual(tagger.artifactVersion, "0.2.2")
+        XCTAssertEqual(tagger.languageTags, ["nb", "nn"])
+    }
+
     func testTagsMoreSentencesThanOneBatch() throws {
         let tagger = try loadTagger()
         let sentence = ["Katten", "sov", "."]

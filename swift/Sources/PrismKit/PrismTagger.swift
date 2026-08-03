@@ -2,6 +2,17 @@ import ExecuTorch
 import Foundation
 
 /// One tagged token with calibrated confidences per decision.
+///
+/// `sourceRanges` locates the token in the exact string passed to
+/// ``PrismTagger/tag(text:)`` as ordered, non-overlapping ``Utf8ByteRange``
+/// values — UTF-8 byte offsets into that string's UTF-8 view, not UTF-16
+/// offsets. A token whose source is contiguous has exactly one range; a
+/// token assembled from several separated input fragments (for example a
+/// de-hyphenated line wrap, "språk-\nmodellen" → "språkmodellen") has one
+/// range per contributing fragment. `text` may differ from the bytes the
+/// ranges point to after internal repairs — `text`, `hasSpaceBefore`, and
+/// `sourceRanges` are three distinct pieces of information. The list is
+/// empty for pretokenized input without caller-supplied ranges.
 public struct TaggedToken: Sendable {
     public let text: String
     public let hasSpaceBefore: Bool
@@ -11,10 +22,19 @@ public struct TaggedToken: Sendable {
     public let featureConfidences: [String: Double]
     public let lemma: String
     public let lemmaConfidence: Double
+    public let sourceRanges: [Utf8ByteRange]
 }
 
+/// One tagged sentence in original token order.
+///
+/// `sourceRanges` covers every token fragment of the sentence in the exact
+/// raw-text input: fragments whose gap in the original is pure whitespace
+/// share one range, gaps containing removed non-whitespace content split
+/// the sentence into several ranges. Empty for pretokenized input without
+/// caller-supplied ranges.
 public struct TaggedSentence: Sendable {
     public let tokens: [TaggedToken]
+    public let sourceRanges: [Utf8ByteRange]
 }
 
 /// Frozen-artifact tagger: raw text or word tokens in, decisions plus
@@ -67,12 +87,30 @@ public final class PrismTagger {
         paddingTokenId = artifact.manifest.tokenizer.paddingTokenId
     }
 
+    /// The artifact name recorded in the loaded manifest (for example
+    /// "prism-no").
+    public var artifactName: String { artifact.manifest.artifactName }
+
+    /// The artifact version recorded in the loaded manifest.
+    public var artifactVersion: String { artifact.manifest.artifactVersion }
+
+    /// The BCP 47 language tags the loaded artifact supports (currently for
+    /// example "nb" and "nn"), in manifest order. Decide language support
+    /// from these values, never from directory or artifact names.
+    public var languageTags: [String] { artifact.manifest.languageTags }
+
     /// Segment raw text with the runtime policy, then tag every sentence.
+    ///
+    /// Every result carries ``Utf8ByteRange`` source ranges against the
+    /// exact `text` argument's UTF-8 view.
     public func tag(text: String) throws -> [TaggedSentence] {
         try tag(sentences: RuntimeSegmentation.segment(text, policy: segmentationPolicy))
     }
 
     /// Tag application-supplied word tokens (space assumed between words).
+    ///
+    /// Without raw text there are no source positions: the results carry
+    /// empty ``Utf8ByteRange`` lists, which Prism never invents.
     public func tag(pretokenized: [[String]]) throws -> [TaggedSentence] {
         try tag(
             sentences: pretokenized.compactMap { tokens in
@@ -89,6 +127,12 @@ public final class PrismTagger {
         )
     }
 
+    /// Tag sentences carrying their own spacing information.
+    ///
+    /// Callers who own tokenization and source offsets may fill the
+    /// sentences' source-range fields (``PretokenizedSentence`` validates
+    /// the invariants); the ranges travel through chunking and batching
+    /// untouched and reappear on the corresponding results.
     public func tag(sentences: [PretokenizedSentence]) throws -> [TaggedSentence] {
         let largest = programs.last!.shapes
         let prepared = sentences.flatMap {
@@ -334,11 +378,14 @@ public final class PrismTagger {
                         features: features,
                         featureConfidences: featureConfidences,
                         lemma: lemma,
-                        lemmaConfidence: lemmaConfidence
+                        lemmaConfidence: lemmaConfidence,
+                        sourceRanges: sentence.tokenSourceRanges.isEmpty
+                            ? []
+                            : sentence.tokenSourceRanges[tokenIndex]
                     )
                 )
             }
-            tagged.append(TaggedSentence(tokens: tokens))
+            tagged.append(TaggedSentence(tokens: tokens, sourceRanges: sentence.sourceRanges))
         }
         return tagged
     }

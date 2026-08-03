@@ -85,16 +85,22 @@ void ThrowPrismException(JNIEnv* env, const std::string& message)
     }
 }
 
-// The result payload: eleven parallel arrays, unflattened on the Java side.
+// The result payload: seventeen parallel arrays, unflattened on the Java
+// side. Source ranges travel as flat count/start/end arrays (UTF-8 byte
+// offsets as jlong), so the whole result still costs one JNI transition.
 jobjectArray MarshalResult(
     JNIEnv* env, const std::vector<prism::tagger::TaggedSentence>& sentences)
 {
     std::size_t token_total = 0;
     std::size_t feature_total = 0;
+    std::size_t sentence_range_total = 0;
+    std::size_t token_range_total = 0;
     for (const auto& sentence : sentences) {
         token_total += sentence.tokens.size();
+        sentence_range_total += sentence.source_ranges.size();
         for (const auto& token : sentence.tokens) {
             feature_total += token.features.size();
+            token_range_total += token.source_ranges.size();
         }
     }
 
@@ -104,12 +110,24 @@ jobjectArray MarshalResult(
     std::vector<jint> feature_counts;
     std::vector<jdouble> feature_confidences;
     std::vector<jdouble> lemma_confidences;
+    std::vector<jint> sentence_range_counts;
+    std::vector<jlong> sentence_range_starts;
+    std::vector<jlong> sentence_range_ends;
+    std::vector<jint> token_range_counts;
+    std::vector<jlong> token_range_starts;
+    std::vector<jlong> token_range_ends;
     tokens_per_sentence.reserve(sentences.size());
     has_space_before.reserve(token_total);
     upos_confidences.reserve(token_total);
     feature_counts.reserve(token_total);
     feature_confidences.reserve(feature_total);
     lemma_confidences.reserve(token_total);
+    sentence_range_counts.reserve(sentences.size());
+    sentence_range_starts.reserve(sentence_range_total);
+    sentence_range_ends.reserve(sentence_range_total);
+    token_range_counts.reserve(token_total);
+    token_range_starts.reserve(token_range_total);
+    token_range_ends.reserve(token_range_total);
 
     jclass string_class = env->FindClass("java/lang/String");
     jobjectArray texts
@@ -127,7 +145,17 @@ jobjectArray MarshalResult(
     jsize feature_index = 0;
     for (const auto& sentence : sentences) {
         tokens_per_sentence.push_back(static_cast<jint>(sentence.tokens.size()));
+        sentence_range_counts.push_back(static_cast<jint>(sentence.source_ranges.size()));
+        for (const auto& range : sentence.source_ranges) {
+            sentence_range_starts.push_back(static_cast<jlong>(range.start));
+            sentence_range_ends.push_back(static_cast<jlong>(range.end));
+        }
         for (const auto& token : sentence.tokens) {
+            token_range_counts.push_back(static_cast<jint>(token.source_ranges.size()));
+            for (const auto& range : token.source_ranges) {
+                token_range_starts.push_back(static_cast<jlong>(range.start));
+                token_range_ends.push_back(static_cast<jlong>(range.end));
+            }
             env->SetObjectArrayElement(texts, token_index, MakeString(env, token.text));
             env->SetObjectArrayElement(upos, token_index, MakeString(env, token.upos));
             env->SetObjectArrayElement(lemmas, token_index, MakeString(env, token.lemma));
@@ -178,8 +206,19 @@ jobjectArray MarshalResult(
     env->SetDoubleArrayRegion(
         lemma_confidence_array, 0, static_cast<jsize>(token_total), lemma_confidences.data());
 
+    auto make_int_array = [env](const std::vector<jint>& values) {
+        jintArray array = env->NewIntArray(static_cast<jsize>(values.size()));
+        env->SetIntArrayRegion(array, 0, static_cast<jsize>(values.size()), values.data());
+        return array;
+    };
+    auto make_long_array = [env](const std::vector<jlong>& values) {
+        jlongArray array = env->NewLongArray(static_cast<jsize>(values.size()));
+        env->SetLongArrayRegion(array, 0, static_cast<jsize>(values.size()), values.data());
+        return array;
+    };
+
     jobjectArray payload
-        = env->NewObjectArray(11, env->FindClass("java/lang/Object"), nullptr);
+        = env->NewObjectArray(17, env->FindClass("java/lang/Object"), nullptr);
     env->SetObjectArrayElement(payload, 0, tokens_per_sentence_array);
     env->SetObjectArrayElement(payload, 1, texts);
     env->SetObjectArrayElement(payload, 2, has_space_before_array);
@@ -191,6 +230,12 @@ jobjectArray MarshalResult(
     env->SetObjectArrayElement(payload, 8, feature_confidence_array);
     env->SetObjectArrayElement(payload, 9, lemmas);
     env->SetObjectArrayElement(payload, 10, lemma_confidence_array);
+    env->SetObjectArrayElement(payload, 11, make_int_array(sentence_range_counts));
+    env->SetObjectArrayElement(payload, 12, make_long_array(sentence_range_starts));
+    env->SetObjectArrayElement(payload, 13, make_long_array(sentence_range_ends));
+    env->SetObjectArrayElement(payload, 14, make_int_array(token_range_counts));
+    env->SetObjectArrayElement(payload, 15, make_long_array(token_range_starts));
+    env->SetObjectArrayElement(payload, 16, make_long_array(token_range_ends));
     return payload;
 }
 
@@ -228,6 +273,33 @@ JNIEXPORT void JNICALL Java_io_github_dmlux_prism_PrismTagger_nativeDestroy(
     JNIEnv*, jclass, jlong handle)
 {
     delete TaggerFrom(handle);
+}
+
+// Artifact metadata as one Object[]{String name, String version,
+// String[] languageTags} — a single JNI transition.
+JNIEXPORT jobjectArray JNICALL Java_io_github_dmlux_prism_PrismTagger_nativeArtifactMetadata(
+    JNIEnv* env, jclass, jlong handle)
+{
+    try {
+        const auto& artifact = TaggerFrom(handle)->artifact();
+        jclass string_class = env->FindClass("java/lang/String");
+        const auto& tags = artifact.language_tags();
+        jobjectArray tag_array
+            = env->NewObjectArray(static_cast<jsize>(tags.size()), string_class, nullptr);
+        for (std::size_t index = 0; index < tags.size(); ++index) {
+            env->SetObjectArrayElement(
+                tag_array, static_cast<jsize>(index), MakeString(env, tags[index]));
+        }
+        jobjectArray payload
+            = env->NewObjectArray(3, env->FindClass("java/lang/Object"), nullptr);
+        env->SetObjectArrayElement(payload, 0, MakeString(env, artifact.name()));
+        env->SetObjectArrayElement(payload, 1, MakeString(env, artifact.version()));
+        env->SetObjectArrayElement(payload, 2, tag_array);
+        return payload;
+    } catch (const std::exception& error) {
+        ThrowPrismException(env, error.what());
+        return nullptr;
+    }
 }
 
 JNIEXPORT jobjectArray JNICALL Java_io_github_dmlux_prism_PrismTagger_nativeTagText(

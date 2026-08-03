@@ -54,6 +54,110 @@ TEST_F(TaggerTest, TagsRawTextWithReferenceDecisions)
     EXPECT_EQ(tokens[4].features.at("Number"), std::vector<std::string>{"Plur"});
 }
 
+TEST_F(TaggerTest, RawTextResultsCarrySourceRanges)
+{
+    prism::tagger::Tagger tagger(kArtifact);
+    const std::string text = "Hun kjøpte tre gamle bøker den 17. mai.";
+
+    const auto sentences = tagger.TagText(text);
+
+    ASSERT_EQ(sentences.size(), 1U);
+    using Ranges = std::vector<prism::Utf8ByteRange>;
+    // ø occupies two UTF-8 bytes; the offsets count bytes of the exact
+    // input. These literals are shared with the Swift and Java suites to
+    // pin byte-offset parity across the bindings.
+    const std::vector<Ranges> expected{
+        {{0, 3}}, {{4, 11}}, {{12, 15}}, {{16, 21}}, {{22, 28}},
+        {{29, 32}}, {{33, 36}}, {{37, 40}}, {{40, 41}},
+    };
+    ASSERT_EQ(sentences[0].tokens.size(), expected.size());
+    for (std::size_t index = 0; index < expected.size(); ++index) {
+        EXPECT_EQ(sentences[0].tokens[index].source_ranges, expected[index]);
+    }
+    EXPECT_EQ(sentences[0].source_ranges, (Ranges{{0, 41}}));
+    // The mapped bytes reproduce the original token spelling.
+    const auto& boker = sentences[0].tokens[4].source_ranges.front();
+    EXPECT_EQ(text.substr(boker.start, boker.end - boker.start), "bøker");
+}
+
+TEST_F(TaggerTest, BatchSortingKeepsIdenticalSentencesAnchored)
+{
+    prism::tagger::Tagger tagger(kArtifact);
+    // Twenty identical sentences force several batches and length-sorted
+    // reordering; every result must still point at its own occurrence.
+    std::string text;
+    for (int index = 0; index < 20; ++index) {
+        if (index > 0) {
+            text += ' ';
+        }
+        text += "Katten sov.";
+    }
+
+    const auto sentences = tagger.TagText(text);
+
+    ASSERT_EQ(sentences.size(), 20U);
+    for (std::size_t index = 0; index < sentences.size(); ++index) {
+        const std::size_t base = index * 12;
+        ASSERT_EQ(sentences[index].source_ranges.size(), 1U);
+        EXPECT_EQ(sentences[index].source_ranges[0], (prism::Utf8ByteRange{base, base + 11}));
+        EXPECT_EQ(sentences[index].tokens[0].source_ranges[0],
+            (prism::Utf8ByteRange{base, base + 6}));
+    }
+}
+
+TEST_F(TaggerTest, PretokenizedInputCarriesNoSourceRanges)
+{
+    prism::tagger::Tagger tagger(kArtifact);
+
+    const auto tagged = tagger.TagPretokenized({{"Katten", "sov", "."}});
+
+    ASSERT_EQ(tagged.size(), 1U);
+    EXPECT_TRUE(tagged[0].source_ranges.empty());
+    for (const auto& token : tagged[0].tokens) {
+        EXPECT_TRUE(token.source_ranges.empty());
+    }
+}
+
+TEST_F(TaggerTest, CallerProvidedSourceRangesPassThroughValidated)
+{
+    prism::tagger::Tagger tagger(kArtifact);
+
+    prism::segmentation::PretokenizedSentence sentence;
+    sentence.tokens = {"Katten", "sov", "."};
+    sentence.has_space_before = {false, true, false};
+    sentence.token_source_ranges = {{{0, 6}}, {{7, 10}}, {{10, 11}}};
+    sentence.source_ranges = {{0, 11}};
+
+    const auto tagged = tagger.Tag({sentence});
+
+    ASSERT_EQ(tagged.size(), 1U);
+    EXPECT_EQ(tagged[0].source_ranges, sentence.source_ranges);
+    EXPECT_EQ(tagged[0].tokens[0].source_ranges, sentence.token_source_ranges[0]);
+    EXPECT_EQ(tagged[0].tokens[2].source_ranges, sentence.token_source_ranges[2]);
+
+    // Overlapping, empty, or miscounted ranges are rejected up front.
+    auto overlapping = sentence;
+    overlapping.token_source_ranges = {{{0, 6}}, {{5, 10}}, {{10, 11}}};
+    EXPECT_THROW(tagger.Tag({overlapping}), std::invalid_argument);
+
+    auto empty_range = sentence;
+    empty_range.token_source_ranges = {{{0, 6}}, {{7, 7}}, {{10, 11}}};
+    EXPECT_THROW(tagger.Tag({empty_range}), std::invalid_argument);
+
+    auto miscounted = sentence;
+    miscounted.token_source_ranges = {{{0, 6}}, {{7, 10}}};
+    EXPECT_THROW(tagger.Tag({miscounted}), std::invalid_argument);
+}
+
+TEST_F(TaggerTest, ExposesArtifactMetadata)
+{
+    prism::tagger::Tagger tagger(kArtifact);
+
+    EXPECT_EQ(tagger.artifact().name(), "prism-no");
+    EXPECT_EQ(tagger.artifact().version(), "0.2.2");
+    EXPECT_EQ(tagger.artifact().language_tags(), (std::vector<std::string>{"nb", "nn"}));
+}
+
 TEST_F(TaggerTest, TagsMoreSentencesThanOneBatch)
 {
     prism::tagger::Tagger tagger(kArtifact);
@@ -72,30 +176,36 @@ TEST_F(TaggerTest, TagsMoreSentencesThanOneBatch)
     }
 }
 
-TEST_F(TaggerTest, TagsBookChapterWithinTimeBudget)
+TEST_F(TaggerTest, TagsExampleTextsEndToEnd)
 {
-    std::ifstream chapter_file(kRoot + "/data/examples/hp7kap1.txt");
-    if (!chapter_file) {
-        GTEST_SKIP() << "Local chapter fixture is not present.";
-    }
-    std::ostringstream buffer;
-    buffer << chapter_file.rdbuf();
-    const auto text = buffer.str();
-
+    // The checked-in CC0 example texts (see data/examples/README.md) with
+    // the Python reference implementation's sentence and token counts.
     prism::tagger::Tagger tagger(kArtifact);
 
-    const auto begin = std::chrono::steady_clock::now();
-    const auto tagged = tagger.TagText(text);
-    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - begin);
+    const struct {
+        const char* fixture;
+        std::size_t sentences;
+        std::size_t tokens;
+    } expectations[] = {
+        {"skarvholmen-bokmaal", 55, 905},
+        {"fjellvatnet-nynorsk", 41, 803},
+    };
+    for (const auto& expected : expectations) {
+        std::ifstream text_file(
+            kRoot + "/data/examples/" + expected.fixture + ".txt", std::ios::binary);
+        ASSERT_TRUE(text_file) << "Checked-in fixture is missing.";
+        std::ostringstream buffer;
+        buffer << text_file.rdbuf();
 
-    EXPECT_EQ(tagged.size(), 247U);
-    std::size_t token_count = 0;
-    for (const auto& sentence : tagged) {
-        token_count += sentence.tokens.size();
+        const auto tagged = tagger.TagText(buffer.str());
+
+        EXPECT_EQ(tagged.size(), expected.sentences) << expected.fixture;
+        std::size_t token_count = 0;
+        for (const auto& sentence : tagged) {
+            token_count += sentence.tokens.size();
+        }
+        EXPECT_EQ(token_count, expected.tokens) << expected.fixture;
     }
-    EXPECT_EQ(token_count, 3783U);
-    std::cout << "chapter tagging: " << elapsed.count() << " ms\n";
 }
 
 TEST_F(TaggerTest, CAbiExposesTheFullResultSurface)
@@ -135,9 +245,35 @@ TEST_F(TaggerTest, CAbiExposesTheFullResultSurface)
     EXPECT_NE(features.find("Gender=Fem"), std::string::npos);
     EXPECT_NE(features.find("Number=Plur"), std::string::npos);
 
+    // Source ranges: half-open UTF-8 byte ranges against the exact input.
+    ASSERT_EQ(prism_result_sentence_source_range_count(result, 0), 1U);
+    EXPECT_EQ(prism_result_sentence_source_range_start(result, 0, 0), 0U);
+    EXPECT_EQ(prism_result_sentence_source_range_end(result, 0, 0), 41U);
+    ASSERT_EQ(prism_result_token_source_range_count(result, 0, 4), 1U);
+    EXPECT_EQ(prism_result_token_source_range_start(result, 0, 4, 0), 22U);
+    EXPECT_EQ(prism_result_token_source_range_end(result, 0, 4, 0), 28U);
+
     // Out-of-range access degrades to NULL/0 instead of aborting.
     EXPECT_EQ(prism_result_token_text(result, 0, 99), nullptr);
     EXPECT_EQ(prism_result_token_count(result, 99), 0U);
+    EXPECT_EQ(prism_result_sentence_source_range_count(result, 99), 0U);
+    EXPECT_EQ(prism_result_sentence_source_range_start(result, 0, 99), 0U);
+    EXPECT_EQ(prism_result_sentence_source_range_end(result, 99, 0), 0U);
+    EXPECT_EQ(prism_result_token_source_range_count(result, 0, 99), 0U);
+    EXPECT_EQ(prism_result_token_source_range_start(result, 0, 4, 99), 0U);
+    EXPECT_EQ(prism_result_token_source_range_end(result, 99, 4, 0), 0U);
+    EXPECT_EQ(prism_result_sentence_source_range_count(nullptr, 0), 0U);
+    EXPECT_EQ(prism_result_token_source_range_count(nullptr, 0, 0), 0U);
+
+    // Artifact metadata from manifest.json, valid for the tagger lifetime.
+    EXPECT_STREQ(prism_tagger_artifact_name(tagger), "prism-no");
+    EXPECT_STREQ(prism_tagger_artifact_version(tagger), "0.2.2");
+    ASSERT_EQ(prism_tagger_language_tag_count(tagger), 2U);
+    EXPECT_STREQ(prism_tagger_language_tag(tagger, 0), "nb");
+    EXPECT_STREQ(prism_tagger_language_tag(tagger, 1), "nn");
+    EXPECT_EQ(prism_tagger_language_tag(tagger, 2), nullptr);
+    EXPECT_EQ(prism_tagger_artifact_name(nullptr), nullptr);
+    EXPECT_EQ(prism_tagger_language_tag_count(nullptr), 0U);
 
     prism_result_destroy(result);
 
@@ -147,6 +283,9 @@ TEST_F(TaggerTest, CAbiExposesTheFullResultSurface)
     ASSERT_EQ(prism_result_sentence_count(tokens_result), 1U);
     EXPECT_STREQ(prism_result_token_upos(tokens_result, 0, 0), "NOUN");
     EXPECT_STREQ(prism_result_token_lemma(tokens_result, 0, 1), "sove");
+    // Pretokenized input has no source positions: counts are zero.
+    EXPECT_EQ(prism_result_sentence_source_range_count(tokens_result, 0), 0U);
+    EXPECT_EQ(prism_result_token_source_range_count(tokens_result, 0, 0), 0U);
     prism_result_destroy(tokens_result);
 
     prism_tagger_destroy(tagger);

@@ -11,3 +11,4 @@
 #include <prism/segmentation.h>
 #include <prism/subword.h>
 #include <prism/tagger.h>
+#include <prism/utf8_byte_range.h>

@@ -38,6 +38,7 @@ public final class PrismTagger implements AutoCloseable {
     private static volatile boolean nativeLibraryLoaded = false;
 
     private long handle;
+    private Object[] artifactMetadata;
 
     private PrismTagger(long handle) {
         this.handle = handle;
@@ -72,12 +73,53 @@ public final class PrismTagger implements AutoCloseable {
         return new PrismTagger(handle);
     }
 
-    /** Segments raw text with the runtime policy, then tags every sentence. */
+    /**
+     * The artifact name recorded in the loaded manifest (for example
+     * {@code "prism-no"}).
+     */
+    public String artifactName() {
+        return (String) artifactMetadata()[0];
+    }
+
+    /** The artifact version recorded in the loaded manifest. */
+    public String artifactVersion() {
+        return (String) artifactMetadata()[1];
+    }
+
+    /**
+     * The BCP 47 language tags the loaded artifact supports (currently for
+     * example {@code "nb"} and {@code "nn"}), in manifest order. Decide
+     * language support from these values, never from directory names.
+     */
+    public List<String> languageTags() {
+        return List.of((String[]) artifactMetadata()[2]);
+    }
+
+    private Object[] artifactMetadata() {
+        if (artifactMetadata == null) {
+            artifactMetadata = nativeArtifactMetadata(requireHandle());
+        }
+        return artifactMetadata;
+    }
+
+    /**
+     * Segments raw text with the runtime policy, then tags every sentence.
+     *
+     * <p>Every result carries {@link Utf8ByteRange source ranges} against
+     * the exact {@code text} argument — UTF-8 byte offsets, not Java string
+     * indices; see {@link Utf8ByteRange} for the conversion contract.
+     */
     public List<TaggedSentence> tagText(String text) {
         return assemble(nativeTagText(requireHandle(), utf8(text)));
     }
 
-    /** Tags application-supplied word tokens (space assumed between words). */
+    /**
+     * Tags application-supplied word tokens (space assumed between words).
+     *
+     * <p>Without raw text there are no source positions: the results carry
+     * empty {@link Utf8ByteRange source-range} lists, which Prism never
+     * invents.
+     */
     public List<TaggedSentence> tagPretokenized(List<List<String>> sentences) {
         int total = sentences.stream().mapToInt(List::size).sum();
         byte[][] tokens = new byte[total][];
@@ -190,11 +232,20 @@ public final class PrismTagger implements AutoCloseable {
         double[] featureConfidences = (double[]) payload[8];
         String[] lemmas = (String[]) payload[9];
         double[] lemmaConfidences = (double[]) payload[10];
+        int[] sentenceRangeCounts = (int[]) payload[11];
+        long[] sentenceRangeStarts = (long[]) payload[12];
+        long[] sentenceRangeEnds = (long[]) payload[13];
+        int[] tokenRangeCounts = (int[]) payload[14];
+        long[] tokenRangeStarts = (long[]) payload[15];
+        long[] tokenRangeEnds = (long[]) payload[16];
 
         List<TaggedSentence> sentences = new ArrayList<>(tokensPerSentence.length);
         int token = 0;
         int feature = 0;
-        for (int count : tokensPerSentence) {
+        int sentenceRange = 0;
+        int tokenRange = 0;
+        for (int sentenceIndex = 0; sentenceIndex < tokensPerSentence.length; sentenceIndex++) {
+            int count = tokensPerSentence[sentenceIndex];
             List<TaggedToken> tokens = new ArrayList<>(count);
             for (int position = 0; position < count; position++, token++) {
                 Map<String, List<String>> features = new LinkedHashMap<>();
@@ -204,6 +255,11 @@ public final class PrismTagger implements AutoCloseable {
                             featureNames[feature],
                             List.of(featureValues[feature].split(",")));
                     confidences.put(featureNames[feature], featureConfidences[feature]);
+                }
+                List<Utf8ByteRange> tokenRanges = new ArrayList<>(tokenRangeCounts[token]);
+                for (int entry = 0; entry < tokenRangeCounts[token]; entry++, tokenRange++) {
+                    tokenRanges.add(new Utf8ByteRange(
+                            tokenRangeStarts[tokenRange], tokenRangeEnds[tokenRange]));
                 }
                 // Collections.unmodifiableMap keeps the alphabetical
                 // feature order; Map.copyOf would not.
@@ -215,9 +271,17 @@ public final class PrismTagger implements AutoCloseable {
                         Collections.unmodifiableMap(features),
                         Collections.unmodifiableMap(confidences),
                         lemmas[token],
-                        lemmaConfidences[token]));
+                        lemmaConfidences[token],
+                        List.copyOf(tokenRanges)));
             }
-            sentences.add(new TaggedSentence(List.copyOf(tokens)));
+            List<Utf8ByteRange> sentenceRanges =
+                    new ArrayList<>(sentenceRangeCounts[sentenceIndex]);
+            for (int entry = 0; entry < sentenceRangeCounts[sentenceIndex];
+                    entry++, sentenceRange++) {
+                sentenceRanges.add(new Utf8ByteRange(
+                        sentenceRangeStarts[sentenceRange], sentenceRangeEnds[sentenceRange]));
+            }
+            sentences.add(new TaggedSentence(List.copyOf(tokens), List.copyOf(sentenceRanges)));
         }
         return List.copyOf(sentences);
     }
@@ -227,6 +291,8 @@ public final class PrismTagger implements AutoCloseable {
     private static native long nativeCreate(byte[] utf8Directory);
 
     private static native void nativeDestroy(long handle);
+
+    private static native Object[] nativeArtifactMetadata(long handle);
 
     private static native Object[] nativeTagText(long handle, byte[] utf8Text);
 

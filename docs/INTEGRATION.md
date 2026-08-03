@@ -77,6 +77,98 @@ applications that already have words can skip that layer entirely.
 
 Input text is expected in Unicode NFC.
 
+### Artifact metadata and language support
+
+Whether a loaded artifact supports a document's language is decided
+from the manifest, never guessed from directory or artifact names. All
+bindings expose the same three `manifest.json` values, typed and
+immutable: the artifact name, the artifact version, and the BCP 47
+`language_tags` in manifest order (one artifact can support several —
+the Norwegian artifact currently lists `nb` and `nn`). C++:
+`Tagger::artifact()` / `prism::artifact::Artifact` (`name()`,
+`version()`, `language_tags()`); C: `prism_tagger_artifact_name`,
+`prism_tagger_artifact_version`, `prism_tagger_language_tag_count`,
+`prism_tagger_language_tag`; Swift: `PrismTagger.artifactName`,
+`.artifactVersion`, `.languageTags` (also on `ArtifactManifest`); Java:
+`PrismTagger.artifactName()`, `.artifactVersion()`, `.languageTags()`.
+Loading fails loudly when a manifest misses these fields.
+
+## Source mapping
+
+Applications that analyze raw text usually need to point back into the
+text they passed in — to highlight a token, jump to a sentence, or
+attach annotations. Every Prism runtime therefore returns, for every
+token and sentence of a raw-text analysis, its origin in the exact,
+unmodified input as **`Utf8ByteRange`** values.
+
+The contract:
+
+- A `Utf8ByteRange` is a **half-open `[start, end)` byte range in the
+  UTF-8 encoding of the exact string the caller passed in**. Ranges are
+  never empty, lie inside the input, sit on UTF-8 codepoint boundaries,
+  and range lists are ordered and non-overlapping.
+- The offsets always refer to the raw input — never to internally
+  repaired, merged, whitespace-collapsed, or normalized intermediate
+  strings. The mapping is carried *through* every transformation of the
+  segmentation pipeline (restored spaces after sentence punctuation,
+  merged line wraps, de-hyphenation, whitespace collapsing, chunking,
+  batch sorting); it is never reconstructed afterwards by searching the
+  input, so repeated identical tokens stay bound to their own
+  occurrences.
+- **A token has one or more ranges.** One range is the normal,
+  contiguous case. A token assembled from several separated input
+  fragments has one range per fragment: for the input
+  `"språk-\nmodellen"` the model token stays `språkmodellen`, and its
+  two ranges point exactly at `språk` and `modellen` — no invented
+  range claims the removed `-\n` as token content. The model token text
+  and the original bytes can therefore differ; the token text,
+  `has_space_before`, and the source ranges are three distinct pieces
+  of information, and none substitutes for another.
+- **A sentence's ranges cover all its token fragments.** Fragments
+  whose gap in the original text is pure whitespace share one range;
+  gaps containing removed non-whitespace content (the `-` of a joined
+  line wrap) split the sentence into several ranges. Chunks of an
+  over-long sentence carry the parent's ranges clipped to their own
+  tokens.
+- **Pretokenized input has no source positions.** Without the raw text
+  Prism cannot know any, and it never invents them: the range lists are
+  simply empty (counts of 0 in the C ABI). Callers who own tokenization
+  *and* offsets can pass their own validated ranges through the C++
+  `PretokenizedSentence` fields or the Swift `PretokenizedSentence`
+  initializer; they come back untouched on the results. The C and Java
+  surfaces keep the simple pretokenized contract — such callers already
+  hold their offsets, and Prism returns exactly one result per input
+  token in order.
+
+**UTF-8 byte offsets are not UTF-16 offsets.** Both encodings represent
+the full Unicode repertoire, but they count different units: in `🙂å`,
+the `å` starts at UTF-8 byte offset 4 (the emoji occupies four bytes)
+yet at UTF-16 offset 2 (the emoji occupies two code units) — and `å`
+itself occupies two UTF-8 bytes but one UTF-16 unit. Consumers whose
+coordinate system is UTF-16 — Java string indices, `NSRange`-based
+Apple APIs such as TextKit — must convert against the unchanged
+original text; copying the numbers is not a conversion. The canonical
+Prism representation stays `Utf8ByteRange` at the C++/C boundary; Swift
+and Java additionally ship small, tested helpers against the original
+string (`Utf8ByteRange.range(in:)` returning `Range<String.Index>`,
+rejecting invalid boundaries; `Utf8ByteRange.utf16OffsetOf(text,
+offset)` throwing on non-boundary offsets).
+
+Input is still expected in NFC (the artifact's recorded normalization).
+Prism does not normalize raw text internally, so the emitted offsets
+always match the caller's actual bytes — visually identical but
+differently encoded input (precomposed `å` versus `a` plus combining
+ring) yields offsets into exactly the encoding that was passed in.
+
+Per binding: C++ `TaggedToken::source_ranges` /
+`TaggedSentence::source_ranges` (`<prism/utf8_byte_range.h>`); C
+`prism_result_{token,sentence}_source_range_{count,start,end}`
+(documented in `<prism/prism_c.h>`); Swift
+`TaggedToken.sourceRanges` / `TaggedSentence.sourceRanges`; Java
+`TaggedToken.sourceRanges()` / `TaggedSentence.sourceRanges()`. The
+byte offsets are identical across all bindings for identical input;
+shared test literals pin that parity.
+
 ## Threads and compute device
 
 Every Prism runtime installs a measured CPU thread-count default (the
