@@ -157,7 +157,7 @@ per platform.
 ### Swift
 
 Add the Prism package (repository root; pin released `v*` tags with
-`from: "0.2.0"`) plus the ExecuTorch products
+`from: "0.3.0"`) plus the ExecuTorch products
 (`executorch`, `backend_xnnpack`, `kernels_optimized`,
 `kernels_quantized`) to your app target — details in
 [INTEGRATION.md](docs/INTEGRATION.md).
@@ -235,7 +235,7 @@ Maven (`pom.xml`):
 <dependency>
   <groupId>io.github.dmlux</groupId>
   <artifactId>prism</artifactId>
-  <version>0.2.0</version>
+  <version>0.3.0</version>
 </dependency>
 ```
 
@@ -243,7 +243,7 @@ Gradle (`build.gradle.kts`, or the same line without parentheses in a
 Groovy `build.gradle`):
 
 ```kotlin
-implementation("io.github.dmlux:prism:0.2.0")
+implementation("io.github.dmlux:prism:0.3.0")
 ```
 
 The same JAR is attached to each [`v*` release](https://github.com/dmlux/Prism/releases)
