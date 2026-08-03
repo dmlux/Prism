@@ -114,6 +114,34 @@ if(PRISM_ENGINE)
     target_link_libraries(prism_chapter_benchmark PRIVATE prism_tagger)
     target_compile_options(prism_chapter_benchmark PRIVATE ${PRISM_WARNING_OPTIONS})
 
+    # PrismNative: the Apple binary-distribution boundary. One self-contained
+    # dynamic library per platform slice that compiles the same prism_c.cpp
+    # against the same static core (tagger, engine, ExecuTorch, XNNPACK,
+    # kernels — the whole-archive link options of the registration libraries
+    # keep their static initializers), exports only the stable C ABI
+    # (prism_*), and hides every internal C++ and ExecuTorch symbol. The
+    # slices are packaged into PrismNative.xcframework by
+    # scripts/build-prism-native.sh; see docs/INTEGRATION.md.
+    option(PRISM_NATIVE "Build the PrismNative dynamic library (Apple distribution)" OFF)
+    if(PRISM_NATIVE)
+        add_library(prism_native SHARED src/prism_c.cpp)
+        target_include_directories(prism_native PUBLIC include)
+        target_link_libraries(prism_native PRIVATE prism_tagger)
+        set_target_properties(prism_native PROPERTIES
+            OUTPUT_NAME PrismNative
+            INSTALL_NAME_DIR "@rpath"
+            # The iOS toolchain compiles hidden by default; the C ABI must
+            # stay visible so the exported-symbols list is the only filter.
+            CXX_VISIBILITY_PRESET default
+        )
+        if(APPLE)
+            target_link_options(prism_native PRIVATE
+                "-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/native/prism_native.exports"
+            )
+        endif()
+        target_compile_options(prism_native PRIVATE ${PRISM_WARNING_OPTIONS})
+    endif()
+
     # Reproducible Google Benchmark performance suite over the checked-in
     # CC0 example texts (see cpp/benchmarks/prism_benchmarks.cpp and
     # docs/DEVELOPMENT.md). The framework is vendored like GoogleTest

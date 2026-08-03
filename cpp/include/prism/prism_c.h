@@ -6,6 +6,11 @@
  * function interface). Every function is safe to call from C: only opaque
  * handles, C strings, and scalar types appear in the signatures.
  *
+ * This header is also the complete binary boundary of the PrismNative
+ * XCFramework (the Apple SwiftPM distribution, see docs/INTEGRATION.md):
+ * no C++ exception crosses these functions, and no other symbols are
+ * exported there.
+ *
  * Ownership: prism_tagger_create/prism_result destroy pairs own their
  * handles; every const char* returned by an accessor stays valid for the
  * lifetime of the prism_result it came from. Handles are not thread-safe;

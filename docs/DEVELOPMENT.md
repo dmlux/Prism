@@ -139,6 +139,31 @@ For ad-hoc measurements of arbitrary texts and artifact variants, the
 small `prism_chapter_benchmark` tool (cold/warm end-to-end run over a
 text file) builds with the engine as before.
 
+## PrismNative (Apple binary distribution)
+
+`scripts/build-prism-native.sh` builds `PrismNative.xcframework` — the
+Apple binary distribution of the stable C ABI (see
+[INTEGRATION.md](INTEGRATION.md)) — from the regular CMake tree
+(`-DPRISM_NATIVE=ON`), one self-contained dynamic library per slice:
+
+```bash
+scripts/build-prism-native.sh                       # all Apple slices
+scripts/build-prism-native.sh --slices macos-arm64  # quick local slice
+```
+
+The third-party consumer proof lives in
+`examples/prism-native-consumer` (plain C, no Prism-internal paths, no
+linker flags) and runs against a locally built framework:
+
+```bash
+cd examples/prism-native-consumer
+PRISM_NATIVE_XCFRAMEWORK_PATH=$PWD/../../build/prism-native/PrismNative.xcframework \
+  swift run consumer ../../models/prism-no-0.2.2-fast
+```
+
+The `prism-native` workflow reproduces both in CI and attaches the
+zipped XCFramework plus its SwiftPM checksum to `v*` releases.
+
 ## Repository layout
 
 ```text

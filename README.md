@@ -25,7 +25,9 @@ Norwegian: Bokmål (`nb`) and Nynorsk (`nn`) in one set of weights.
   network, no Python.
 - **Native APIs for every major platform:** Swift, C++, C, and Java
   (Kotlin-compatible) over one shared model contract, plus the Python
-  reference runtime.
+  reference runtime. Three integration routes: PrismKit (Swift),
+  PrismNative (Apple projects with a C/C++ core), and CMake/C++ for
+  general native platforms.
 - **Calibrated confidences:** every tag comes with a probability an
   application can actually act on (fitted temperatures, UPOS ECE
   0.0017).
@@ -177,6 +179,28 @@ for sentence in try tagger.tag(text: "Hun kjøpte tre gamle bøker.") {
     }
 }
 ```
+
+### Apple apps with a C/C++ core (PrismNative)
+
+For Xcode projects whose core is C, C++, or Objective-C++: add the
+Prism package, select the **PrismNative** product, and use the stable
+C ABI directly — no CMake, no Python, no manual linker flags or header
+paths. The XNNPACK backend and all kernels are baked into the binary
+framework.
+
+```cpp
+#include <prism/prism_c.h>
+
+prism_tagger* tagger = prism_tagger_create(artifact_directory_path);
+prism_result* result = prism_tagger_tag_text(tagger, "Hun kjøpte tre gamle bøker.");
+/* … see docs/INTEGRATION.md for the complete quick start … */
+prism_result_destroy(result);
+prism_tagger_destroy(tagger);
+```
+
+Ship the model folder as a bundle resource and pass its absolute path;
+details, platform matrix, and the release checksum flow live in
+[docs/INTEGRATION.md](docs/INTEGRATION.md).
 
 ### C++
 

@@ -3541,3 +3541,36 @@ Three follow-up decisions after the source-mapping contract landed:
 - **Prism is product-neutral.** All references to a specific downstream
   application were rewritten to "host applications"; Prism's contracts
   stand on their own, and downstream products merely consume them.
+
+## PrismNative: Apple binary distribution of the C ABI
+
+Apple projects with a C/C++ core get a third integration route next to
+PrismKit (Swift) and CMake/C++: the SwiftPM product **PrismNative**, a
+binary `PrismNative.xcframework` whose only boundary is the stable C
+ABI (`<prism/prism_c.h>`, 30 exported `prism_*` symbols, everything
+else hidden). A source-based SwiftPM C++ target was evaluated first and
+rejected on facts: the prebuilt ExecuTorch SwiftPM frameworks ship no
+threadpool headers, their C++ headers expect an `executorch/...`
+include root a SwiftPM target cannot express, and consumers of static
+SwiftPM products still need their own `-force_load` flags for the
+static-initializer registration — exactly what the contract forbids.
+Each XCFramework slice is instead one self-contained dynamic library
+built from the unchanged CMake tree (`-DPRISM_NATIVE=ON`, same
+`cpp/src` sources, ExecuTorch v1.3.1 pin), with XNNPACK and the
+optimized and quantized kernels force-loaded at the framework's own
+link time — hosts need no linker flags, no header paths, no Python.
+Slices: macOS universal (arm64 + x86_64), iOS device arm64, and iOS
+simulator universal (arm64 + x86_64) — the source-built route restores
+the Intel support the upstream prebuilt SwiftPM matrix dropped, so
+Intel Macs are served by PrismNative and CMake while PrismKit stays
+arm64-only.
+`scripts/build-prism-native.sh` builds, validates (exported-symbol
+audit), zips deterministically, and prints the SwiftPM checksum; the
+`prism-native` workflow reproduces that in CI, runs the plain-C
+third-party consumer proof (`examples/prism-native-consumer` — no
+Prism-internal paths, no flags, fast-artifact inference, source-range
+checks including the two-fragment `språkmodellen` mapping), and
+attaches zip + checksum to `v*` releases. `Package.swift` gates the
+product: `PRISM_NATIVE_XCFRAMEWORK_PATH` for local frameworks, URL +
+checksum filled by the release commit for remote consumers. PrismKit,
+the C++/CMake API, Java/JNI, and all model contracts are unchanged.

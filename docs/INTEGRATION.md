@@ -223,6 +223,136 @@ so no external tokenization framework is required.
 - **Artifact placement:** ship the artifact directory as app resources
   (without `fixtures.json`).
 
+## PrismNative (Apple projects with a C or C++ core)
+
+PrismNative is the binary Apple distribution of the **stable Prism C
+ABI**: add one SwiftPM product to an Xcode project and use
+`<prism/prism_c.h>` directly from C, C++, Objective-C, or
+Objective-C++ — without rebuilding Prism's CMake tree, without Python,
+and without any manual linker or header configuration. It is the same
+runtime as every other binding (same sources, same segmentation, same
+source-mapping semantics, same artifact validation), packaged as
+`PrismNative.xcframework`.
+
+**Why a binary distribution:** a source-based SwiftPM C++ target was
+evaluated and rejected. The prebuilt ExecuTorch SwiftPM frameworks do
+not ship the C++ extension headers Prism's engine compiles against
+(`extension/threadpool` ships no headers at all, and the shipped C++
+headers expect an `executorch/...` include root a SwiftPM target cannot
+express), and — decisively — ExecuTorch backends and kernels register
+through static initializers, so every consumer of a static SwiftPM
+product would need its own `-force_load`/`-all_load` flags. The
+XCFramework removes both problems: each slice is one self-contained
+**dynamic library** whose link step already force-loads the XNNPACK
+backend and the optimized and quantized kernel archives, so their
+registration is baked in and a host needs no flags at all.
+
+Decision record (dynamic versus static, verified with the consumer
+test below):
+
+- **Dynamic.** Registration initializers are preserved at the
+  framework's own link time, independent of the host's linker; only
+  the 30 `prism_*` symbols are exported, every internal C++ and
+  ExecuTorch symbol is hidden; dependencies are just `libSystem` and
+  `libc++`, carried inside the library's load commands.
+- **Embedding and signing:** Xcode embeds and re-signs SwiftPM binary
+  dynamic libraries into the app bundle automatically; nothing manual.
+- **Startup:** one additional dylib load (~8 MB slice); the model
+  itself still loads lazily on `prism_tagger_create`.
+- **Size:** the library adds ~8 MB per architecture to the app; the
+  app's own binary stays small because nothing is statically merged.
+- **Coexistence with PrismKit:** possible by construction — PrismNative
+  exports only `prism_*`, so linking PrismKit's ExecuTorch products
+  alongside cannot collide; each copy keeps its own private registry.
+  (Running both in one process doubles the bundled runtime, so prefer
+  one product per app.)
+
+Platforms and architectures: macOS 13+ (universal arm64 + x86_64),
+iOS 17+ (device arm64, simulator universal arm64 + x86_64). Because
+PrismNative builds ExecuTorch from source instead of consuming the
+prebuilt SwiftPM frameworks, it can ship Intel slices that PrismKit
+cannot: the upstream prebuilt frameworks dropped x86_64, so **Intel
+Macs are supported through PrismNative and the CMake path, not
+through PrismKit**. The x86_64 slices are cross-compiled on arm64
+exactly like the Java natives in CI.
+
+### Quick start
+
+Add the package and select the product (Xcode: *File → Add Package
+Dependencies…*, or in a package manifest):
+
+```swift
+.package(url: "https://github.com/dmlux/Prism.git", from: "0.3.0")
+// target dependency:
+.product(name: "PrismNative", package: "Prism")
+```
+
+Ship the model artifact directory as a bundle resource (drag the
+unpacked `prism-no-…-fast` folder into Xcode as a *folder reference*).
+PrismNative never downloads anything at runtime; the host passes a
+local directory path. Several language models can be installed side by
+side — decide which one serves a document through the manifest's
+`language_tags` (accessors below), never through directory names, and
+remember that the library version (`v*` tags) and the model version
+(`prism-no-*` releases) are separate contracts.
+
+```cpp
+// Any C, C++, or Objective-C++ file in the app target:
+#include <prism/prism_c.h>
+
+// Resolve the bundled artifact to an absolute path (Objective-C++:
+// [[NSBundle mainBundle] URLForResource:...]; pure C cores receive the
+// path from their platform layer).
+prism_tagger* tagger = prism_tagger_create(artifact_directory_path);
+if (tagger == NULL) {
+    fprintf(stderr, "Prism: %s\n", prism_last_error());
+    return;
+}
+
+prism_result* result = prism_tagger_tag_text(tagger, "Hun kjøpte tre gamle bøker.");
+for (size_t s = 0; s < prism_result_sentence_count(result); ++s) {
+    for (size_t t = 0; t < prism_result_token_count(result, s); ++t) {
+        printf("%s %s %s (%.2f)", prism_result_token_text(result, s, t),
+            prism_result_token_upos(result, s, t),
+            prism_result_token_lemma(result, s, t),
+            prism_result_token_upos_confidence(result, s, t));
+        // Half-open UTF-8 byte ranges into the exact input string:
+        for (size_t r = 0; r < prism_result_token_source_range_count(result, s, t); ++r) {
+            printf(" [%zu,%zu)", prism_result_token_source_range_start(result, s, t, r),
+                prism_result_token_source_range_end(result, s, t, r));
+        }
+        printf("\n");
+    }
+}
+prism_result_destroy(result);
+prism_tagger_destroy(tagger);
+```
+
+The complete surface is documented in `prism_c.h`: lifecycle, raw-text
+and pretokenized tagging, UPOS/lemma/morphology with confidences,
+`Utf8ByteRange` source mapping, artifact name/version/language tags,
+`prism_last_error`, and `prism_set_thread_count`. Errors return NULL
+and set the thread's message; no C++ exception ever crosses the ABI.
+Tagger handles are not thread-safe; results are immutable and freely
+readable. A C++ host may wrap the handles in a small RAII adapter of
+its own — PrismNative deliberately ships no second object-oriented
+API.
+
+### Building and releasing the XCFramework
+
+`scripts/build-prism-native.sh` builds every slice with the regular
+CMake tree (`-DPRISM_NATIVE=ON` — the same `cpp/src` sources, no
+copies), assembles `PrismNative.xcframework` with the public header
+and module map, embeds licenses and notices, validates the exported
+symbols, zips deterministically, and prints the SwiftPM checksum. The
+`prism-native` workflow runs the same script in CI, verifies the
+third-party consumer test (`examples/prism-native-consumer`) against
+the released fast artifact, and attaches the zip plus checksum to the
+`v*` release; the release commit then carries the URL and checksum in
+`Package.swift`. For local development,
+`PRISM_NATIVE_XCFRAMEWORK_PATH=<path to PrismNative.xcframework>`
+points the package at a locally built framework.
+
 ## C++ and the C ABI
 
 **Prerequisites:** CMake ≥ 3.24, a C++20 compiler (Apple Clang, Clang,
