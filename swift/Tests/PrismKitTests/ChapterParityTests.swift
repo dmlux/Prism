@@ -3,49 +3,50 @@ import XCTest
 @testable import PrismKit
 
 /// Cross-language parity against the Python reference implementation,
-/// measured on the untracked local book-chapter fixture when present.
+/// measured on the checked-in CC0 example texts (data/examples/README.md).
 final class ChapterParityTests: XCTestCase {
-    func testChapterMatchesPythonReferenceCounts() throws {
-        let chapterURL = URL(fileURLWithPath: #filePath)
+    private var repositoryRoot: URL {
+        URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("data/examples/hp7kap1.txt")
-        try XCTSkipUnless(
-            FileManager.default.fileExists(atPath: chapterURL.path),
-            "Local chapter fixture is not present."
-        )
+    }
 
-        let text = try String(contentsOf: chapterURL, encoding: .utf8)
-        let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
+    func testFixturesMatchPythonReferenceCounts() throws {
+        let expectations: [(fixture: String, sentences: Int, tokens: Int)] = [
+            ("skarvholmen-bokmaal", 55, 905),
+            ("fjellvatnet-nynorsk", 41, 803),
+        ]
+        for expected in expectations {
+            let textURL = repositoryRoot.appendingPathComponent(
+                "data/examples/\(expected.fixture).txt"
+            )
+            let text = try String(contentsOf: textURL, encoding: .utf8)
 
-        XCTAssertEqual(sentences.count, 247)
-        XCTAssertEqual(sentences.reduce(0) { $0 + $1.tokens.count }, 3783)
+            let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
+
+            XCTAssertEqual(sentences.count, expected.sentences, expected.fixture)
+            XCTAssertEqual(
+                sentences.reduce(0) { $0 + $1.tokens.count },
+                expected.tokens,
+                expected.fixture
+            )
+        }
     }
 
     /// End-to-end oracle: Swift segmentation plus Swift BPE must reproduce
-    /// the Python pipeline's subword IDs for every chapter sentence. A
+    /// the Python pipeline's subword IDs for every fixture sentence. A
     /// mismatch in either layer surfaces as an ID difference.
-    func testChapterSubwordIdsMatchPythonReference() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let chapterURL = root.appendingPathComponent("data/examples/hp7kap1.txt")
-        let oracleURL = root.appendingPathComponent(
-            "data/examples/hp7kap1-subword-parity.json"
-        )
-        let vocabularyURL = root.appendingPathComponent(
+    func testFixtureSubwordIdsMatchPythonReference() throws {
+        let vocabularyURL = repositoryRoot.appendingPathComponent(
             "models/prism-no-0.2.2/vocabulary.json"
         )
-        for url in [chapterURL, oracleURL, vocabularyURL] {
-            try XCTSkipUnless(
-                FileManager.default.fileExists(atPath: url.path),
-                "Local fixture is not present."
-            )
-        }
+        try XCTSkipUnless(
+            FileManager.default.fileExists(atPath: vocabularyURL.path),
+            "Local artifact is not present."
+        )
+        let tokenizer = try SubwordTokenizer(vocabularyURL: vocabularyURL)
 
         struct Oracle: Decodable {
             let sentenceInputIds: [[Int]]
@@ -53,26 +54,30 @@ final class ChapterParityTests: XCTestCase {
                 case sentenceInputIds = "sentence_input_ids"
             }
         }
-        let oracle = try JSONDecoder().decode(
-            Oracle.self,
-            from: Data(contentsOf: oracleURL)
-        )
 
-        let text = try String(contentsOf: chapterURL, encoding: .utf8)
-        let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
-        let tokenizer = try SubwordTokenizer(vocabularyURL: vocabularyURL)
-
-        XCTAssertEqual(sentences.count, oracle.sentenceInputIds.count)
-        let started = Date()
-        for (index, sentence) in sentences.enumerated() {
-            let encoded = tokenizer.encode(sentence)
-            XCTAssertEqual(
-                encoded.inputIds,
-                oracle.sentenceInputIds[index],
-                "Subword IDs diverge in sentence \(index): \(sentence.tokens)"
+        for fixture in ["skarvholmen-bokmaal", "fjellvatnet-nynorsk"] {
+            let textURL = repositoryRoot.appendingPathComponent(
+                "data/examples/\(fixture).txt"
             )
+            let oracleURL = repositoryRoot.appendingPathComponent(
+                "data/examples/\(fixture)-subword-parity.json"
+            )
+            let text = try String(contentsOf: textURL, encoding: .utf8)
+            let oracle = try JSONDecoder().decode(
+                Oracle.self,
+                from: Data(contentsOf: oracleURL)
+            )
+
+            let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
+
+            XCTAssertEqual(sentences.count, oracle.sentenceInputIds.count, fixture)
+            for (index, sentence) in sentences.enumerated() {
+                XCTAssertEqual(
+                    tokenizer.encode(sentence).inputIds,
+                    oracle.sentenceInputIds[index],
+                    "\(fixture) sentence \(index): \(sentence.tokens)"
+                )
+            }
         }
-        let elapsed = Date().timeIntervalSince(started)
-        print("PrismKit BPE: \(sentences.count) sentences in \(Int(elapsed * 1000)) ms")
     }
 }

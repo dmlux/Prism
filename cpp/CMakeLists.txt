@@ -21,6 +21,7 @@ endif()
 # Vendored, version-pinned third-party code (no network at configure time):
 # - vendor/nlohmann: json.hpp single-header amalgamation v3.11.3 (MIT)
 # - vendor/googletest: GoogleTest v1.17.0 sources (BSD-3-Clause)
+# - vendor/benchmark: Google Benchmark v1.9.1 sources (Apache-2.0)
 add_library(prism_vendor_json INTERFACE)
 target_include_directories(prism_vendor_json INTERFACE vendor)
 
@@ -112,6 +113,39 @@ if(PRISM_ENGINE)
     add_executable(prism_chapter_benchmark tools/chapter_benchmark.cpp)
     target_link_libraries(prism_chapter_benchmark PRIVATE prism_tagger)
     target_compile_options(prism_chapter_benchmark PRIVATE ${PRISM_WARNING_OPTIONS})
+
+    # Reproducible Google Benchmark performance suite over the checked-in
+    # CC0 example texts (see cpp/benchmarks/prism_benchmarks.cpp and
+    # docs/DEVELOPMENT.md). The framework is vendored like GoogleTest
+    # (benchmark_main.cc is omitted; the suite provides its own main), and
+    # the suite builds only when explicitly requested, so the default build
+    # stays unchanged.
+    option(PRISM_BENCHMARKS "Build the Google Benchmark performance suite" OFF)
+    if(PRISM_BENCHMARKS)
+        file(GLOB PRISM_VENDOR_BENCHMARK_SOURCES vendor/benchmark/src/*.cc)
+        add_library(prism_vendor_benchmark STATIC ${PRISM_VENDOR_BENCHMARK_SOURCES})
+        target_include_directories(prism_vendor_benchmark
+            PUBLIC vendor/benchmark/include
+            PRIVATE vendor/benchmark/src
+        )
+        # The feature macros benchmark's own CMake would probe for; every
+        # supported toolchain (C++20) provides std::regex and steady_clock.
+        target_compile_definitions(prism_vendor_benchmark
+            PUBLIC BENCHMARK_STATIC_DEFINE
+            PRIVATE HAVE_STD_REGEX HAVE_STEADY_CLOCK
+        )
+        find_package(Threads REQUIRED)
+        target_link_libraries(prism_vendor_benchmark PUBLIC Threads::Threads)
+
+        add_executable(prism_benchmarks benchmarks/prism_benchmarks.cpp)
+        target_link_libraries(prism_benchmarks
+            PRIVATE prism_tagger prism_subword prism_vendor_benchmark
+        )
+        target_compile_definitions(prism_benchmarks
+            PRIVATE PRISM_REPOSITORY_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
+        )
+        target_compile_options(prism_benchmarks PRIVATE ${PRISM_WARNING_OPTIONS})
+    endif()
 endif()
 
 # The Java binding: a thin JNI bridge over the C++ tagger plus the
@@ -159,7 +193,9 @@ enable_testing()
 
 # Tests receive the repository root for the local, untracked fixtures.
 add_executable(prism_tests
+    tests/artifact_metadata_tests.cpp
     tests/segmentation_tests.cpp
+    tests/source_mapping_tests.cpp
     tests/subword_tests.cpp
     tests/umbrella_tests.cpp
 )

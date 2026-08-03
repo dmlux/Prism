@@ -1,14 +1,12 @@
 // Token-by-token parity against the reference tokenizer via the shared
-// fixtures: the nine recorded cases (IDs and alignment) and, when the local
-// fixtures exist, the full book-chapter subword IDs through the combined
+// fixtures: the nine recorded cases (IDs and alignment) and the full
+// subword IDs of the checked-in CC0 example texts through the combined
 // segmentation + BPE pipeline.
 
 #include "prism/segmentation.h"
 #include "prism/subword.h"
 
-#include <chrono>
 #include <fstream>
-#include <iostream>
 #include <sstream>
 
 #include <gtest/gtest.h>
@@ -70,29 +68,31 @@ TEST_F(SubwordTokenizerTest, MatchesReferenceCases)
     }
 }
 
-TEST_F(SubwordTokenizerTest, ChapterSubwordIdsMatchPythonReference)
+TEST_F(SubwordTokenizerTest, FixtureSubwordIdsMatchPythonReference)
 {
-    std::ifstream chapter_file(kRoot + "/data/examples/hp7kap1.txt", std::ios::binary);
-    std::ifstream oracle_file(kRoot + "/data/examples/hp7kap1-subword-parity.json");
-    if (!chapter_file || !oracle_file) {
-        GTEST_SKIP() << "Local chapter fixture is not present.";
-    }
-    std::stringstream buffer;
-    buffer << chapter_file.rdbuf();
-    const auto oracle = nlohmann::json::parse(oracle_file);
-    const auto& expected_ids = oracle.at("sentence_input_ids");
+    // Both checked-in CC0 example texts, replayed through segmentation and
+    // BPE against the recorded reference IDs (see data/examples/README.md).
+    for (const auto* fixture :
+        {"skarvholmen-bokmaal", "fjellvatnet-nynorsk"}) {
+        std::ifstream text_file(
+            kRoot + "/data/examples/" + fixture + ".txt", std::ios::binary);
+        std::ifstream oracle_file(
+            kRoot + "/data/examples/" + fixture + "-subword-parity.json");
+        ASSERT_TRUE(text_file && oracle_file) << "Checked-in fixture is missing.";
+        std::stringstream buffer;
+        buffer << text_file.rdbuf();
+        const auto oracle = nlohmann::json::parse(oracle_file);
+        const auto& expected_ids = oracle.at("sentence_input_ids");
 
-    const auto started = std::chrono::steady_clock::now();
-    const auto sentences = prism::segmentation::Segment(
-        buffer.str(), prism::segmentation::NorwegianPolicy());
-    ASSERT_EQ(sentences.size(), expected_ids.size());
-    for (std::size_t index = 0; index < sentences.size(); ++index) {
-        EXPECT_EQ(tokenizer_->Encode(sentences[index]).input_ids, Ids(expected_ids[index]))
-            << "chapter sentence " << index;
+        const auto sentences = prism::segmentation::Segment(
+            buffer.str(), prism::segmentation::NorwegianPolicy());
+        ASSERT_EQ(sentences.size(), expected_ids.size());
+        for (std::size_t index = 0; index < sentences.size(); ++index) {
+            EXPECT_EQ(
+                tokenizer_->Encode(sentences[index]).input_ids, Ids(expected_ids[index]))
+                << fixture << " sentence " << index;
+        }
     }
-    const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::steady_clock::now() - started);
-    std::cout << "chapter segmentation + bpe: " << elapsed.count() / 1000.0 << " ms\n";
 }
 
 } // namespace

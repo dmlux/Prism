@@ -3,8 +3,8 @@ import XCTest
 @testable import PrismKit
 
 /// Layer-by-layer wall-clock measurement of the complete pipeline on the
-/// local book-chapter fixture. Run in release mode for meaningful numbers:
-/// `swift test -c release --filter ChapterBenchmarkTests`
+/// checked-in Bokmål example text. Run in release mode for meaningful
+/// numbers: `swift test -c release --filter ChapterBenchmarkTests`
 ///
 /// Set `PRISM_ARTIFACT` to an artifact directory (absolute or relative to
 /// the repository root) to benchmark a different manifest variant, for
@@ -16,7 +16,9 @@ final class ChapterBenchmarkTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let chapterURL = root.appendingPathComponent("data/examples/hp7kap1.txt")
+        let chapterURL = root.appendingPathComponent(
+            "data/examples/skarvholmen-bokmaal.txt"
+        )
         let artifactOverride = ProcessInfo.processInfo.environment["PRISM_ARTIFACT"]
         let artifactURL = artifactOverride.map {
             $0.hasPrefix("/")

@@ -95,21 +95,30 @@ Readings:
 
 ## Reproduction
 
+The recorded numbers in this file were measured on a private ~3,800-token
+book-chapter text that is not part of the repository. The commands below
+use the checked-in CC0 example text `data/examples/skarvholmen-bokmaal.txt`
+instead (see `data/examples/README.md`), so they are runnable by anyone;
+absolute throughput depends on the input, so expect deviations from the
+recorded values beyond just hardware differences. The Google Benchmark
+suite (`-DPRISM_BENCHMARKS=ON`, target `prism_benchmarks`) is the
+maintained reproducible protocol going forward.
+
 ```bash
 # C++ (builds with the test suite)
-cpp/build/prism_chapter_benchmark models/prism-no-0.2.2 data/examples/hp7kap1.txt
-cpp/build/prism_chapter_benchmark models/prism-no-0.2.2-fast data/examples/hp7kap1.txt
+cpp/build/prism_chapter_benchmark models/prism-no-0.2.2 data/examples/skarvholmen-bokmaal.txt
+cpp/build/prism_chapter_benchmark models/prism-no-0.2.2-fast data/examples/skarvholmen-bokmaal.txt
 
 # Java
 java -Djava.library.path=cpp/build -cp "cpp/build/prism.jar:cpp/build/prism_java_test.jar" \
-  io.github.dmlux.prism.PrismChapterBenchmark models/prism-no-0.2.2-fast data/examples/hp7kap1.txt
+  io.github.dmlux.prism.PrismChapterBenchmark models/prism-no-0.2.2-fast data/examples/skarvholmen-bokmaal.txt
 
 # Swift (release mode; PRISM_ARTIFACT selects the artifact directory)
 PRISM_ARTIFACT=models/prism-no-0.2.2-fast \
   swift test -c release --filter ChapterBenchmarkTests
 
 # Thread sweep
-PRISM_THREADS=6 cpp/build/prism_chapter_benchmark models/prism-no-0.2.2-fast data/examples/hp7kap1.txt
+PRISM_THREADS=6 cpp/build/prism_chapter_benchmark models/prism-no-0.2.2-fast data/examples/skarvholmen-bokmaal.txt
 ```
 
 Single-program variants for the first table row are manifest copies

@@ -1,12 +1,10 @@
 // Exercises the shared segmentation fixtures so every implementation of
 // prism-runtime-segmentation-v1 stays behaviourally identical, including
-// the book-chapter reference counts when the local fixture is present.
+// the reference counts of the checked-in CC0 example texts.
 
 #include "prism/segmentation.h"
 
-#include <chrono>
 #include <fstream>
-#include <iostream>
 #include <sstream>
 
 #include <gtest/gtest.h>
@@ -113,28 +111,44 @@ TEST(RuntimeSegmentation, SpacingReflectsAttachedPunctuation)
     EXPECT_EQ(sentences[0].has_space_before, spacing);
 }
 
-TEST(RuntimeSegmentation, ChapterMatchesPythonReferenceCounts)
+// The checked-in CC0 example texts (see data/examples/README.md) pin the
+// Python reference implementation's sentence and token counts.
+TEST(RuntimeSegmentation, BokmaalFixtureMatchesPythonReferenceCounts)
 {
-    std::ifstream file(std::string(PRISM_REPOSITORY_ROOT) + "/data/examples/hp7kap1.txt",
+    std::ifstream file(
+        std::string(PRISM_REPOSITORY_ROOT) + "/data/examples/skarvholmen-bokmaal.txt",
         std::ios::binary);
-    if (!file) {
-        GTEST_SKIP() << "Local chapter fixture is not present.";
-    }
+    ASSERT_TRUE(file) << "Checked-in fixture is missing.";
     std::stringstream buffer;
     buffer << file.rdbuf();
 
-    const auto started = std::chrono::steady_clock::now();
     const auto sentences = Segment(buffer.str(), NorwegianPolicy());
-    const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::steady_clock::now() - started);
 
     std::size_t token_count = 0;
     for (const auto& sentence : sentences) {
         token_count += sentence.tokens.size();
     }
-    EXPECT_EQ(sentences.size(), 247u);
-    EXPECT_EQ(token_count, 3783u);
-    std::cout << "chapter segmentation: " << elapsed.count() / 1000.0 << " ms\n";
+    EXPECT_EQ(sentences.size(), 55u);
+    EXPECT_EQ(token_count, 905u);
+}
+
+TEST(RuntimeSegmentation, NynorskFixtureMatchesPythonReferenceCounts)
+{
+    std::ifstream file(
+        std::string(PRISM_REPOSITORY_ROOT) + "/data/examples/fjellvatnet-nynorsk.txt",
+        std::ios::binary);
+    ASSERT_TRUE(file) << "Checked-in fixture is missing.";
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+
+    const auto sentences = Segment(buffer.str(), NorwegianPolicy());
+
+    std::size_t token_count = 0;
+    for (const auto& sentence : sentences) {
+        token_count += sentence.tokens.size();
+    }
+    EXPECT_EQ(sentences.size(), 41u);
+    EXPECT_EQ(token_count, 803u);
 }
 
 } // namespace

@@ -43,7 +43,14 @@ dist/
 data/raw/
 data/interim/
 data/processed/
-data/examples
+# Local example texts stay untracked, except the public CC0 fixtures the
+# tests and benchmarks rely on.
+data/examples/*
+!data/examples/README.md
+!data/examples/skarvholmen-bokmaal.txt
+!data/examples/fjellvatnet-nynorsk.txt
+!data/examples/skarvholmen-bokmaal-subword-parity.json
+!data/examples/fjellvatnet-nynorsk-subword-parity.json
 
 # Training runs, checkpoints, and exported models
 runs/
