@@ -7,8 +7,8 @@ such raw text into conservative, high-precision ``PretokenizedSentence``
 values for offline teacher labeling.
 
 This is an explicit offline data-preparation policy, not a runtime tokenizer:
-LexKeep and the public Prism API continue to supply their own tokens, and raw
-text tokenization remains a separate later product decision.
+host applications and the public Prism API continue to supply their own
+tokens, and raw text tokenization remains a separate later product decision.
 
 The extraction intentionally prefers precision over recall. Silver sources are
 large, so it is cheaper to discard headers, tables, and OCR fragments than to

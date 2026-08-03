@@ -7,7 +7,7 @@ Last updated: 2026-07-24
 
 Prism should provide serious, locally runnable language models rather than a
 collection of isolated training demonstrations. The first production target
-remains Norwegian Bokmål, externally tokenized by a caller such as LexKeep.
+remains Norwegian Bokmål, externally tokenized by the host application.
 The architecture must later allow separate language packages behind the same
 public API.
 
@@ -370,7 +370,8 @@ Prism scales toward dozens of locally available languages.
 
 ## Document inference contract
 
-LexKeep may supply documents with roughly 200 sentences and 6,000 tokens.
+Host applications may supply documents with roughly 200 sentences and
+6,000 tokens.
 Prism must preserve the caller's sentence and token boundaries and return
 results in the same order. It must batch compatible sentences instead of
 treating the entire document as one recurrent or Transformer sequence.

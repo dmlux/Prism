@@ -47,10 +47,10 @@
   implementations across languages. Their output dimensions and labels come
   from the selected language artifact schema; do not hard-code the Norwegian
   feature inventory or label counts into shared heads.
-- Preserve a path toward native Swift packages and integration into LexKeep.
-  LexKeep already owns tokenization and source offsets, so future APIs should
-  support externally supplied tokens as well as an eventual high-level raw-text
-  pipeline.
+- Preserve a path toward native Swift packages and embedding into host
+  applications. Host applications often own tokenization and source offsets
+  already, so the APIs support externally supplied tokens as well as the
+  high-level raw-text pipeline.
 - Do not silently combine token tagging with phrase, named-entity, multiword-
   expression, tokenization, or sentence-segmentation work. Those are distinct
   tasks and require an explicit design decision.

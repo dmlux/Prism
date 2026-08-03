@@ -2,8 +2,8 @@
 
 The timed unit is one complete decision: subword tokenization, character
 batching, device transfer, backbone forward, and label decoding with the
-production morphology-logit correction. That mirrors what LexKeep pays per
-request, so the reported latencies and throughputs are deployment numbers,
+production morphology-logit correction. That mirrors what a host
+application pays per request, so the reported latencies and throughputs are deployment numbers,
 not bare forward-pass numbers.
 """
 

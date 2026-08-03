@@ -1,4 +1,4 @@
-"""Offline runtime tagging API for applications such as LexKeep.
+"""Offline runtime tagging API for host applications.
 
 One tagger, two entry points: ``tag_text`` runs the recall-oriented runtime
 segmentation first (nothing the user wrote is ever dropped; over-long

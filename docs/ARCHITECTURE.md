@@ -1718,6 +1718,28 @@ The implemented production path in every Prism runtime:
 4. runs each batch on the smallest fixed-shape program it fits into;
 5. restores the original document order.
 
+### Source mapping through the runtime pipeline
+
+The runtime segmentation repairs text before tokenizing it: it restores
+spaces lost after sentence punctuation (`veien.Et`), merges wrapped
+lines, removes line-break hyphens (`språk-\nmodellen` →
+`språkmodellen`), and collapses whitespace runs. So that results can
+still be traced back to the caller's document, the segmentation scanner
+carries, for every codepoint of the transformed text, its origin in the
+raw input; synthesized characters (restored or joining spaces) carry an
+empty origin, and removed characters (the line-break hyphen) simply
+drop out of the mapping. Token and sentence origins are coalesced from
+these per-codepoint origins into half-open, ordered `Utf8ByteRange`
+lists against the exact input — one range for a contiguous token,
+several for a token assembled from separated fragments. The mapping is
+never reconstructed afterwards by searching the text, travels through
+sentence chunking (clipped to each chunk's tokens) and length-sorted
+batching (results return to document order), and does not influence any
+model input or linguistic decision. Pretokenized input has no raw text
+and therefore carries no ranges. The public contract and the UTF-8
+versus UTF-16 coordinate rules are documented in
+[INTEGRATION.md](INTEGRATION.md#source-mapping).
+
 ```mermaid
 flowchart TB
     Document["Document<br/>~250 sentences / 6,000 tokens"]

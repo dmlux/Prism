@@ -1,6 +1,6 @@
 # Prism project status
 
-Last updated: 2026-08-01
+Last updated: 2026-08-03
 
 ## Product direction
 
@@ -16,8 +16,8 @@ evaluation; they do not require separate shipped model weights. A shared model
 must still match or improve the separately trained references on both
 development splits.
 
-Prism is intended to support many future languages while preserving LexKeep's
-offline-first contract. There is no model server: every language advertised by
+Prism is intended to support many future languages while preserving an
+offline-first contract for host applications. There is no model server: every language advertised by
 an installation must already be available in local storage and inference must
 never require a network connection. The runtime may load only the currently
 used local artifacts into memory. Closely related written standards may share
@@ -25,8 +25,8 @@ a measured model family; broader multilingual sharing, distillation,
 quantization, and packaging must keep the complete local installation
 practical without weakening per-language quality reporting.
 
-The shipped model must remain compact enough for complete LexKeep documents
-of roughly 200 sentences and 6,000 tokens. A high-capacity teacher is a
+The shipped model must remain compact enough for complete host-application
+documents of roughly 200 sentences and 6,000 tokens. A high-capacity teacher is a
 development dependency only; the released runtime contains the measured
 student.
 
@@ -1612,7 +1612,7 @@ while losing 15 Rare bundles; on the complete splits it gains 73 UFeats, 21
 UPOS, and a net four Lemma predictions. The OOV trade is +37 UFeats against
 -6 UPOS and -9 Lemmas. This is accepted because complete UFeats is the
 demonstrated remaining quality deficit, transfer to supervised-training OOV
-forms is the more important LexKeep guardrail, five of six complete-split task
+forms is the more important real-document guardrail, five of six complete-split task
 metrics improve, and the scope adds no parameters or inference work. The Rare
 regression remains a tracked weakness. `residual-only` is retained as the
 protected-gradient control and `full` as the morphology upper control; both
@@ -2484,7 +2484,7 @@ and over-long sentences are chunked into policy-sized windows instead
 of being discarded.
 
 `prism.languages.norwegian.tagger.NorwegianTagger` ties both together
-for applications such as LexKeep: `tag_text` (raw text, runtime
+for host applications: `tag_text` (raw text, runtime
 segmentation first) and `tag_pretokenized` (application-supplied
 tokens) both return tokens with UPOS, morphology features, lemma, and
 calibrated confidences per decision, decoded with the frozen production
@@ -2499,10 +2499,11 @@ decisions an application should not trust. Test coverage:
 298/298 passing (one ExecuTorch lowering test requires the missing
 `flatc` binary and is environment-blocked, not code-blocked).
 
-### Book-chapter fixture (idea 19.4, LexKeep-realistic input)
+### Book-chapter fixture (idea 19.4, application-realistic input)
 
-`data/examples/hp7kap1.txt` holds a complete novel chapter exactly as
-LexKeep reads it. The first pass exposed the dominant real-world defect:
+The measurement used a private novel-chapter fixture exactly as an
+e-book application reads it (since replaced by the checked-in CC0
+example texts under `data/examples/`). The first pass exposed the dominant real-world defect:
 e-book extraction loses spaces after sentence punctuation
 ("veien.Et sekund"), which fused 105 tokens (~3%), hid half the sentence
 boundaries (113 detected), and produced garbage lemmas — all of it
@@ -2521,7 +2522,7 @@ confidence tail halved (UPOS below 0.8: 5.4% → 3.0%, lemma 5.2% → 2.9%,
 below 0.5: 0.6%). The remaining tail is the honest residual: all-caps
 heading words (lemma casing garbage at 0.09–0.30 confidence) and
 genuinely rare verb forms (skalv, rakte) — the documented Rare/OOV
-weakness, reliably marked by confidence. A LexKeep threshold around 0.8
+weakness, reliably marked by confidence. An application threshold around 0.8
 separates auto-trustable decisions from the ~3% that deserve a fallback.
 Test coverage: 299/299 passing.
 
@@ -3106,12 +3107,13 @@ backend, so the user-facing device choice resolves at load time and
 unavailable devices surface a typed error (pre-Apple-Silicon Macs use the
 XNNPACK program). Cross-language parity is enforced twice: the Swift test
 suite mirrors the Python runtime-segmentation tests one to one, and the
-local book-chapter fixture must segment to exactly the Python reference
-counts (247 sentences, 3,783 tokens). 11/11 Swift tests passing. Next
+example texts must segment to exactly the Python reference counts
+(historically a private book chapter; today the checked-in CC0 texts
+under `data/examples/`). 11/11 Swift tests passing. Next
 steps: the ExecuTorch engine layer (load `model-xnnpack.pte`, execute a
 fixture batch, parity against `fixtures.json`), subword tokenization via
-swift-transformers, then the C++ mirror over the same layers for the
-LexKeep core and Windows/Linux.
+swift-transformers, then the C++ mirror over the same layers for
+C++ host applications and Windows/Linux.
 
 ### ExecuTorch engine spike (passed)
 
@@ -3191,7 +3193,7 @@ repeated exports when profiling justifies them.
 ## C++ phase (started)
 
 `cpp/` begins the C++ mirror of the native layers, styled after the
-LexKeep core it will integrate with (codepoint spans, table-based
+C++ host cores it will integrate with (codepoint spans, table-based
 character classes, hand-written scanners — no regex engine, no ICU).
 `prism::segmentation` ports `prism-runtime-segmentation-v1` completely:
 UTF-8 decoding, missing-space repair, wrapped-line merging with
@@ -3205,7 +3207,7 @@ enforces the book-chapter reference counts: 247 sentences / 3,783
 tokens, segmented in **1.67 ms** (Swift: 5.4 ms, Python: 9 ms). CMake
 with ctest; all checks passing. Remaining C++ roadmap: the BPE subword
 tokenizer port with the shared parity fixtures, artifact/label parsing,
-the ExecuTorch C++ runtime engine, and the C ABI for the LexKeep core
+the ExecuTorch C++ runtime engine, and the C ABI for C-linking hosts
 and the Windows/Linux variants.
 
 ### C++ BPE subword tokenizer
@@ -3246,7 +3248,7 @@ recorded fixture batch on `model-xnnpack.pte` and compares against the
 recorded expectations: **max |Δ| = 1.8e-06** — the same backend as the
 recording, so effectively exact. 10/10 GoogleTest tests passing.
 Remaining C++ roadmap: artifact/label parsing, the tagger with
-multi-shape bucketing, and the C ABI for the LexKeep core.
+multi-shape bucketing, and the C ABI for C-linking hosts.
 
 ### C++ tagger and C ABI
 
@@ -3266,7 +3268,8 @@ token fallback). On top sits the C ABI (`prism/prism_c.h`): opaque
 raw-text and pretokenized entry points, and accessors exposing only C
 types — tokens, UPOS, per-feature iteration plus a CoNLL-U style
 feature string, lemmas, and all calibrated confidences. This is the
-surface the LexKeep core (and the Windows/Linux variants) will link.
+surface that C-linking host applications (and the Windows/Linux
+variants) will link.
 Verification: the tagger reproduces the recorded reference decisions
 ("Hun kjøpte tre gamle bøker den 17. mai." with lemmas and morphology),
 the C ABI test exercises every accessor including error paths, and the
@@ -3479,3 +3482,62 @@ gates otherwise inject armv8 flags into the x86_64 build. Library
 releases are unified on v* tags across Swift (root Package.swift for
 SwiftPM version resolution), C++ (FetchContent SOURCE_SUBDIR), C, and
 Java; a v* tag automatically attaches the platform JAR to its release.
+
+## Source-mapping and artifact-metadata contract (all bindings)
+
+Raw-text results now carry a binding-independent source mapping: every
+`TaggedToken` and `TaggedSentence` from a raw-text analysis exposes an
+ordered, non-overlapping list of `Utf8ByteRange` values — half-open
+UTF-8 byte ranges into the exact, unmodified input, never into the
+internally repaired or transformed intermediate strings. The
+segmentation scanners (C++ and the Swift port, which now shares the
+C++ codepoint-scanner semantics so byte offsets are identical across
+bindings) track, per codepoint of the transformed text, its origin in
+the raw input; restored/joining spaces are synthesized without origin,
+removed line-break hyphens drop out, so a de-hyphenated token like
+`språkmodellen` maps to its two real fragments. Sentence ranges bridge
+whitespace-only gaps and split at removed non-whitespace. Chunking
+clips, batch sorting/unsorting preserves assignment. Pretokenized input
+carries no ranges (never invented); C++/Swift callers may pass their
+own validated ranges through `PretokenizedSentence`. The C ABI gained
+additive range accessors, the JNI payload grew from 11 to 17 parallel
+arrays (still one transition per call), and Swift/Java ship documented
+UTF-8→index conversion helpers. Artifact metadata (`artifact_name`,
+`artifact_version`, `language_tags` from `manifest.json`) is now
+exposed typed and immutable in C++/C/Java as well (Swift already had
+it), so consumers decide language support from the manifest instead of
+names. Model inputs, linguistic outputs, the artifact format, and the
+Python reference runtime are unchanged; the Java `TaggedToken`/
+`TaggedSentence` records gained a trailing `sourceRanges` component
+(old-arity convenience constructors preserved). Contract documentation:
+`docs/INTEGRATION.md` (“Source mapping”, “Artifact metadata and
+language support”); cross-binding parity is pinned by shared byte-offset
+literals in the C++, Swift, and Java suites.
+
+## Public example texts, reproducible benchmarks, product-neutral wording
+
+Three follow-up decisions after the source-mapping contract landed:
+
+- **Checked-in CC0 example texts.** `data/examples/` now ships two
+  original Norwegian texts written for the repository and dedicated to
+  the public domain (`skarvholmen-bokmaal.txt`, 55 sentences / 905
+  tokens; `fjellvatnet-nynorsk.txt`, 41 sentences / 803 tokens; counts
+  from the Python reference implementation) plus their recorded
+  subword-parity oracles (regenerable via
+  `python -m prism.tools.subword_parity_fixture`). They replace the
+  private, untracked book-chapter fixture in every test, benchmark, and
+  document; the recorded historical benchmark numbers remain marked as
+  measured on the private text. The C++, Swift, and Python suites pin
+  identical counts and subword IDs on both texts, so cross-language
+  parity no longer depends on files only one machine has.
+- **Reproducible C++ benchmark suite.** `-DPRISM_BENCHMARKS=ON` builds
+  `prism_benchmarks` on the vendored, version-pinned Google
+  Benchmark (cpp/vendor/benchmark, v1.9.1): segmentation and BPE
+  in isolation, tagger load, and TagText versus Tag(pretokenized) for
+  fp32 and fast at document scale (Bokmål fixture repeated past 6,000
+  tokens), reporting tokens/s. Protocol documented in
+  docs/DEVELOPMENT.md; the ad-hoc `prism_chapter_benchmark` tool stays
+  for arbitrary texts.
+- **Prism is product-neutral.** All references to a specific downstream
+  application were rewritten to "host applications"; Prism's contracts
+  stand on their own, and downstream products merely consume them.

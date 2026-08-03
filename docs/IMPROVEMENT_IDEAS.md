@@ -725,11 +725,11 @@ um überhaupt zu entscheiden, ob sich 14/17 lohnen.
 
 ---
 
-## G. Anwendungsnähe (LexKeep-Verteilung)
+## G. Anwendungsnähe (Verteilung in Endanwendungen)
 
 ### 19. Rare/OOV-Offensive (nachgelagert, nach dem Silber-Training)
 
-**Kontext:** In der Zielanwendung (LexKeep, echte Buchkapitel) begegnet das
+**Kontext:** In einer typischen Endanwendung (echte Buchkapitel) begegnet das
 Modell laufend Wörtern, die in den ~490k Gold-Tokens nie vorkamen. Die
 Development-Slices zeigen das Muster schon heute: Rare+OOV sind ~16 % der
 Tokens, verursachen aber ~40–50 % der falschen Bundles. Was auf dem

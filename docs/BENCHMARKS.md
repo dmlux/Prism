@@ -2047,7 +2047,8 @@ under CC BY-SA 4.0, including commercial use, subject to attribution,
 license-link, change-notice, and ShareAlike obligations where they apply. The
 published UDPipe 2.17 **model weights** are a separate CC BY-NC-SA artifact:
 they are suitable as an external benchmark but must not be bundled into or
-used as a commercial LexKeep runtime/teacher without separate permission.
+used as a commercial runtime or teacher in downstream products without
+separate permission.
 
 Whether trained weights legally constitute adapted material of a dataset can
 depend on jurisdiction and facts. Prism therefore keeps source-code,

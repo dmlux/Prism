@@ -29,6 +29,11 @@ Norwegian: Bokmål (`nb`) and Nynorsk (`nn`) in one set of weights.
 - **Calibrated confidences:** every tag comes with a probability an
   application can actually act on (fitted temperatures, UPOS ECE
   0.0017).
+- **Source mapping:** every token and sentence of a raw-text analysis
+  carries half-open UTF-8 byte ranges into the exact input string, so
+  applications can highlight results in their own documents — robust
+  against the internal text repairs (see
+  [docs/INTEGRATION.md](docs/INTEGRATION.md#source-mapping)).
 - **Quality that competes:** beats UDPipe 2.17 on UPOS and lemmata on
   the official UD test splits at a twentieth of its size.
 
@@ -134,7 +139,10 @@ its contents are documented in
 All bindings share the same shape: point a tagger at an artifact
 directory, put text in, get sentences of tokens with UPOS, morphology,
 lemma, and confidences out. Sensible defaults (thread count, program
-selection) are built in.
+selection) are built in. Raw-text results additionally carry
+`Utf8ByteRange` source positions — half-open UTF-8 byte ranges into the
+exact input string (not UTF-16 offsets; see
+[docs/INTEGRATION.md](docs/INTEGRATION.md#source-mapping)).
 
 **The artifact argument is a local filesystem path, not a model ID.**
 Unlike Hugging Face-style APIs, nothing is downloaded at runtime:
