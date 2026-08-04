@@ -39,8 +39,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install torch for the ExecuTorch build
-        run: python -m pip install "torch>=2.9,<3"
+      - name: Install torch and pyyaml for the ExecuTorch build
+        # ExecuTorch's operator-list codegen (gen_oplist.py) imports yaml
+        # at build time; a bare runner Python does not ship it.
+        run: python -m pip install "torch>=2.9,<3" pyyaml
 
       - name: Build all platform slices and assemble the XCFramework
         run: |
