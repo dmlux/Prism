@@ -1,0 +1,23 @@
+{
+  "pins" : [
+    {
+      "identity" : "executorch",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/pytorch/executorch.git",
+      "state" : {
+        "branch" : "swiftpm-1.4.0.20260731",
+        "revision" : "0c3136a58f0ed4c2ca9c0f99b275977a619fd61b"
+      }
+    },
+    {
+      "identity" : "prism",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/dmlux/Prism.git",
+      "state" : {
+        "branch" : "v0.4.0",
+        "revision" : "c799be15f73f2df78c8ed07468ff3251fd0effe6"
+      }
+    }
+  ],
+  "version" : 2
+}

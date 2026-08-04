@@ -212,6 +212,9 @@ endif()
 # headers (a file cannot share the name of the include/prism/ directory).
 add_library(prism INTERFACE)
 target_include_directories(prism INTERFACE include umbrella)
+# The public headers use std::filesystem and std::optional; export the
+# language requirement so consumers do not need their own standard flag.
+target_compile_features(prism INTERFACE cxx_std_20)
 target_link_libraries(prism INTERFACE prism_segmentation prism_subword prism_artifact)
 if(PRISM_ENGINE)
     target_link_libraries(prism INTERFACE prism_engine prism_tagger prism_c)

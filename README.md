@@ -158,11 +158,13 @@ per platform.
 
 ### Swift
 
-Add the Prism package (repository root; pin released `v*` tags with
-`from: "0.4.0"`) plus the ExecuTorch products
-(`executorch`, `backend_xnnpack`, `kernels_optimized`,
-`kernels_quantized`) to your app target — details in
-[INTEGRATION.md](docs/INTEGRATION.md).
+Add the Prism package, pinning a released `v*` tag by revision —
+`.package(url: "https://github.com/dmlux/Prism.git", revision: "v0.4.0")`.
+(A `from:` version range cannot resolve: Prism's ExecuTorch dependency
+is a prebuilt snapshot *branch*, and SwiftPM refuses branch
+dependencies inside version-resolved packages.) A minimal complete
+project lives in [examples/swift-quickstart](examples/swift-quickstart);
+details in [INTEGRATION.md](docs/INTEGRATION.md).
 
 ```swift
 import PrismKit

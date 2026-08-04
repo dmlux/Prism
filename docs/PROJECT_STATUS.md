@@ -1,6 +1,6 @@
 # Prism project status
 
-Last updated: 2026-08-03
+Last updated: 2026-08-04
 
 ## Product direction
 
@@ -3574,3 +3574,35 @@ attaches zip + checksum to `v*` releases. `Package.swift` gates the
 product: `PRISM_NATIVE_XCFRAMEWORK_PATH` for local frameworks, URL +
 checksum filled by the release commit for remote consumers. PrismKit,
 the C++/CMake API, Java/JNI, and all model contracts are unchanged.
+
+## v0.4.0 release and quickstart examples
+
+Library release 0.4.0 ships PrismNative as the fourth integration
+route. The release surfaced four durable engineering facts, all fixed
+in CI or documentation:
+
+- **XCFramework builds must be matrix jobs.** Five serial ExecuTorch
+  source builds exceed GitHub's hard six-hour job limit; the
+  `prism-native` workflow now builds one slice per job and assembles
+  from artifacts (complete run ≈ 1.5 h).
+- **The deterministic-zip assumption does not hold bit-exactly across
+  CI runs.** Two builds of identical sources differed by 3 bytes, so
+  the tag run's attached zip did not match the checksum pinned in the
+  tagged `Package.swift`; the release asset was replaced by the
+  dispatch-run zip whose checksum is pinned, and the attach step no
+  longer overwrites existing assets.
+- **Compiler caches from tag runs are unreadable by later tags**
+  (GitHub scopes caches to the saving ref plus the default branch).
+  Both native workflows now rely on the release-flow dispatch on main
+  to warm caches; `prism-native` gained ccache.
+- **SwiftPM cannot version-resolve Prism** while the ExecuTorch
+  dependency is a snapshot branch: consumers must pin releases with
+  `revision: "v0.4.0"`, and executables need `-all_load` plus
+  CoreImage/CoreVideo/CoreGraphics. Documented in README and
+  INTEGRATION.md; the aggregate C++ target now exports `cxx_std_20` to
+  consumers.
+
+`examples/` gained minimal verified quickstarts — Swift (PrismKit),
+C++ and C (CMake FetchContent against the release tag), and Java
+(Maven Central) — each one manifest plus one source file, all four
+producing identical tagging output against `prism-no-0.2.2-fast`.
