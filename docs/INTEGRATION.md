@@ -206,7 +206,7 @@ so no external tokenization framework is required.
   (or the root `Package.swift` directly) — Swift packages are native
   Xcode projects, so no generated `.xcodeproj` is committed.
 - **Adding to an app:** depend on the Prism package, pinning a released
-  `v*` tag by revision: `.package(url: ..., revision: "v0.4.0")`. A
+  `v*` tag by revision: `.package(url: ..., revision: "v0.4.1")`. A
   `from:` version range cannot resolve — Prism's ExecuTorch dependency
   is a prebuilt snapshot *branch* (`swiftpm-*`), and SwiftPM refuses
   branch dependencies inside version-resolved packages; revision- and
@@ -287,7 +287,7 @@ Add the package and select the product (Xcode: *File → Add Package
 Dependencies…*, or in a package manifest):
 
 ```swift
-.package(url: "https://github.com/dmlux/Prism.git", revision: "v0.4.0")
+.package(url: "https://github.com/dmlux/Prism.git", revision: "v0.4.1")
 // target dependency:
 .product(name: "PrismNative", package: "Prism")
 ```
@@ -391,7 +391,7 @@ regex engine, no ICU), parity-tested against the shared fixtures.
   ```cmake
   FetchContent_Declare(prism
       GIT_REPOSITORY https://github.com/dmlux/Prism.git
-      GIT_TAG v0.4.0
+      GIT_TAG v0.4.1
       SOURCE_SUBDIR cpp)
   FetchContent_MakeAvailable(prism)
   target_link_libraries(app PRIVATE prism)

@@ -159,7 +159,7 @@ per platform.
 ### Swift
 
 Add the Prism package, pinning a released `v*` tag by revision —
-`.package(url: "https://github.com/dmlux/Prism.git", revision: "v0.4.0")`.
+`.package(url: "https://github.com/dmlux/Prism.git", revision: "v0.4.1")`.
 (A `from:` version range cannot resolve: Prism's ExecuTorch dependency
 is a prebuilt snapshot *branch*, and SwiftPM refuses branch
 dependencies inside version-resolved packages.) A minimal complete
@@ -261,7 +261,7 @@ Maven (`pom.xml`):
 <dependency>
   <groupId>io.github.dmlux</groupId>
   <artifactId>prism</artifactId>
-  <version>0.4.0</version>
+  <version>0.4.1</version>
 </dependency>
 ```
 
@@ -269,7 +269,7 @@ Gradle (`build.gradle.kts`, or the same line without parentheses in a
 Groovy `build.gradle`):
 
 ```kotlin
-implementation("io.github.dmlux:prism:0.4.0")
+implementation("io.github.dmlux:prism:0.4.1")
 ```
 
 The same JAR is attached to each [`v*` release](https://github.com/dmlux/Prism/releases)

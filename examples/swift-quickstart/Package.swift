@@ -12,7 +12,7 @@ let package = Package(
         .macOS(.v13)
     ],
     dependencies: [
-        .package(url: "https://github.com/dmlux/Prism.git", revision: "v0.4.0")
+        .package(url: "https://github.com/dmlux/Prism.git", revision: "v0.4.1")
     ],
     targets: [
         .executableTarget(
