@@ -9,10 +9,18 @@
 # release of that tag; the maintainer then fills the URL and checksum into
 # Package.swift for the release commit (see docs/INTEGRATION.md).
 #
+# Structure: one matrix job per platform slice, then one assembly job.
+# A single serial job cannot work: every slice is a full ExecuTorch
+# source build (~1-2 h on the 3-core macOS runner), and five of them
+# exceed GitHub's hard six-hour job limit.
+#
 # Notes:
-# - The build fetches the pinned ExecuTorch sources at configure time and
-#   resolves torch headers through a Python interpreter, exactly like the
-#   local CMake build.
+# - Each slice build fetches the pinned ExecuTorch sources at configure
+#   time and resolves torch headers through a Python interpreter, exactly
+#   like the local CMake build. ExecuTorch's oplist codegen imports yaml.
+# - iOS slices cross-compile through ExecuTorch's vendored
+#   ios.toolchain.cmake, which lives inside a fetched ExecuTorch checkout;
+#   a configure-only host run materializes it first.
 # - The consumer test downloads the released fast model artifact, so the
 #   run proves end-to-end inference including XNNPACK and quantized-kernel
 #   registration without any host linker flags.
@@ -29,9 +37,18 @@ on:
       - "v*"
 
 jobs:
-  xcframework:
-    name: PrismNative.xcframework
+  slice:
+    name: slice ${{ matrix.slice }}
     runs-on: macos-14
+    strategy:
+      fail-fast: true
+      matrix:
+        slice:
+          - macos-arm64
+          - macos-x86_64
+          - ios-arm64
+          - ios-simulator-arm64
+          - ios-simulator-x86_64
     steps:
       - uses: actions/checkout@v4
 
@@ -40,13 +57,46 @@ jobs:
           python-version: "3.12"
 
       - name: Install torch and pyyaml for the ExecuTorch build
-        # ExecuTorch's operator-list codegen (gen_oplist.py) imports yaml
-        # at build time; a bare runner Python does not ship it.
         run: python -m pip install "torch>=2.9,<3" pyyaml
 
-      - name: Build all platform slices and assemble the XCFramework
+      - name: Materialize the iOS CMake toolchain (configure-only host run)
+        if: startsWith(matrix.slice, 'ios-')
         run: |
-          scripts/build-prism-native.sh --slices \
+          cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
+          test -f cpp/build/_deps/executorch/third-party/ios-cmake/ios.toolchain.cmake
+
+      - name: Build the slice library
+        run: scripts/build-prism-native.sh --slices ${{ matrix.slice }} --skip-assemble
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prism-native-slice-${{ matrix.slice }}
+          path: build/prism-native/${{ matrix.slice }}/libPrismNative.dylib
+          if-no-files-found: error
+
+  xcframework:
+    name: PrismNative.xcframework
+    needs: slice
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: prism-native-slice-*
+          path: build/prism-native/slices
+
+      - name: Arrange slice libraries for assembly
+        run: |
+          for directory in build/prism-native/slices/prism-native-slice-*; do
+            slice="${directory#*prism-native-slice-}"
+            mkdir -p "build/prism-native/$slice"
+            mv "$directory/libPrismNative.dylib" "build/prism-native/$slice/"
+          done
+
+      - name: Assemble, validate, and zip the XCFramework
+        run: |
+          scripts/build-prism-native.sh --assemble-only --slices \
             macos-arm64,macos-x86_64,ios-arm64,ios-simulator-arm64,ios-simulator-x86_64
 
       - name: Download the fast model artifact for the consumer test
@@ -55,6 +105,7 @@ jobs:
         run: |
           gh release download prism-no-0.2.2 \
             --pattern "prism-no-0.2.2-fast.tar.gz" --dir /tmp
+          mkdir -p models
           tar -xzf /tmp/prism-no-0.2.2-fast.tar.gz -C models/
 
       - name: Run the third-party consumer test (no manual linker flags)

@@ -11,10 +11,18 @@
 #
 # Usage:
 #   scripts/build-prism-native.sh [--slices macos-arm64,macos-x86_64,ios-arm64,ios-simulator-arm64,ios-simulator-x86_64]
+#                                 [--skip-assemble | --assemble-only]
 #
 # Slices of the same platform (macos-*, ios-simulator-*) are merged into one
 # universal library with lipo, because an XCFramework carries exactly one
 # library per platform variant.
+#
+# --skip-assemble builds only the requested slice libraries;
+# --assemble-only skips the builds and packages libraries that already sit
+# at build/prism-native/<slice>/libPrismNative.dylib. The CI workflow uses
+# the pair to build slices in parallel matrix jobs (one full ExecuTorch
+# source build per slice does not fit GitHub's six-hour job limit
+# serially) and to assemble the framework from the collected artifacts.
 #
 # Requirements: Xcode (xcodebuild, iOS SDKs for the iOS slices), CMake,
 # network access on the first configure (ExecuTorch FetchContent), and the
@@ -26,18 +34,33 @@ REPOSITORY_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUTPUT_DIRECTORY="$REPOSITORY_ROOT/build/prism-native"
 SLICES="macos-arm64,macos-x86_64,ios-arm64,ios-simulator-arm64,ios-simulator-x86_64"
 
+BUILD_SLICES=1
+ASSEMBLE=1
 while [[ $# -gt 0 ]]; do
     case "$1" in
     --slices)
         SLICES="$2"
         shift 2
         ;;
+    --skip-assemble)
+        ASSEMBLE=0
+        shift
+        ;;
+    --assemble-only)
+        BUILD_SLICES=0
+        shift
+        ;;
     *)
-        echo "usage: $0 [--slices macos-arm64,ios-arm64,ios-simulator-arm64]" >&2
+        echo "usage: $0 [--slices macos-arm64,ios-arm64,ios-simulator-arm64]" \
+            "[--skip-assemble | --assemble-only]" >&2
         exit 2
         ;;
     esac
 done
+if [[ "$BUILD_SLICES" == "0" && "$ASSEMBLE" == "0" ]]; then
+    echo "--skip-assemble and --assemble-only exclude each other." >&2
+    exit 2
+fi
 
 # The iOS slices cross-compile through ExecuTorch's vendored
 # ios.toolchain.cmake (the toolchain its own Apple builds use); a plain
@@ -93,17 +116,30 @@ cmake_flags_for_slice() {
 
 # 1. Build one self-contained libPrismNative.dylib per slice.
 IFS=',' read -ra SLICE_LIST <<< "$SLICES"
-for slice in "${SLICE_LIST[@]}"; do
-    build_directory="$OUTPUT_DIRECTORY/$slice"
-    echo "== building $slice"
-    # shellcheck disable=SC2046
-    cmake -S "$REPOSITORY_ROOT/cpp" -B "$build_directory" \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DPRISM_NATIVE=ON \
-        -DPRISM_JAVA=OFF \
-        $(cmake_flags_for_slice "$slice")
-    cmake --build "$build_directory" --target prism_native --parallel
-done
+if [[ "$BUILD_SLICES" == "1" ]]; then
+    for slice in "${SLICE_LIST[@]}"; do
+        build_directory="$OUTPUT_DIRECTORY/$slice"
+        echo "== building $slice"
+        # shellcheck disable=SC2046
+        cmake -S "$REPOSITORY_ROOT/cpp" -B "$build_directory" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPRISM_NATIVE=ON \
+            -DPRISM_JAVA=OFF \
+            $(cmake_flags_for_slice "$slice")
+        cmake --build "$build_directory" --target prism_native --parallel
+    done
+else
+    for slice in "${SLICE_LIST[@]}"; do
+        if [[ ! -f "$OUTPUT_DIRECTORY/$slice/libPrismNative.dylib" ]]; then
+            echo "--assemble-only misses $OUTPUT_DIRECTORY/$slice/libPrismNative.dylib" >&2
+            exit 2
+        fi
+    done
+fi
+if [[ "$ASSEMBLE" == "0" ]]; then
+    echo "== slice build complete (assembly skipped)"
+    exit 0
+fi
 
 # 1b. Merge slices of the same platform into universal libraries — an
 # XCFramework carries exactly one library per platform variant.
