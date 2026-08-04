@@ -7,6 +7,12 @@
 # C, and Java bindings). Tag runs additionally attach the assembled JAR to
 # the GitHub release of that tag.
 #
+# Compiler-cache scoping: GitHub shares caches only within the ref that
+# saved them plus the default branch, so caches saved by tag runs are
+# invisible to later tags. The release runbook therefore dispatches this
+# workflow on main before tagging — that run saves the cache in main
+# scope, and the tag run restores it warm.
+#
 # Notes for the first runs:
 # - The C++ build fetches the pinned ExecuTorch sources at configure time
 #   and resolves torch headers through the Python interpreter; torch is

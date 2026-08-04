@@ -59,6 +59,21 @@ jobs:
       - name: Install torch and pyyaml for the ExecuTorch build
         run: python -m pip install "torch>=2.9,<3" pyyaml
 
+      # Compiler cache. GitHub scopes caches to the ref that saved them
+      # (plus the default branch), so tag runs can never reuse caches saved
+      # by earlier tag runs. The release flow already dispatches this
+      # workflow on main first (for the SwiftPM checksum); that run warms
+      # the cache in main scope, and the subsequent tag run restores it.
+      - name: Install ccache
+        run: brew install ccache
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-prism-native-${{ matrix.slice }}-${{ github.sha }}
+          restore-keys: |
+            ccache-prism-native-${{ matrix.slice }}-
+
       - name: Materialize the iOS CMake toolchain (configure-only host run)
         if: startsWith(matrix.slice, 'ios-')
         run: |
@@ -66,7 +81,16 @@ jobs:
           test -f cpp/build/_deps/executorch/third-party/ios-cmake/ios.toolchain.cmake
 
       - name: Build the slice library
-        run: scripts/build-prism-native.sh --slices ${{ matrix.slice }} --skip-assemble
+        env:
+          # CMake picks the launcher up from the environment at configure
+          # time; the build script needs no cache-specific flags.
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+          CCACHE_MAXSIZE: 1.5G
+        run: |
+          scripts/build-prism-native.sh --slices ${{ matrix.slice }} --skip-assemble
+          ccache --show-stats
 
       - uses: actions/upload-artifact@v4
         with:
@@ -131,8 +155,15 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
+        # Deliberately without --clobber: the checksum pinned in the tagged
+        # Package.swift must stay bound to the exact uploaded bytes. Builds
+        # are not bit-identical across runs (v0.4.0 measured a 3-byte,
+        # checksum-breaking drift between two runs of the same sources), so
+        # overwriting an already-attached zip on a re-run would break every
+        # SwiftPM consumer of the tag. If the asset exists, this step fails
+        # loudly instead; replacing it is a deliberate manual act that must
+        # come with a matching Package.swift update.
         run: |
           gh release upload "${GITHUB_REF_NAME}" \
             build/prism-native/PrismNative.xcframework.zip \
-            build/prism-native/PrismNative.xcframework.zip.checksum \
-            --clobber
+            build/prism-native/PrismNative.xcframework.zip.checksum
