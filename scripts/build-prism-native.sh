@@ -33,6 +33,11 @@ set -euo pipefail
 REPOSITORY_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUTPUT_DIRECTORY="$REPOSITORY_ROOT/build/prism-native"
 SLICES="macos-arm64,macos-x86_64,ios-arm64,ios-simulator-arm64,ios-simulator-x86_64"
+# Bounded build parallelism: an unbounded `make` spawns one job per
+# translation unit, and with a compiler-cache wrapper doubling the
+# process count that exhausts the process limit of small CI runners
+# (observed as posix_spawn EAGAIN). Default: one job per CPU.
+BUILD_JOBS="${PRISM_NATIVE_JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
 
 BUILD_SLICES=1
 ASSEMBLE=1
@@ -126,7 +131,7 @@ if [[ "$BUILD_SLICES" == "1" ]]; then
             -DPRISM_NATIVE=ON \
             -DPRISM_JAVA=OFF \
             $(cmake_flags_for_slice "$slice")
-        cmake --build "$build_directory" --target prism_native --parallel
+        cmake --build "$build_directory" --target prism_native --parallel "$BUILD_JOBS"
     done
 else
     for slice in "${SLICE_LIST[@]}"; do

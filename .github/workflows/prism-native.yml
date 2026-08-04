@@ -88,6 +88,9 @@ jobs:
           CMAKE_CXX_COMPILER_LAUNCHER: ccache
           CCACHE_DIR: ${{ github.workspace }}/.ccache
           CCACHE_MAXSIZE: 1.5G
+          # Hosted macOS runners have 3 cores and a tight process limit;
+          # the ccache wrapper doubles processes per compile job.
+          PRISM_NATIVE_JOBS: 3
         run: |
           scripts/build-prism-native.sh --slices ${{ matrix.slice }} --skip-assemble
           ccache --show-stats
