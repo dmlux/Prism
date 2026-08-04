@@ -8,8 +8,10 @@ import PackageDescription
 // v* releases; the release automation fills in the URL and checksum below.
 // For local development and the consumer test, point
 // PRISM_NATIVE_XCFRAMEWORK_PATH at a locally built PrismNative.xcframework.
-let prismNativeReleaseURL = "PRISM_NATIVE_RELEASE_URL_PLACEHOLDER"
-let prismNativeReleaseChecksum = "PRISM_NATIVE_RELEASE_CHECKSUM_PLACEHOLDER"
+let prismNativeReleaseURL =
+    "https://github.com/dmlux/Prism/releases/download/v0.4.0/PrismNative.xcframework.zip"
+let prismNativeReleaseChecksum =
+    "812129f6373f9a392e858e6491c8d82dccc124e7129fa762a2a6ceff331d8bee"
 // SwiftPM requires local binary-target paths to be relative to the package
 // root, so absolute environment values are relativized here.
 let prismNativeLocalPath: String? = {

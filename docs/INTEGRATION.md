@@ -207,7 +207,7 @@ so no external tokenization framework is required.
   Xcode projects, so no generated `.xcodeproj` is committed.
 - **Adding to an app:** depend on the Prism package (the manifest lives
   at the repository root so version pins resolve through the released
-  `v*` tags, e.g. `.package(url: ..., from: "0.3.0")`) and on the
+  `v*` tags, e.g. `.package(url: ..., from: "0.4.0")`) and on the
   ExecuTorch products `executorch`, `backend_xnnpack`,
   `kernels_optimized`, and `kernels_quantized`. Use a current
   `swiftpm-*` snapshot branch — the prebuilt frameworks must be
@@ -282,7 +282,7 @@ Add the package and select the product (Xcode: *File → Add Package
 Dependencies…*, or in a package manifest):
 
 ```swift
-.package(url: "https://github.com/dmlux/Prism.git", from: "0.3.0")
+.package(url: "https://github.com/dmlux/Prism.git", from: "0.4.0")
 // target dependency:
 .product(name: "PrismNative", package: "Prism")
 ```
@@ -382,7 +382,7 @@ regex engine, no ICU), parity-tested against the shared fixtures.
   ```cmake
   FetchContent_Declare(prism
       GIT_REPOSITORY https://github.com/dmlux/Prism.git
-      GIT_TAG v0.3.0
+      GIT_TAG v0.4.0
       SOURCE_SUBDIR cpp)
   FetchContent_MakeAvailable(prism)
   target_link_libraries(app PRIVATE prism)
