@@ -24,6 +24,10 @@
 #   exercised on MSVC.
 
 name: java-natives
+# Run titles name the deliverable and the ref instead of the triggering
+# commit message — several workflows share one tag push, and identical
+# commit titles made runs indistinguishable in the Actions list.
+run-name: "Java all-platforms JAR · ${{ github.ref_name }}"
 
 # Attaching the assembled JAR to a release needs write access to
 # repository contents; everything else works with the read-only default.
@@ -38,7 +42,9 @@ on:
 
 jobs:
   build-native:
-    name: native (${{ matrix.classifier }})
+    # The experimental suffix explains the expected red icon: the leg is
+    # continue-on-error and does not gate the run or the JAR.
+    name: "JNI native (${{ matrix.classifier }})${{ matrix.experimental && ' · experimental, may fail' || '' }}"
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.experimental }}
     strategy:

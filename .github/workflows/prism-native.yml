@@ -26,6 +26,10 @@
 #   registration without any host linker flags.
 
 name: prism-native
+# Run titles name the deliverable and the ref instead of the triggering
+# commit message — several workflows share one tag push, and identical
+# commit titles made runs indistinguishable in the Actions list.
+run-name: "PrismNative XCFramework · ${{ github.ref_name }}"
 
 permissions:
   contents: write
