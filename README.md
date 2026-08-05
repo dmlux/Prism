@@ -174,7 +174,9 @@ import PrismKit
 let artifactDirectory = Bundle.main.resourceURL!
     .appendingPathComponent("prism-no-0.2.2-fast")
 
-let tagger = try PrismTagger(artifactURL: artifactDirectory, device: .cpu)
+// The default compute device (.automatic) picks the best program the
+// artifact ships; current artifacts contain CPU (XNNPACK) programs.
+let tagger = try PrismTagger(artifactURL: artifactDirectory)
 for sentence in try tagger.tag(text: "Hun kjøpte tre gamle bøker.") {
     for token in sentence.tokens {
         print(token.text, token.upos, token.lemma, token.uposConfidence)
