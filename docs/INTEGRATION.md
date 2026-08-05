@@ -205,18 +205,20 @@ so no external tokenization framework is required.
 - **Opening in Xcode:** open `Prism.xcworkspace` at the repository root
   (or the root `Package.swift` directly) — Swift packages are native
   Xcode projects, so no generated `.xcodeproj` is committed.
-- **Adding to an app:** depend on the Prism package, pinning a released
-  `v*` tag by revision: `.package(url: ..., revision: "v0.4.1")`. A
-  `from:` version range cannot resolve — Prism's ExecuTorch dependency
-  is a prebuilt snapshot *branch* (`swiftpm-*`), and SwiftPM refuses
-  branch dependencies inside version-resolved packages; revision- and
-  branch-based consumers are exempt from that rule. Executable targets
-  additionally link `-all_load` (registration contract) and, because
-  that also pulls ExecuTorch's Apple image-processing objects, the
-  system frameworks `CoreImage`, `CoreVideo`, and `CoreGraphics` (test
-  bundles get them implicitly). See
-  [examples/swift-quickstart](../examples/swift-quickstart) for the
-  complete minimal manifest. Keep the
+- **Adding to an app:** depend on the Prism package with plain version
+  pinning — `.package(url: ..., from: "0.4.2")` or `exact:`. Since
+  0.4.2 Prism embeds the prebuilt ExecuTorch frameworks as **binary
+  targets** (same URLs and checksums upstream's `swiftpm-*` snapshot
+  manifest declares), so the manifest is fully version-stable; nothing
+  else needs to be added, the linker settings travel with PrismKit.
+  (Before 0.4.2, Prism depended on the ExecuTorch snapshot *branch*,
+  which SwiftPM refuses inside version-resolved packages — consumers
+  had to pin by `revision:`.) Executable targets still add `-all_load`
+  (registration contract) and, because that also pulls ExecuTorch's
+  Apple image-processing objects, the system frameworks `CoreImage`,
+  `CoreVideo`, and `CoreGraphics` (test bundles get them implicitly).
+  See [examples/swift-quickstart](../examples/swift-quickstart) for
+  the complete minimal manifest. Keep the
   runtime at or above the exporter version that produced the artifact
   (the program format is backward compatible; the engine tests verify
   the pairing).
@@ -287,14 +289,10 @@ Add the package and select the product (Xcode: *File → Add Package
 Dependencies…*, or in a package manifest):
 
 ```swift
-.package(url: "https://github.com/dmlux/Prism.git", revision: "v0.4.1")
+.package(url: "https://github.com/dmlux/Prism.git", from: "0.4.2")
 // target dependency:
 .product(name: "PrismNative", package: "Prism")
 ```
-
-(Revision pinning, not `from:` — see the PrismKit note above: SwiftPM
-refuses branch dependencies, like Prism's ExecuTorch snapshot branch,
-inside version-resolved packages.)
 
 Ship the model artifact directory as a bundle resource (drag the
 unpacked `prism-no-…-fast` folder into Xcode as a *folder reference*).

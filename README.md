@@ -158,11 +158,11 @@ per platform.
 
 ### Swift
 
-Add the Prism package, pinning a released `v*` tag by revision —
-`.package(url: "https://github.com/dmlux/Prism.git", revision: "v0.4.1")`.
-(A `from:` version range cannot resolve: Prism's ExecuTorch dependency
-is a prebuilt snapshot *branch*, and SwiftPM refuses branch
-dependencies inside version-resolved packages.) A minimal complete
+Add the Prism package with plain version pinning —
+`.package(url: "https://github.com/dmlux/Prism.git", from: "0.4.2")`
+(or `exact:` for apps that must never float). Prism embeds the prebuilt
+ExecuTorch frameworks as binary targets, so its manifest is fully
+version-stable and nothing else needs to be added. A minimal complete
 project lives in [examples/swift-quickstart](examples/swift-quickstart);
 details in [INTEGRATION.md](docs/INTEGRATION.md).
 
