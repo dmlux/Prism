@@ -261,7 +261,7 @@ Maven (`pom.xml`):
 <dependency>
   <groupId>io.github.dmlux</groupId>
   <artifactId>prism</artifactId>
-  <version>0.4.1</version>
+  <version>0.4.2</version>
 </dependency>
 ```
 
@@ -269,7 +269,7 @@ Gradle (`build.gradle.kts`, or the same line without parentheses in a
 Groovy `build.gradle`):
 
 ```kotlin
-implementation("io.github.dmlux:prism:0.4.1")
+implementation("io.github.dmlux:prism:0.4.2")
 ```
 
 The same JAR is attached to each [`v*` release](https://github.com/dmlux/Prism/releases)
