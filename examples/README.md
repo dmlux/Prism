@@ -18,8 +18,8 @@ argument. Download and unpack a model once (any example below assumes
 this folder):
 
 ```bash
-curl -LO https://github.com/dmlux/Prism/releases/download/prism-no-0.2.2/prism-no-0.2.2-fast.tar.gz
-tar -xzf prism-no-0.2.2-fast.tar.gz
+curl -LO https://github.com/dmlux/Prism/releases/download/prism-no-0.2.3/prism-no-0.2.3-fast.tar.gz
+tar -xzf prism-no-0.2.3-fast.tar.gz
 ```
 
 `prism-native-consumer` is both an example and the CI validation of the

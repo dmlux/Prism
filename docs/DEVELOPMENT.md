@@ -158,7 +158,7 @@ linker flags) and runs against a locally built framework:
 ```bash
 cd examples/prism-native-consumer
 PRISM_NATIVE_XCFRAMEWORK_PATH=$PWD/../../build/prism-native/PrismNative.xcframework \
-  swift run consumer ../../models/prism-no-0.2.2-fast
+  swift run consumer ../../models/prism-no-0.2.3-fast
 ```
 
 The `prism-native` workflow reproduces both in CI and attaches the

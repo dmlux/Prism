@@ -243,6 +243,6 @@ if(TARGET prism_java_test)
             -Djava.library.path=$<TARGET_FILE_DIR:prism_jni>
             -cp "$<TARGET_PROPERTY:prism_java,JAR_FILE>:$<TARGET_PROPERTY:prism_java_test,JAR_FILE>"
             io.github.dmlux.prism.PrismTaggerTest
-            "${CMAKE_CURRENT_SOURCE_DIR}/../models/prism-no-0.2.2"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../models/prism-no-0.2.3"
     )
 endif()

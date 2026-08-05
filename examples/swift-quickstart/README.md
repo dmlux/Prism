@@ -6,7 +6,7 @@ dependency. Requires macOS 13+ and network access on first build
 
 ```bash
 # From this directory, with an unpacked model (see ../README.md):
-swift run -c release quickstart ../../prism-no-0.2.2-fast
+swift run -c release quickstart ../../prism-no-0.2.3-fast
 ```
 
 Expected output: the artifact identity line followed by one line per

@@ -15,7 +15,7 @@ Python is not the default one on your PATH, pass
 # From this directory, with an unpacked model (see ../README.md):
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-build/quickstart ../../prism-no-0.2.2-fast
+build/quickstart ../../prism-no-0.2.3-fast
 ```
 
 Expected output: the artifact identity line followed by one line per

@@ -14,7 +14,7 @@
 namespace {
 
 const std::string kRoot = PRISM_REPOSITORY_ROOT;
-const std::string kArtifact = kRoot + "/models/prism-no-0.2.2";
+const std::string kArtifact = kRoot + "/models/prism-no-0.2.3";
 
 class TaggerTest : public ::testing::Test {
 protected:
@@ -154,8 +154,9 @@ TEST_F(TaggerTest, ExposesArtifactMetadata)
     prism::tagger::Tagger tagger(kArtifact);
 
     EXPECT_EQ(tagger.artifact().name(), "prism-no");
-    EXPECT_EQ(tagger.artifact().version(), "0.2.2");
-    EXPECT_EQ(tagger.artifact().language_tags(), (std::vector<std::string>{"nb", "nn"}));
+    EXPECT_EQ(tagger.artifact().version(), "0.2.3");
+    EXPECT_EQ(tagger.artifact().language_tags(),
+        (std::vector<std::string>{"nb", "nn", "no"}));
 }
 
 TEST_F(TaggerTest, TagsMoreSentencesThanOneBatch)
@@ -266,12 +267,14 @@ TEST_F(TaggerTest, CAbiExposesTheFullResultSurface)
     EXPECT_EQ(prism_result_token_source_range_count(nullptr, 0, 0), 0U);
 
     // Artifact metadata from manifest.json, valid for the tagger lifetime.
+    // Since 0.2.3 the manifest also declares the BCP 47 macrolanguage "no".
     EXPECT_STREQ(prism_tagger_artifact_name(tagger), "prism-no");
-    EXPECT_STREQ(prism_tagger_artifact_version(tagger), "0.2.2");
-    ASSERT_EQ(prism_tagger_language_tag_count(tagger), 2U);
+    EXPECT_STREQ(prism_tagger_artifact_version(tagger), "0.2.3");
+    ASSERT_EQ(prism_tagger_language_tag_count(tagger), 3U);
     EXPECT_STREQ(prism_tagger_language_tag(tagger, 0), "nb");
     EXPECT_STREQ(prism_tagger_language_tag(tagger, 1), "nn");
-    EXPECT_EQ(prism_tagger_language_tag(tagger, 2), nullptr);
+    EXPECT_STREQ(prism_tagger_language_tag(tagger, 2), "no");
+    EXPECT_EQ(prism_tagger_language_tag(tagger, 3), nullptr);
     EXPECT_EQ(prism_tagger_artifact_name(nullptr), nullptr);
     EXPECT_EQ(prism_tagger_language_tag_count(nullptr), 0U);
 
@@ -296,7 +299,7 @@ TEST_F(TaggerTest, CAbiExposesTheFullResultSurface)
 // test pins the end-to-end runtime behaviour.
 TEST(TaggerFast, TagsRawTextWithReferenceDecisions)
 {
-    const auto artifact = kRoot + "/models/prism-no-0.2.2-fast";
+    const auto artifact = kRoot + "/models/prism-no-0.2.3-fast";
     if (!std::ifstream(artifact + "/manifest.json")) {
         GTEST_SKIP() << "Local fast artifact is not present.";
     }

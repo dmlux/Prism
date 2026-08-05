@@ -134,16 +134,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download prism-no-0.2.2 \
-            --pattern "prism-no-0.2.2-fast.tar.gz" --dir /tmp
+          gh release download prism-no-0.2.3 \
+            --pattern "prism-no-0.2.3-fast.tar.gz" --dir /tmp
           mkdir -p models
-          tar -xzf /tmp/prism-no-0.2.2-fast.tar.gz -C models/
+          tar -xzf /tmp/prism-no-0.2.3-fast.tar.gz -C models/
 
       - name: Run the third-party consumer test (no manual linker flags)
         run: |
           cd examples/prism-native-consumer
           PRISM_NATIVE_XCFRAMEWORK_PATH="$GITHUB_WORKSPACE/build/prism-native/PrismNative.xcframework" \
-            swift run consumer "$GITHUB_WORKSPACE/models/prism-no-0.2.2-fast"
+            swift run consumer "$GITHUB_WORKSPACE/models/prism-no-0.2.3-fast"
 
       - name: Record the SwiftPM checksum
         run: |

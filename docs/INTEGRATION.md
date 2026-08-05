@@ -7,7 +7,7 @@ behind the pipeline, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## The model artifact
 
-An artifact directory (for example `prism-no-0.2.2`) is the complete,
+An artifact directory (for example `prism-no-0.2.3`) is the complete,
 versioned integration contract:
 
 - `model-xnnpack*.pte` — the lowered ExecuTorch programs, one per fixed
@@ -84,7 +84,9 @@ from the manifest, never guessed from directory or artifact names. All
 bindings expose the same three `manifest.json` values, typed and
 immutable: the artifact name, the artifact version, and the BCP 47
 `language_tags` in manifest order (one artifact can support several —
-the Norwegian artifact currently lists `nb` and `nn`). C++:
+the Norwegian artifact lists `nb`, `nn`, and, since 0.2.3, the BCP 47
+macrolanguage `no`, so plain-`no` documents match without host-side
+aliases). C++:
 `Tagger::artifact()` / `prism::artifact::Artifact` (`name()`,
 `version()`, `language_tags()`); C: `prism_tagger_artifact_name`,
 `prism_tagger_artifact_version`, `prism_tagger_language_tag_count`,

@@ -30,7 +30,7 @@ class SubwordTokenizerTest : public ::testing::Test {
 protected:
     void SetUp() override
     {
-        const auto vocabulary_path = kRoot + "/models/prism-no-0.2.2/vocabulary.json";
+        const auto vocabulary_path = kRoot + "/models/prism-no-0.2.3/vocabulary.json";
         if (!std::ifstream(vocabulary_path)) {
             GTEST_SKIP() << "Local artifact is not present.";
         }

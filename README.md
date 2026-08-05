@@ -71,7 +71,7 @@ the structured decoder, distillation, calibration, and export, with
 every number verified against the implementation and diagrams for each
 stage.
 
-**Model facts** (prism-no 0.2.2)
+**Model facts** (prism-no 0.2.3)
 
 | Fact | Value |
 | --- | --- |
@@ -122,12 +122,12 @@ bundles exactly one:
 
 | Artifact | Size | When to use |
 | --- | ---: | --- |
-| `prism-no-0.2.2-fast` | ≈ 45 MB | **Recommended.** int8, up to 2× faster, quality within 0.014 pp of fp32 |
-| `prism-no-0.2.2` | ≈ 94 MB | Bit-exact fp32 reference behind the published benchmark |
+| `prism-no-0.2.3-fast` | ≈ 45 MB | **Recommended.** int8, up to 2× faster, quality within 0.014 pp of fp32 |
+| `prism-no-0.2.3` | ≈ 94 MB | Bit-exact fp32 reference behind the published benchmark |
 
 ```bash
-curl -LO https://github.com/dmlux/Prism/releases/download/prism-no-0.2.2/prism-no-0.2.2-fast.tar.gz
-tar -xzf prism-no-0.2.2-fast.tar.gz   # unpacks the prism-no-0.2.2-fast/ folder
+curl -LO https://github.com/dmlux/Prism/releases/download/prism-no-0.2.3/prism-no-0.2.3-fast.tar.gz
+tar -xzf prism-no-0.2.3-fast.tar.gz   # unpacks the prism-no-0.2.3-fast/ folder
 ```
 
 Unpack it wherever suits your project — the folder's path is what you
@@ -148,7 +148,7 @@ exact input string (not UTF-16 offsets; see
 
 **The artifact argument is a local filesystem path, not a model ID.**
 Unlike Hugging Face-style APIs, nothing is downloaded at runtime:
-`"prism-no-0.2.2-fast"` in the snippets below means *the unpacked
+`"prism-no-0.2.3-fast"` in the snippets below means *the unpacked
 folder from the release, addressed relative to your process's working
 directory*. In practice you either pass an absolute path, or ship the
 folder with your application and resolve it from there — as bundle
@@ -172,7 +172,7 @@ import PrismKit
 // Ship the artifact folder as a bundle resource (drag it into Xcode as
 // a folder reference) and resolve it from the bundle:
 let artifactDirectory = Bundle.main.resourceURL!
-    .appendingPathComponent("prism-no-0.2.2-fast")
+    .appendingPathComponent("prism-no-0.2.3-fast")
 
 // The default compute device (.automatic) picks the best program the
 // artifact ships; current artifacts contain CPU (XNNPACK) programs.
@@ -218,7 +218,7 @@ link the aggregate target: `target_link_libraries(app PRIVATE prism)`.
 // resolved relative to the working directory of your process — for
 // anything beyond experiments, build an absolute path (for example
 // from your executable's location or your app's data directory).
-prism::tagger::Tagger tagger("prism-no-0.2.2-fast");
+prism::tagger::Tagger tagger("prism-no-0.2.3-fast");
 for (const auto& sentence : tagger.TagText("Hun kjøpte tre gamle bøker.")) {
     for (const auto& token : sentence.tokens) {
         std::cout << token.text << " " << token.upos << " " << token.lemma
@@ -237,7 +237,7 @@ interface):
 
 /* Local directory path, resolved like any relative path in C —
  * against the process working directory. Prefer an absolute path. */
-prism_tagger* tagger = prism_tagger_create("prism-no-0.2.2-fast");
+prism_tagger* tagger = prism_tagger_create("prism-no-0.2.3-fast");
 prism_result* result = prism_tagger_tag_text(tagger, "Hun kjøpte tre gamle bøker.");
 for (size_t t = 0; t < prism_result_token_count(result, 0); ++t) {
     printf("%s %s %s %.3f\n",
@@ -288,7 +288,7 @@ import io.github.dmlux.prism.PrismTagger;
 // in your application's resources/installation directory — note that
 // a folder packed *inside* a JAR is not a filesystem path; extract it
 // to a data directory on first run, then load from there.
-Path artifact = Path.of("prism-no-0.2.2-fast");
+Path artifact = Path.of("prism-no-0.2.3-fast");
 
 try (PrismTagger tagger = PrismTagger.load(artifact)) {
     for (var sentence : tagger.tagText("Hun kjøpte tre gamle bøker.")) {

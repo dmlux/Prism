@@ -9,7 +9,7 @@
 //
 // The text inputs are the checked-in CC0 example texts under data/examples/
 // (see the README there). The tagger benchmarks additionally need the local
-// model artifacts (models/prism-no-0.2.2 for fp32, models/prism-no-0.2.2-fast
+// model artifacts (models/prism-no-0.2.3 for fp32, models/prism-no-0.2.3-fast
 // for int8); variants whose artifact is missing are skipped with a note.
 // PRISM_THREADS overrides the CPU thread count for sweeps.
 //
@@ -188,8 +188,8 @@ int main(int argc, char** argv)
         const char* precision;
         std::string artifact;
     } variants[] = {
-        {"fp32", kRoot + "/models/prism-no-0.2.2"},
-        {"fast", kRoot + "/models/prism-no-0.2.2-fast"},
+        {"fp32", kRoot + "/models/prism-no-0.2.3"},
+        {"fast", kRoot + "/models/prism-no-0.2.3-fast"},
     };
     bool vocabulary_registered = false;
     for (const auto& variant : variants) {

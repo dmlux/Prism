@@ -7,7 +7,7 @@ Requires Java 21+.
 
 ```bash
 # From this directory, with an unpacked model (see ../README.md):
-mvn -q compile exec:java -Dexec.args="../../prism-no-0.2.2-fast"
+mvn -q compile exec:java -Dexec.args="../../prism-no-0.2.3-fast"
 ```
 
 Expected output: the artifact identity line followed by one line per
@@ -20,5 +20,5 @@ the same JAR is attached to every
 
 ```bash
 javac -cp prism-0.4.2-all-platforms.jar src/main/java/quickstart/Quickstart.java -d out
-java -cp out:prism-0.4.2-all-platforms.jar quickstart.Quickstart ../../prism-no-0.2.2-fast
+java -cp out:prism-0.4.2-all-platforms.jar quickstart.Quickstart ../../prism-no-0.2.3-fast
 ```

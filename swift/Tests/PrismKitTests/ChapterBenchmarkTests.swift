@@ -24,7 +24,7 @@ final class ChapterBenchmarkTests: XCTestCase {
             $0.hasPrefix("/")
                 ? URL(fileURLWithPath: $0)
                 : root.appendingPathComponent($0)
-        } ?? root.appendingPathComponent("models/prism-no-0.2.2")
+        } ?? root.appendingPathComponent("models/prism-no-0.2.3")
         for url in [chapterURL, artifactURL.appendingPathComponent("manifest.json")] {
             try XCTSkipUnless(
                 FileManager.default.fileExists(atPath: url.path),

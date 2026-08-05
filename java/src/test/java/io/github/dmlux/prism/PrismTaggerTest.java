@@ -134,8 +134,8 @@ public final class PrismTaggerTest {
 
     private static void artifactMetadata(PrismTagger tagger) {
         check("prism-no".equals(tagger.artifactName()), "artifact name");
-        check("0.2.2".equals(tagger.artifactVersion()), "artifact version");
-        check(List.of("nb", "nn").equals(tagger.languageTags()), "language tags");
+        check("0.2.3".equals(tagger.artifactVersion()), "artifact version");
+        check(List.of("nb", "nn", "no").equals(tagger.languageTags()), "language tags");
     }
 
     private static void pretokenizedBatches(PrismTagger tagger) {
