@@ -1003,10 +1003,17 @@ def main() -> None:
             arguments.calibration_path,
             artifact_directory / calibration_file_name,
         )
+    # The joint model serves mixed and unspecified Norwegian input, so the
+    # artifact declares the BCP 47 macrolanguage alongside the written
+    # standards: hosts decide language support from the manifest, and
+    # documents tagged plain "no" must match without host-side aliases.
+    manifest_language_tags = tuple(profile.language_tag for profile in profiles)
+    if arguments.language_tag == "no":
+        manifest_language_tags = (*manifest_language_tags, "no")
     manifest = ModelArtifactManifest(
         artifact_name=artifact_name,
         artifact_version=arguments.artifact_version,
-        language_tags=tuple(profile.language_tag for profile in profiles),
+        language_tags=manifest_language_tags,
         tasks=ARTIFACT_TASKS,
         labels_file="labels.json",
         vocabulary_file=tokenizer_contract.file_name,
