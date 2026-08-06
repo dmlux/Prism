@@ -50,9 +50,16 @@ int main(int argc, char** argv)
     /* Artifact metadata: language support comes from the manifest. */
     check(strcmp(prism_tagger_artifact_name(tagger), "prism-no") == 0, "artifact name");
     check(strlen(prism_tagger_artifact_version(tagger)) > 0, "artifact version");
-    check(prism_tagger_language_tag_count(tagger) == 2, "language tag count");
+    /* Since prism-no 0.2.3 the manifest also declares the macrolanguage. */
+    check(prism_tagger_language_tag_count(tagger) == 3, "language tag count");
     check(strcmp(prism_tagger_language_tag(tagger, 0), "nb") == 0, "language tag nb");
     check(strcmp(prism_tagger_language_tag(tagger, 1), "nn") == 0, "language tag nn");
+    check(strcmp(prism_tagger_language_tag(tagger, 2), "no") == 0, "language tag no");
+
+    /* Label inventories and the per-token UPOS distribution are part of the
+     * stable C ABI too. */
+    check(prism_tagger_upos_label_count(tagger) > 0, "upos label count");
+    check(prism_tagger_feature_count(tagger) > 0, "feature count");
 
     /* Raw text: decisions, confidences, and source ranges. */
     prism_result* result
@@ -80,6 +87,18 @@ int main(int argc, char** argv)
             }
         }
         check(gender_seen, "Gender feature present");
+
+        /* The per-token UPOS distribution: one entry per artifact label,
+         * sorted descending, entry 0 being the reported decision. */
+        size_t distribution = prism_result_token_upos_probability_count(result, 0, 4);
+        check(distribution == prism_tagger_upos_label_count(tagger), "distribution size");
+        check(strcmp(prism_result_token_upos_probability_label(result, 0, 4, 0),
+                  prism_result_token_upos(result, 0, 4))
+                == 0,
+            "distribution argmax label");
+        check(prism_result_token_upos_probability(result, 0, 4, 0)
+                >= prism_result_token_upos_probability(result, 0, 4, 1),
+            "distribution descending");
 
         /* Half-open UTF-8 byte ranges against the exact input. */
         check(prism_result_sentence_source_range_count(result, 0) == 1, "sentence range");
