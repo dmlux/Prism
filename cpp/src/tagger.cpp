@@ -316,6 +316,16 @@ struct Tagger::Implementation {
                 const auto upos = ArgmaxIn(outputs[0].data, flat * upos_count, upos_count);
                 tagged_token.upos = labels.upos_labels[upos.index];
                 tagged_token.upos_confidence = upos.value;
+                tagged_token.upos_distribution.reserve(upos_count);
+                for (std::size_t label = 0; label < upos_count; ++label) {
+                    tagged_token.upos_distribution.push_back({labels.upos_labels[label],
+                        static_cast<double>(outputs[0].data[flat * upos_count + label])});
+                }
+                std::sort(tagged_token.upos_distribution.begin(),
+                    tagged_token.upos_distribution.end(),
+                    [](const UposProbability& left, const UposProbability& right) {
+                        return left.probability > right.probability;
+                    });
 
                 for (std::size_t feature_index = 0; feature_index < labels.features.size();
                     ++feature_index) {

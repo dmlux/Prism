@@ -27,11 +27,24 @@ namespace prism::tagger {
 // One tagged token with calibrated confidences per decision. Multi-valued
 // morphology features report the smallest confidence among their selected
 // values; features whose decision is "not present" are omitted.
+// One entry of a token's UPOS probability distribution.
+struct UposProbability {
+    std::string upos;
+    double probability = 0.0;
+};
+
 struct TaggedToken {
     std::string text;
     bool has_space_before = false;
     std::string upos;
     double upos_confidence = 0.0;
+
+    // The complete calibrated UPOS probability distribution for this token:
+    // one entry per label of the loaded artifact, sorted by descending
+    // probability (the first entry is the decision reported by upos and
+    // upos_confidence), summing to ~1. The programs emit these calibrated
+    // probabilities anyway; decoding merely keeps them. Always populated.
+    std::vector<UposProbability> upos_distribution;
     std::map<std::string, std::vector<std::string>> features;
     std::map<std::string, double> feature_confidences;
     std::string lemma;

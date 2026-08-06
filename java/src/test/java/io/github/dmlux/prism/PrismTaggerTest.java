@@ -32,6 +32,7 @@ public final class PrismTaggerTest {
             referenceDecisions(tagger);
             sourceRanges(tagger);
             artifactMetadata(tagger);
+            uposDistribution(tagger);
             pretokenizedBatches(tagger);
         }
 
@@ -136,6 +137,38 @@ public final class PrismTaggerTest {
         check("prism-no".equals(tagger.artifactName()), "artifact name");
         check("0.2.3".equals(tagger.artifactVersion()), "artifact version");
         check(List.of("nb", "nn", "no").equals(tagger.languageTags()), "language tags");
+
+        // Label inventories mirrored from labels.json.
+        check(tagger.uposLabels().size() == 17, "upos label count");
+        check(tagger.uposLabels().contains("NOUN"), "upos labels contain NOUN");
+        check(tagger.morphologyFeatures().size() == 18, "feature count");
+        check(tagger.morphologyFeatures().get("Number").contains("Plur"),
+                "Number values contain Plur");
+    }
+
+    private static void uposDistribution(PrismTagger tagger) {
+        List<TaggedSentence> sentences = tagger.tagText("Katten sov.");
+        for (TaggedToken token : sentences.get(0).tokens()) {
+            List<UposProbability> distribution = token.uposDistribution();
+            // One entry per artifact UPOS label, sorted by descending
+            // probability; the first entry is the reported decision.
+            check(distribution.size() == tagger.uposLabels().size(),
+                    "distribution size");
+            check(distribution.get(0).upos().equals(token.upos()),
+                    "distribution argmax label");
+            check(distribution.get(0).probability() == token.uposConfidence(),
+                    "distribution argmax probability");
+            double sum = 0.0;
+            for (int entry = 0; entry < distribution.size(); entry++) {
+                if (entry > 0) {
+                    check(distribution.get(entry).probability()
+                            <= distribution.get(entry - 1).probability(),
+                            "descending order");
+                }
+                sum += distribution.get(entry).probability();
+            }
+            check(Math.abs(sum - 1.0) < 1e-3, "distribution sums to one");
+        }
     }
 
     private static void pretokenizedBatches(PrismTagger tagger) {

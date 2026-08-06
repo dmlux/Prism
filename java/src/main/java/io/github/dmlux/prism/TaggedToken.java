@@ -19,6 +19,12 @@ import java.util.Map;
  * after internal repairs — {@code text}, {@code hasSpaceBefore}, and
  * {@code sourceRanges} are three distinct pieces of information. The list
  * is empty for pretokenized input, which has no source positions.
+ *
+ * <p>{@code uposDistribution} is the complete calibrated UPOS probability
+ * distribution of this token: one {@link UposProbability} per label of the
+ * loaded artifact, sorted by descending probability (the first entry is the
+ * decision reported by {@code upos} and {@code uposConfidence}), summing
+ * to ~1.
  */
 public record TaggedToken(
         String text,
@@ -29,9 +35,10 @@ public record TaggedToken(
         Map<String, Double> featureConfidences,
         String lemma,
         double lemmaConfidence,
-        List<Utf8ByteRange> sourceRanges) {
+        List<Utf8ByteRange> sourceRanges,
+        List<UposProbability> uposDistribution) {
 
-    /** Pre-source-mapping constructor; the token carries no source ranges. */
+    /** Pre-source-mapping constructor; no source ranges, no distribution. */
     public TaggedToken(
             String text,
             boolean hasSpaceBefore,
@@ -42,6 +49,21 @@ public record TaggedToken(
             String lemma,
             double lemmaConfidence) {
         this(text, hasSpaceBefore, upos, uposConfidence, features,
-                featureConfidences, lemma, lemmaConfidence, List.of());
+                featureConfidences, lemma, lemmaConfidence, List.of(), List.of());
+    }
+
+    /** Pre-distribution constructor; the token carries no distribution. */
+    public TaggedToken(
+            String text,
+            boolean hasSpaceBefore,
+            String upos,
+            double uposConfidence,
+            Map<String, List<String>> features,
+            Map<String, Double> featureConfidences,
+            String lemma,
+            double lemmaConfidence,
+            List<Utf8ByteRange> sourceRanges) {
+        this(text, hasSpaceBefore, upos, uposConfidence, features,
+                featureConfidences, lemma, lemmaConfidence, sourceRanges, List.of());
     }
 }

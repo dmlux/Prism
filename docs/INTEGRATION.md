@@ -95,6 +95,32 @@ aliases). C++:
 `PrismTagger.artifactName()`, `.artifactVersion()`, `.languageTags()`.
 Loading fails loudly when a manifest misses these fields.
 
+### Label inventories and the UPOS distribution
+
+Every runtime mirrors the loaded artifact's label schema (`labels.json`)
+so applications need no JSON parsing: the full list of UPOS tags the
+model can assign, and every morphology feature with its possible
+values. Inventories differ per language artifact — never hard-code
+them. C++: `Artifact::labels()` (`upos_labels`, `features`); C:
+`prism_tagger_upos_label_count`/`prism_tagger_upos_label`,
+`prism_tagger_feature_count`/`prism_tagger_feature_name`/
+`prism_tagger_feature_value_count`/`prism_tagger_feature_value`;
+Swift: `PrismTagger.uposLabels`, `.morphologyFeatures`; Java:
+`PrismTagger.uposLabels()`, `.morphologyFeatures()`; Python:
+`NorwegianTagger.upos_labels`, `.morphology_features`.
+
+Every tagged token additionally carries its **complete calibrated UPOS
+probability distribution** — the exported programs emit these
+probabilities anyway; decoding merely keeps them. The distribution is
+a list of `(upos, probability)` entries, one per label of the loaded
+artifact, sorted by descending probability: the first entry is the
+reported decision (`upos`/`uposConfidence`), and the probabilities sum
+to ~1. C++: `TaggedToken::upos_distribution` (`UposProbability`); C:
+`prism_result_token_upos_probability_count`/`…_label`/
+`prism_result_token_upos_probability`; Swift/Java:
+`token.uposDistribution` (`UposProbability`); Python:
+`token.upos_distribution`.
+
 ## Source mapping
 
 Applications that analyze raw text usually need to point back into the
@@ -261,7 +287,7 @@ test below):
 
 - **Dynamic.** Registration initializers are preserved at the
   framework's own link time, independent of the host's linker; only
-  the 30 `prism_*` symbols are exported, every internal C++ and
+  the `prism_*` C ABI symbols are exported, every internal C++ and
   ExecuTorch symbol is hidden; dependencies are just `libSystem` and
   `libc++`, carried inside the library's load commands.
 - **Embedding and signing:** Xcode embeds and re-signs SwiftPM binary
@@ -338,9 +364,11 @@ prism_tagger_destroy(tagger);
 ```
 
 The complete surface is documented in `prism_c.h`: lifecycle, raw-text
-and pretokenized tagging, UPOS/lemma/morphology with confidences,
-`Utf8ByteRange` source mapping, artifact name/version/language tags,
-`prism_last_error`, and `prism_set_thread_count`. Errors return NULL
+and pretokenized tagging, UPOS/lemma/morphology with confidences, the
+per-token UPOS probability distribution, `Utf8ByteRange` source
+mapping, artifact name/version/language tags, the label inventories
+(UPOS labels and morphology features/values), `prism_last_error`, and
+`prism_set_thread_count`. Errors return NULL
 and set the thread's message; no C++ exception ever crosses the ABI.
 Tagger handles are not thread-safe; results are immutable and freely
 readable. A C++ host may wrap the handles in a small RAII adapter of

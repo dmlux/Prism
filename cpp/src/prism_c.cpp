@@ -150,6 +150,57 @@ const char* prism_tagger_language_tag(const prism_tagger* tagger, size_t index)
     return index < tags.size() ? tags[index].c_str() : nullptr;
 }
 
+size_t prism_tagger_upos_label_count(const prism_tagger* tagger)
+{
+    return tagger == nullptr ? 0 : tagger->tagger.artifact().labels().upos_labels.size();
+}
+
+const char* prism_tagger_upos_label(const prism_tagger* tagger, size_t index)
+{
+    if (tagger == nullptr) {
+        return nullptr;
+    }
+    const auto& labels = tagger->tagger.artifact().labels().upos_labels;
+    return index < labels.size() ? labels[index].c_str() : nullptr;
+}
+
+size_t prism_tagger_feature_count(const prism_tagger* tagger)
+{
+    return tagger == nullptr ? 0 : tagger->tagger.artifact().labels().features.size();
+}
+
+const char* prism_tagger_feature_name(const prism_tagger* tagger, size_t index)
+{
+    if (tagger == nullptr) {
+        return nullptr;
+    }
+    const auto& features = tagger->tagger.artifact().labels().features;
+    return index < features.size() ? features[index].name.c_str() : nullptr;
+}
+
+size_t prism_tagger_feature_value_count(const prism_tagger* tagger, size_t index)
+{
+    if (tagger == nullptr) {
+        return 0;
+    }
+    const auto& features = tagger->tagger.artifact().labels().features;
+    return index < features.size() ? features[index].values.size() : 0;
+}
+
+const char* prism_tagger_feature_value(
+    const prism_tagger* tagger, size_t index, size_t value)
+{
+    if (tagger == nullptr) {
+        return nullptr;
+    }
+    const auto& features = tagger->tagger.artifact().labels().features;
+    if (index >= features.size()) {
+        return nullptr;
+    }
+    const auto& values = features[index].values;
+    return value < values.size() ? values[value].c_str() : nullptr;
+}
+
 const char* prism_last_error(void)
 {
     return g_last_error.c_str();
@@ -237,6 +288,33 @@ double prism_result_token_upos_confidence(
 {
     const auto* entry = result == nullptr ? nullptr : result->Token(sentence, token);
     return entry == nullptr ? 0.0 : entry->token.upos_confidence;
+}
+
+size_t prism_result_token_upos_probability_count(
+    const prism_result* result, size_t sentence, size_t token)
+{
+    const auto* entry = result == nullptr ? nullptr : result->Token(sentence, token);
+    return entry == nullptr ? 0 : entry->token.upos_distribution.size();
+}
+
+const char* prism_result_token_upos_probability_label(
+    const prism_result* result, size_t sentence, size_t token, size_t index)
+{
+    const auto* entry = result == nullptr ? nullptr : result->Token(sentence, token);
+    if (entry == nullptr || index >= entry->token.upos_distribution.size()) {
+        return nullptr;
+    }
+    return entry->token.upos_distribution[index].upos.c_str();
+}
+
+double prism_result_token_upos_probability(
+    const prism_result* result, size_t sentence, size_t token, size_t index)
+{
+    const auto* entry = result == nullptr ? nullptr : result->Token(sentence, token);
+    if (entry == nullptr || index >= entry->token.upos_distribution.size()) {
+        return 0.0;
+    }
+    return entry->token.upos_distribution[index].probability;
 }
 
 size_t prism_result_token_feature_count(

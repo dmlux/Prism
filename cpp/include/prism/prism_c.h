@@ -53,6 +53,21 @@ const char* prism_tagger_artifact_version(const prism_tagger* tagger);
 size_t prism_tagger_language_tag_count(const prism_tagger* tagger);
 const char* prism_tagger_language_tag(const prism_tagger* tagger, size_t index);
 
+/* The label inventories of the loaded artifact (labels.json), mirrored so
+ * consumers need no JSON parsing: every UPOS tag the model can assign, and
+ * every morphology feature with its possible values. Inventories differ
+ * per language artifact. Strings stay valid for the lifetime of the
+ * tagger; out-of-range indices and NULL taggers yield NULL/0. The UPOS
+ * label order is the index order of
+ * prism_result_token_upos_probability(). */
+size_t prism_tagger_upos_label_count(const prism_tagger* tagger);
+const char* prism_tagger_upos_label(const prism_tagger* tagger, size_t index);
+size_t prism_tagger_feature_count(const prism_tagger* tagger);
+const char* prism_tagger_feature_name(const prism_tagger* tagger, size_t index);
+size_t prism_tagger_feature_value_count(const prism_tagger* tagger, size_t index);
+const char* prism_tagger_feature_value(
+    const prism_tagger* tagger, size_t index, size_t value);
+
 /* UTF-8 description of the most recent failure on the calling thread;
  * empty string when no failure has been recorded. The pointer stays valid
  * until the next failing Prism call on the same thread. */
@@ -85,6 +100,18 @@ const char* prism_result_token_upos(
     const prism_result* result, size_t sentence, size_t token);
 double prism_result_token_upos_confidence(
     const prism_result* result, size_t sentence, size_t token);
+
+/* The complete calibrated UPOS probability distribution of one token as
+ * (label, probability) entries, sorted by descending probability: entry 0
+ * is the decision reported by prism_result_token_upos(). One entry per
+ * UPOS label of the artifact; probabilities sum to ~1. Strings stay valid
+ * for the lifetime of the result; invalid indices yield NULL/0.0. */
+size_t prism_result_token_upos_probability_count(
+    const prism_result* result, size_t sentence, size_t token);
+const char* prism_result_token_upos_probability_label(
+    const prism_result* result, size_t sentence, size_t token, size_t entry);
+double prism_result_token_upos_probability(
+    const prism_result* result, size_t sentence, size_t token, size_t entry);
 
 /* Predicted morphology features, iterated by index in alphabetical name
  * order. Values of a multi-valued feature are joined with ','; the

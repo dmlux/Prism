@@ -95,6 +95,38 @@ public final class PrismTagger implements AutoCloseable {
         return List.of((String[]) artifactMetadata()[2]);
     }
 
+    /**
+     * Every UPOS tag the loaded artifact can assign, mirrored from its
+     * label schema ({@code labels.json}). Inventories differ per language
+     * artifact.
+     */
+    public List<String> uposLabels() {
+        return List.of((String[]) artifactMetadata()[3]);
+    }
+
+    /**
+     * Every morphology feature the loaded artifact can predict, mapped to
+     * its possible values, in schema order. Inventories differ per
+     * language artifact.
+     */
+    public Map<String, List<String>> morphologyFeatures() {
+        Object[] metadata = artifactMetadata();
+        String[] names = (String[]) metadata[4];
+        int[] valueCounts = (int[]) metadata[5];
+        String[] values = (String[]) metadata[6];
+        Map<String, List<String>> features = new LinkedHashMap<>();
+        int value = 0;
+        for (int index = 0; index < names.length; index++) {
+            List<String> featureValues = new ArrayList<>(valueCounts[index]);
+            for (int entry = 0; entry < valueCounts[index]; entry++, value++) {
+                featureValues.add(values[value]);
+            }
+            features.put(names[index], List.copyOf(featureValues));
+        }
+        // Collections.unmodifiableMap keeps the schema order.
+        return Collections.unmodifiableMap(features);
+    }
+
     private Object[] artifactMetadata() {
         if (artifactMetadata == null) {
             artifactMetadata = nativeArtifactMetadata(requireHandle());
@@ -238,6 +270,14 @@ public final class PrismTagger implements AutoCloseable {
         int[] tokenRangeCounts = (int[]) payload[14];
         long[] tokenRangeStarts = (long[]) payload[15];
         long[] tokenRangeEnds = (long[]) payload[16];
+        String[] distributionLabels = (String[]) payload[17];
+        double[] distributionProbabilities = (double[]) payload[18];
+        int totalTokens = 0;
+        for (int count : tokensPerSentence) {
+            totalTokens += count;
+        }
+        // Every token contributes the same number of distribution entries.
+        int distributionStride = totalTokens == 0 ? 0 : distributionLabels.length / totalTokens;
 
         List<TaggedSentence> sentences = new ArrayList<>(tokensPerSentence.length);
         int token = 0;
@@ -261,6 +301,12 @@ public final class PrismTagger implements AutoCloseable {
                     tokenRanges.add(new Utf8ByteRange(
                             tokenRangeStarts[tokenRange], tokenRangeEnds[tokenRange]));
                 }
+                List<UposProbability> distribution = new ArrayList<>(distributionStride);
+                for (int entry = 0; entry < distributionStride; entry++) {
+                    int flat = token * distributionStride + entry;
+                    distribution.add(new UposProbability(
+                            distributionLabels[flat], distributionProbabilities[flat]));
+                }
                 // Collections.unmodifiableMap keeps the alphabetical
                 // feature order; Map.copyOf would not.
                 tokens.add(new TaggedToken(
@@ -272,7 +318,8 @@ public final class PrismTagger implements AutoCloseable {
                         Collections.unmodifiableMap(confidences),
                         lemmas[token],
                         lemmaConfidences[token],
-                        List.copyOf(tokenRanges)));
+                        List.copyOf(tokenRanges),
+                        List.copyOf(distribution)));
             }
             List<Utf8ByteRange> sentenceRanges =
                     new ArrayList<>(sentenceRangeCounts[sentenceIndex]);

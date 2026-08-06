@@ -85,7 +85,7 @@ void ThrowPrismException(JNIEnv* env, const std::string& message)
     }
 }
 
-// The result payload: seventeen parallel arrays, unflattened on the Java
+// The result payload: nineteen parallel arrays, unflattened on the Java
 // side. Source ranges travel as flat count/start/end arrays (UTF-8 byte
 // offsets as jlong), so the whole result still costs one JNI transition.
 jobjectArray MarshalResult(
@@ -140,6 +140,21 @@ jobjectArray MarshalResult(
         = env->NewObjectArray(static_cast<jsize>(feature_total), string_class, nullptr);
     jobjectArray feature_values
         = env->NewObjectArray(static_cast<jsize>(feature_total), string_class, nullptr);
+    // The per-token UPOS distribution travels flat: every token contributes
+    // the same number of (label, probability) entries, sorted by
+    // descending probability; Java derives the stride from the lengths.
+    std::size_t distribution_stride = 0;
+    for (const auto& sentence : sentences) {
+        if (!sentence.tokens.empty()) {
+            distribution_stride = sentence.tokens[0].upos_distribution.size();
+            break;
+        }
+    }
+    jobjectArray distribution_labels = env->NewObjectArray(
+        static_cast<jsize>(token_total * distribution_stride), string_class, nullptr);
+    std::vector<jdouble> distribution_probabilities;
+    distribution_probabilities.reserve(token_total * distribution_stride);
+    jsize distribution_index = 0;
 
     jsize token_index = 0;
     jsize feature_index = 0;
@@ -155,6 +170,12 @@ jobjectArray MarshalResult(
             for (const auto& range : token.source_ranges) {
                 token_range_starts.push_back(static_cast<jlong>(range.start));
                 token_range_ends.push_back(static_cast<jlong>(range.end));
+            }
+            for (const auto& entry : token.upos_distribution) {
+                env->SetObjectArrayElement(
+                    distribution_labels, distribution_index, MakeString(env, entry.upos));
+                distribution_probabilities.push_back(entry.probability);
+                ++distribution_index;
             }
             env->SetObjectArrayElement(texts, token_index, MakeString(env, token.text));
             env->SetObjectArrayElement(upos, token_index, MakeString(env, token.upos));
@@ -217,8 +238,14 @@ jobjectArray MarshalResult(
         return array;
     };
 
+    jdoubleArray distribution_probability_array = env->NewDoubleArray(
+        static_cast<jsize>(distribution_probabilities.size()));
+    env->SetDoubleArrayRegion(distribution_probability_array, 0,
+        static_cast<jsize>(distribution_probabilities.size()),
+        distribution_probabilities.data());
+
     jobjectArray payload
-        = env->NewObjectArray(17, env->FindClass("java/lang/Object"), nullptr);
+        = env->NewObjectArray(19, env->FindClass("java/lang/Object"), nullptr);
     env->SetObjectArrayElement(payload, 0, tokens_per_sentence_array);
     env->SetObjectArrayElement(payload, 1, texts);
     env->SetObjectArrayElement(payload, 2, has_space_before_array);
@@ -236,6 +263,8 @@ jobjectArray MarshalResult(
     env->SetObjectArrayElement(payload, 14, make_int_array(token_range_counts));
     env->SetObjectArrayElement(payload, 15, make_long_array(token_range_starts));
     env->SetObjectArrayElement(payload, 16, make_long_array(token_range_ends));
+    env->SetObjectArrayElement(payload, 17, distribution_labels);
+    env->SetObjectArrayElement(payload, 18, distribution_probability_array);
     return payload;
 }
 
@@ -290,11 +319,51 @@ JNIEXPORT jobjectArray JNICALL Java_io_github_dmlux_prism_PrismTagger_nativeArti
             env->SetObjectArrayElement(
                 tag_array, static_cast<jsize>(index), MakeString(env, tags[index]));
         }
+        // Label inventories from labels.json: UPOS labels, feature names,
+        // and per-feature value counts plus flattened values.
+        const auto& labels = artifact.labels();
+        jobjectArray upos_array = env->NewObjectArray(
+            static_cast<jsize>(labels.upos_labels.size()), string_class, nullptr);
+        for (std::size_t index = 0; index < labels.upos_labels.size(); ++index) {
+            env->SetObjectArrayElement(upos_array, static_cast<jsize>(index),
+                MakeString(env, labels.upos_labels[index]));
+        }
+        std::size_t value_total = 0;
+        for (const auto& feature : labels.features) {
+            value_total += feature.values.size();
+        }
+        jobjectArray feature_name_array = env->NewObjectArray(
+            static_cast<jsize>(labels.features.size()), string_class, nullptr);
+        jintArray feature_value_counts
+            = env->NewIntArray(static_cast<jsize>(labels.features.size()));
+        jobjectArray feature_value_array
+            = env->NewObjectArray(static_cast<jsize>(value_total), string_class, nullptr);
+        std::vector<jint> value_counts;
+        value_counts.reserve(labels.features.size());
+        jsize value_index = 0;
+        for (std::size_t index = 0; index < labels.features.size(); ++index) {
+            const auto& feature = labels.features[index];
+            env->SetObjectArrayElement(feature_name_array, static_cast<jsize>(index),
+                MakeString(env, feature.name));
+            value_counts.push_back(static_cast<jint>(feature.values.size()));
+            for (const auto& value : feature.values) {
+                env->SetObjectArrayElement(
+                    feature_value_array, value_index, MakeString(env, value));
+                ++value_index;
+            }
+        }
+        env->SetIntArrayRegion(feature_value_counts, 0,
+            static_cast<jsize>(value_counts.size()), value_counts.data());
+
         jobjectArray payload
-            = env->NewObjectArray(3, env->FindClass("java/lang/Object"), nullptr);
+            = env->NewObjectArray(7, env->FindClass("java/lang/Object"), nullptr);
         env->SetObjectArrayElement(payload, 0, MakeString(env, artifact.name()));
         env->SetObjectArrayElement(payload, 1, MakeString(env, artifact.version()));
         env->SetObjectArrayElement(payload, 2, tag_array);
+        env->SetObjectArrayElement(payload, 3, upos_array);
+        env->SetObjectArrayElement(payload, 4, feature_name_array);
+        env->SetObjectArrayElement(payload, 5, feature_value_counts);
+        env->SetObjectArrayElement(payload, 6, feature_value_array);
         return payload;
     } catch (const std::exception& error) {
         ThrowPrismException(env, error.what());

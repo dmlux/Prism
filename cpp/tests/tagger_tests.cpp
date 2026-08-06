@@ -157,6 +157,38 @@ TEST_F(TaggerTest, ExposesArtifactMetadata)
     EXPECT_EQ(tagger.artifact().version(), "0.2.3");
     EXPECT_EQ(tagger.artifact().language_tags(),
         (std::vector<std::string>{"nb", "nn", "no"}));
+
+    // The label inventories mirror labels.json for API consumers.
+    const auto& labels = tagger.artifact().labels();
+    EXPECT_EQ(labels.upos_labels.size(), 17U);
+    EXPECT_NE(std::find(labels.upos_labels.begin(), labels.upos_labels.end(), "NOUN"),
+        labels.upos_labels.end());
+    EXPECT_EQ(labels.features.size(), 18U);
+}
+
+TEST_F(TaggerTest, ReportsTheUposDistributionPerToken)
+{
+    prism::tagger::Tagger tagger(kArtifact);
+
+    const auto sentences = tagger.TagPretokenized({{"Katten", "sov", "."}});
+    ASSERT_EQ(sentences.size(), 1U);
+    for (const auto& token : sentences[0].tokens) {
+        const auto& distribution = token.upos_distribution;
+        // One entry per artifact UPOS label, sorted by descending
+        // probability; the first entry is the reported decision.
+        ASSERT_EQ(distribution.size(), tagger.artifact().labels().upos_labels.size());
+        EXPECT_EQ(distribution[0].upos, token.upos);
+        EXPECT_DOUBLE_EQ(distribution[0].probability, token.upos_confidence);
+        double sum = 0.0;
+        for (std::size_t entry = 0; entry < distribution.size(); ++entry) {
+            if (entry > 0) {
+                EXPECT_LE(distribution[entry].probability,
+                    distribution[entry - 1].probability);
+            }
+            sum += distribution[entry].probability;
+        }
+        EXPECT_NEAR(sum, 1.0, 1e-3);
+    }
 }
 
 TEST_F(TaggerTest, TagsMoreSentencesThanOneBatch)
@@ -275,6 +307,36 @@ TEST_F(TaggerTest, CAbiExposesTheFullResultSurface)
     EXPECT_STREQ(prism_tagger_language_tag(tagger, 1), "nn");
     EXPECT_STREQ(prism_tagger_language_tag(tagger, 2), "no");
     EXPECT_EQ(prism_tagger_language_tag(tagger, 3), nullptr);
+
+    // Label inventories mirrored from labels.json.
+    const auto upos_labels = prism_tagger_upos_label_count(tagger);
+    ASSERT_EQ(upos_labels, 17U);
+    EXPECT_NE(prism_tagger_upos_label(tagger, 0), nullptr);
+    EXPECT_EQ(prism_tagger_upos_label(tagger, upos_labels), nullptr);
+    ASSERT_EQ(prism_tagger_feature_count(tagger), 18U);
+    EXPECT_NE(prism_tagger_feature_name(tagger, 0), nullptr);
+    ASSERT_GT(prism_tagger_feature_value_count(tagger, 0), 0U);
+    EXPECT_NE(prism_tagger_feature_value(tagger, 0, 0), nullptr);
+    EXPECT_EQ(prism_tagger_feature_value(tagger, 0, 9999), nullptr);
+    EXPECT_EQ(prism_tagger_upos_label_count(nullptr), 0U);
+    EXPECT_EQ(prism_tagger_feature_name(nullptr, 0), nullptr);
+
+    // The per-token UPOS distribution: descending (label, probability)
+    // entries whose first element is the reported decision.
+    const auto entries = prism_result_token_upos_probability_count(result, 0, 0);
+    ASSERT_EQ(entries, upos_labels);
+    EXPECT_STREQ(prism_result_token_upos_probability_label(result, 0, 0, 0),
+        prism_result_token_upos(result, 0, 0));
+    EXPECT_DOUBLE_EQ(prism_result_token_upos_probability(result, 0, 0, 0),
+        prism_result_token_upos_confidence(result, 0, 0));
+    double distribution_sum = 0.0;
+    for (size_t entry = 0; entry < entries; ++entry) {
+        distribution_sum += prism_result_token_upos_probability(result, 0, 0, entry);
+    }
+    EXPECT_NEAR(distribution_sum, 1.0, 1e-3);
+    EXPECT_EQ(prism_result_token_upos_probability_label(result, 0, 0, entries), nullptr);
+    EXPECT_DOUBLE_EQ(prism_result_token_upos_probability(result, 0, 0, entries), 0.0);
+    EXPECT_EQ(prism_result_token_upos_probability_count(nullptr, 0, 0), 0U);
     EXPECT_EQ(prism_tagger_artifact_name(nullptr), nullptr);
     EXPECT_EQ(prism_tagger_language_tag_count(nullptr), 0U);
 

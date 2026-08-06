@@ -3547,7 +3547,7 @@ Three follow-up decisions after the source-mapping contract landed:
 Apple projects with a C/C++ core get a third integration route next to
 PrismKit (Swift) and CMake/C++: the SwiftPM product **PrismNative**, a
 binary `PrismNative.xcframework` whose only boundary is the stable C
-ABI (`<prism/prism_c.h>`, 30 exported `prism_*` symbols, everything
+ABI (`<prism/prism_c.h>`, the exported `prism_*` symbols, everything
 else hidden). A source-based SwiftPM C++ target was evaluated first and
 rejected on facts: the prebuilt ExecuTorch SwiftPM frameworks ship no
 threadpool headers, their C++ headers expect an `executorch/...`
@@ -3606,3 +3606,38 @@ in CI or documentation:
 C++ and C (CMake FetchContent against the release tag), and Java
 (Maven Central) — each one manifest plus one source file, all four
 producing identical tagging output against `prism-no-0.2.2-fast`.
+
+## Label inventories and per-token UPOS distribution (all bindings)
+
+Two additive, backward-compatible API capabilities across C++, the C
+ABI, Swift, Java, and the Python reference runtime, with no model,
+artifact, or export change — both are pure surface over data the
+runtime already holds:
+
+- **Label inventories.** Every runtime mirrors the loaded artifact's
+  label schema (`labels.json`, already parsed for decoding): the full
+  UPOS tag list and every morphology feature with its values.
+  Inventories differ per language artifact, so consumers read them
+  instead of hard-coding — the same principle as reading
+  `language_tags` from the manifest. C++ `Artifact::labels()`; C
+  `prism_tagger_upos_label*` / `prism_tagger_feature*`; Swift
+  `uposLabels` / `morphologyFeatures`; Java `uposLabels()` /
+  `morphologyFeatures()`; Python `upos_labels` / `morphology_features`.
+- **Per-token UPOS distribution.** Every tagged token carries its
+  complete calibrated UPOS probability distribution as `(label,
+  probability)` entries sorted by descending probability, the first
+  entry being the reported decision, summing to ~1. The exported
+  programs already emit these calibrated probabilities; decoding
+  previously discarded all but the argmax and now keeps them. New type
+  `UposProbability` (C++/Swift/Java) / tuple entries (Python);
+  `TaggedToken.upos_distribution` and the C accessors
+  `prism_result_token_upos_probability_count` / `…_label` /
+  `prism_result_token_upos_probability`.
+
+The JNI payload grew from seventeen to nineteen parallel arrays (still
+one transition per call: flat distribution labels plus a probability
+array, Java derives the per-token stride). Cross-binding tests pin the
+distribution contract — size equals the label count, entry 0 equals
+the decision, descending order, sum ≈ 1 — and the label-inventory
+counts. The `TaggedToken` records/structs gained the field additively
+(Java keeps the previous-arity convenience constructors).

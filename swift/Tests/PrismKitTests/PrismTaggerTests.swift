@@ -113,6 +113,36 @@ final class PrismTaggerTests: XCTestCase {
         // Since 0.2.3 the manifest also declares the BCP 47 macrolanguage,
         // so plain-"no" documents match without host-side aliases.
         XCTAssertEqual(tagger.languageTags, ["nb", "nn", "no"])
+
+        // Label inventories mirrored from labels.json.
+        XCTAssertEqual(tagger.uposLabels.count, 17)
+        XCTAssertTrue(tagger.uposLabels.contains("NOUN"))
+        XCTAssertEqual(tagger.morphologyFeatures.count, 18)
+        XCTAssertTrue(
+            tagger.morphologyFeatures.first { $0.name == "Number" }?
+                .values.contains("Plur") ?? false
+        )
+    }
+
+    func testReportsTheUposDistributionPerToken() throws {
+        let tagger = try loadTagger()
+
+        let sentences = try tagger.tag(pretokenized: [["Katten", "sov", "."]])
+        for token in sentences[0].tokens {
+            let distribution = token.uposDistribution
+            // One entry per artifact UPOS label, sorted by descending
+            // probability; the first entry is the reported decision.
+            XCTAssertEqual(distribution.count, tagger.uposLabels.count)
+            XCTAssertEqual(distribution[0].upos, token.upos)
+            XCTAssertEqual(distribution[0].probability, token.uposConfidence)
+            for entry in 1..<distribution.count {
+                XCTAssertLessThanOrEqual(
+                    distribution[entry].probability, distribution[entry - 1].probability
+                )
+            }
+            let sum = distribution.reduce(0.0) { $0 + $1.probability }
+            XCTAssertEqual(sum, 1.0, accuracy: 1e-3)
+        }
     }
 
     func testTagsMoreSentencesThanOneBatch() throws {

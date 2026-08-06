@@ -23,6 +23,18 @@ public struct TaggedToken: Sendable {
     public let lemma: String
     public let lemmaConfidence: Double
     public let sourceRanges: [Utf8ByteRange]
+
+    /// The complete calibrated UPOS probability distribution of this token:
+    /// one entry per label of the loaded artifact, sorted by descending
+    /// probability (the first entry is the decision reported by ``upos``
+    /// and ``uposConfidence``), summing to ~1.
+    public let uposDistribution: [UposProbability]
+}
+
+/// One entry of a token's UPOS probability distribution.
+public struct UposProbability: Sendable, Equatable {
+    public let upos: String
+    public let probability: Double
 }
 
 /// One tagged sentence in original token order.
@@ -98,6 +110,18 @@ public final class PrismTagger {
     /// example "nb" and "nn"), in manifest order. Decide language support
     /// from these values, never from directory or artifact names.
     public var languageTags: [String] { artifact.manifest.languageTags }
+
+    /// Every UPOS tag the loaded artifact can assign, mirrored from its
+    /// label schema (labels.json). Inventories differ per language
+    /// artifact.
+    public var uposLabels: [String] { artifact.labels.schema.upos.labels }
+
+    /// Every morphology feature the loaded artifact can predict, with its
+    /// possible values, in schema order. Inventories differ per language
+    /// artifact.
+    public var morphologyFeatures: [MorphologyFeature] {
+        artifact.labels.schema.morphology.features
+    }
 
     /// Segment raw text with the runtime policy, then tag every sentence.
     ///
@@ -328,6 +352,15 @@ public final class PrismTagger {
                 let (uposIndex, uposConfidence) = argmax(
                     probabilities[0], offset: flat * uposCount, count: uposCount
                 )
+                var uposDistribution: [UposProbability] = []
+                uposDistribution.reserveCapacity(uposCount)
+                for label in 0..<uposCount {
+                    uposDistribution.append(UposProbability(
+                        upos: schema.upos.labels[label],
+                        probability: Double(probabilities[0][flat * uposCount + label])
+                    ))
+                }
+                uposDistribution.sort { $0.probability > $1.probability }
 
                 var features: [String: [String]] = [:]
                 var featureConfidences: [String: Double] = [:]
@@ -381,7 +414,8 @@ public final class PrismTagger {
                         lemmaConfidence: lemmaConfidence,
                         sourceRanges: sentence.tokenSourceRanges.isEmpty
                             ? []
-                            : sentence.tokenSourceRanges[tokenIndex]
+                            : sentence.tokenSourceRanges[tokenIndex],
+                        uposDistribution: uposDistribution
                     )
                 )
             }

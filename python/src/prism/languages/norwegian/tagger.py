@@ -35,6 +35,14 @@ from prism.training.calibration import (
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class UposProbability:
+    """One entry of a token's UPOS probability distribution."""
+
+    upos: str
+    probability: float
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class TaggedToken:
     text: str
     has_space_before: bool
@@ -44,6 +52,11 @@ class TaggedToken:
     feature_confidences: Mapping[str, float]
     lemma: str
     lemma_confidence: float
+
+    # The complete calibrated UPOS probability distribution: one entry per
+    # label of the loaded schema, sorted by descending probability (the
+    # first entry is the decision reported by upos and upos_confidence).
+    upos_distribution: tuple[UposProbability, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -99,6 +112,21 @@ class NorwegianTagger:
         self._segmentation_policy = norwegian_sentence_extraction_policy(
             maximum_token_count=maximum_token_count,
         )
+
+    @property
+    def upos_labels(self) -> tuple[str, ...]:
+        """Every UPOS tag the loaded schema can assign."""
+
+        return self._schema.upos.labels
+
+    @property
+    def morphology_features(self) -> Mapping[str, tuple[str, ...]]:
+        """Every morphology feature with its possible values, in schema order."""
+
+        return {
+            feature.name: feature.values
+            for feature in self._schema.morphology.features
+        }
 
     def tag_text(self, text: str) -> tuple[TaggedSentence, ...]:
         """Segment raw text without dropping content, then tag it."""
@@ -218,6 +246,26 @@ class NorwegianTagger:
                 lemma_rule = self._schema.lemma_rules.rules[
                     int(lemma_rule_ids[sentence_index, token_index].item())
                 ]
+                token_upos_probabilities = probabilities.upos_probabilities[
+                    sentence_index, token_index
+                ]
+                upos_distribution = tuple(
+                    sorted(
+                        (
+                            UposProbability(
+                                upos=label,
+                                probability=float(
+                                    token_upos_probabilities[label_index].item()
+                                ),
+                            )
+                            for label_index, label in enumerate(
+                                self._schema.upos.labels
+                            )
+                        ),
+                        key=lambda entry: entry.probability,
+                        reverse=True,
+                    )
+                )
                 tokens.append(
                     TaggedToken(
                         text=token_text,
@@ -234,6 +282,7 @@ class NorwegianTagger:
                         lemma_confidence=float(
                             lemma_probabilities[sentence_index, token_index].item()
                         ),
+                        upos_distribution=upos_distribution,
                     )
                 )
             yield TaggedSentence(tokens=tuple(tokens))
