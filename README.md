@@ -159,7 +159,7 @@ per platform.
 ### Swift
 
 Add the Prism package with plain version pinning —
-`.package(url: "https://github.com/dmlux/Prism.git", from: "0.4.2")`
+`.package(url: "https://github.com/dmlux/Prism.git", from: "0.5.0")`
 (or `exact:` for apps that must never float). Prism embeds the prebuilt
 ExecuTorch frameworks as binary targets, so its manifest is fully
 version-stable and nothing else needs to be added. A minimal complete
@@ -263,7 +263,7 @@ Maven (`pom.xml`):
 <dependency>
   <groupId>io.github.dmlux</groupId>
   <artifactId>prism</artifactId>
-  <version>0.4.2</version>
+  <version>0.5.0</version>
 </dependency>
 ```
 
@@ -271,7 +271,7 @@ Gradle (`build.gradle.kts`, or the same line without parentheses in a
 Groovy `build.gradle`):
 
 ```kotlin
-implementation("io.github.dmlux:prism:0.4.2")
+implementation("io.github.dmlux:prism:0.5.0")
 ```
 
 The same JAR is attached to each [`v*` release](https://github.com/dmlux/Prism/releases)

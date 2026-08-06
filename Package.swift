@@ -30,9 +30,9 @@ let executorchChecksums = [
 // For local development and the consumer test, point
 // PRISM_NATIVE_XCFRAMEWORK_PATH at a locally built PrismNative.xcframework.
 let prismNativeReleaseURL =
-    "https://github.com/dmlux/Prism/releases/download/v0.4.2/PrismNative.xcframework.zip"
+    "https://github.com/dmlux/Prism/releases/download/v0.5.0/PrismNative.xcframework.zip"
 let prismNativeReleaseChecksum =
-    "717d32fd2e30b54915702f6e29477648f2ab1a976179405d8ef2c6367b657f6e"
+    "75737083ce77189e0d0df804ab17e45f418e0dd8b7fc81f0fd8c2d1ccebe06c9"
 // SwiftPM requires local binary-target paths to be relative to the package
 // root, so absolute environment values are relativized here.
 let prismNativeLocalPath: String? = {

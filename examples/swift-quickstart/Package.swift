@@ -15,8 +15,8 @@ let package = Package(
         // Plain version pinning — possible since 0.4.2, where Prism embeds
         // the prebuilt ExecuTorch frameworks as binary targets instead of
         // depending on upstream's snapshot branch. Apps that must never
-        // float use .package(url: …, exact: "0.4.2") instead.
-        .package(url: "https://github.com/dmlux/Prism.git", from: "0.4.2")
+        // float use .package(url: …, exact: "0.5.0") instead.
+        .package(url: "https://github.com/dmlux/Prism.git", from: "0.5.0")
     ],
     targets: [
         .executableTarget(
