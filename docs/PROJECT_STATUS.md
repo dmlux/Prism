@@ -3857,3 +3857,25 @@ comparable; the comparison model (teacher + distilled student) should pin
 `--treebank-release 2.17`. UD 2.17 English EWT is cloned at
 `c5baffde1e106bcd828c520109eb905bfc3ac06f` under
 `data/raw/ud-2.17/UD_English-EWT/`.
+
+### Teacher (Ettin-encoder-400m) beats UDPipe 2.17 on 2.17 dev
+
+The distillation teacher (Ettin-encoder-400m, trained on 2.17 gold,
+task-accuracy-selected, best epoch 12, ~3h12m on MPS), evaluated with the
+official UD metrics on the 2.17 development split:
+
+| 2.17 dev metric | Prism teacher | UDPipe 2.17 | Δ |
+| --- | ---: | ---: | ---: |
+| UD UPOS F1 | 98.2477% | 97.5617% | +0.686 pp |
+| UD UFeats F1 | 98.3849% | 97.8636% | +0.521 pp |
+| UD Lemmas F1 | 98.0086% | 97.9224% | +0.086 pp |
+
+The teacher leads UDPipe on all three core metrics, all crossing ~98%, with no
+morphology-logit correction — the web-pretrained ModernBERT backbone exploits
+the English-material advantage a classical tagger cannot. Note that
+`lemma-rule accuracy` (98.73%) overstates the comparable `UD Lemmas F1`
+(98.01%) by ~0.7 pp, as expected. Caveats: this is the dev-only 400M teacher
+(the ceiling); the shipped 17M student, distilled from it, is the artifact that
+will be compared, and Lemmas is razor-thin (+0.086 pp) so the smaller student
+may fall below UDPipe there until silver training closes it. Test splits remain
+untouched.
