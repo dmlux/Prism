@@ -3826,3 +3826,34 @@ backbone family owns its own quantization behaviour.
 This is the general pattern going forward: where shared code would otherwise be
 bent to fit two backbones, a language-independent interface is introduced and
 each language implements its own specifics.
+
+## English UDPipe 2.17 comparison baseline
+
+The `prism.languages.english.benchmark_udpipe` command (ported from Norwegian)
+scores UDPipe 2.17 on the gold-tokenized English EWT development split via the
+LINDAT REST service (`english-ewt-ud-2.17-251125`, confirmed against the model
+list). On the **2.17** development split (25,151 tokens):
+
+| Development metric | UDPipe 2.17 (English EWT) |
+| --- | ---: |
+| UPOS F1 | 97.5617% |
+| UFeats F1 | 97.8636% |
+| Lemmas F1 | 97.9224% |
+
+Prediction and analysis are stored under
+`runs/udpipe-2.17-251125/ud-2.17/en-development.{conllu,-analysis.json}`,
+alongside the existing Norwegian predictions (`--reuse-prediction` re-scores
+without another service call).
+
+**Release caveat (differs from Norwegian).** Unlike Norwegian — where the
+current-master and UD-2.17 CoNLL-U files are byte-identical, so no separate
+2.17 training was needed — the English EWT master and 2.17 splits **differ**
+(all three splits have distinct SHA-256s). Because the checkpoint schema is
+derived from the training split and the loader binds the treebank release to
+the checkpoint, an exact UDPipe-2.17 comparison requires the Prism model to be
+**trained and evaluated on `--treebank-release 2.17`**. The first gold-only
+baseline was trained on current-master and is therefore not directly
+comparable; the comparison model (teacher + distilled student) should pin
+`--treebank-release 2.17`. UD 2.17 English EWT is cloned at
+`c5baffde1e106bcd828c520109eb905bfc3ac06f` under
+`data/raw/ud-2.17/UD_English-EWT/`.
