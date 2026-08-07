@@ -19,6 +19,15 @@ from prism.data.norwegian import (
     encode_norwegian_sentences,
     normalize_norwegian_ud_lemma,
 )
+from prism.data.english import (
+    EnglishUdMorphologyDecoder,
+    EnglishUdLemmaDecoder,
+    build_english_schema,
+    build_english_ud_lemma_decoder,
+    encode_english_sentence,
+    encode_english_sentences,
+    normalize_english_ud_lemma,
+)
 from prism.data.nbdigital import (
     NBDIGITAL_CORPUS_ID,
     NBDIGITAL_LANGUAGE_TAG,
@@ -72,6 +81,13 @@ __all__ = [
     "build_norwegian_ud_lemma_decoder",
     "encode_norwegian_sentence",
     "encode_norwegian_sentences",
+    "normalize_english_ud_lemma",
+    "EnglishUdLemmaDecoder",
+    "EnglishUdMorphologyDecoder",
+    "build_english_ud_lemma_decoder",
+    "encode_english_sentence",
+    "encode_english_sentences",
+    "build_english_schema",
     "PretokenizedSentence",
     "SupervisedSentence",
     "SupervisedCorpus",
