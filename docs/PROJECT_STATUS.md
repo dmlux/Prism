@@ -3750,7 +3750,38 @@ untouched.
   registry, backbone export settings, pinned revisions, identity
   transforms, Gutenberg parser). The full suite is 302 + 12 green.
 
-A 1-epoch gold-only smoke run reached dev UPOS 96.0%, lemma-rule 96.9%,
-bundle exact 93.5%. The full 12-epoch gold-only baseline is training; its
-measured dev metrics and the exported `prism-en` artifact are recorded
-once the run and evaluation complete.
+### First measured gold-only English baseline
+
+The gold-only English student (Ettin-encoder-17m, best epoch 3 by
+development-loss, early-stopped after 7; 13 min on MPS) measures on the
+EWT development split:
+
+| Metric | Value |
+| --- | --- |
+| UPOS accuracy | 96.65% |
+| UD UFeats F1 | 96.07% |
+| UD Lemmas F1 | 97.13% |
+| lemma-rule accuracy | 97.85% |
+
+Rare/OOV slices behave as expected (RARE UPOS 92.5%, OOV UPOS 88.3%).
+Sparse morphology features (Foreign 26 tokens, Style 14, Reflex 18 in the
+whole dev split) show volatile per-feature `annotated` accuracy on tiny
+denominators; they carry negligible weight in the aggregate UFeats F1. The
+high-support features (Number, PronType, VerbForm, Tense, Case, Degree,
+Gender — the latter legitimately present on English pronouns) all score
+0.94–0.99 annotated. Temperature calibration improved every head's ECE
+(UPOS 0.0112 → 0.0042).
+
+The first `prism-en-0.1.0` ExecuTorch artifact exports end to end through
+the shared XNNPACK pipeline on the real trained checkpoint: four fp32
+programs (160×96 plus 24×16, 48×32, 96×64) sharing one 68.7 MiB
+`model.ptd`, runtime parity max |Δ| = 2.3·10⁻⁶ with identical decoded
+predictions across all shapes — confirming the ModernBERT backbone ships,
+not just the export spike. The artifact is a local build (not committed);
+the released artifact follows after distillation.
+
+Next quality levers: distillation from the Ettin-encoder-400m teacher
+(selecting on development-loss and development-task-accuracy, as for
+Norwegian) and licensed silver training (Project Gutenberg + English
+Wikipedia). A 1-epoch smoke run had reached UPOS 96.0% / lemma 96.9% /
+bundle 93.5%, consistent with the full run.
