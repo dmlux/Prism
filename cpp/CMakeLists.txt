@@ -165,14 +165,28 @@ if(PRISM_ENGINE)
         find_package(Threads REQUIRED)
         target_link_libraries(prism_vendor_benchmark PUBLIC Threads::Threads)
 
-        add_executable(prism_benchmarks benchmarks/prism_benchmarks.cpp)
-        target_link_libraries(prism_benchmarks
-            PRIVATE prism_tagger prism_subword prism_vendor_benchmark
+        # One slim executable per language over a shared harness; each language
+        # file lists only its texts and artifacts.
+        add_library(prism_benchmark_harness STATIC
+            benchmarks/prism_benchmark_harness.cpp)
+        target_link_libraries(prism_benchmark_harness
+            PUBLIC prism_tagger prism_subword prism_vendor_benchmark
         )
-        target_compile_definitions(prism_benchmarks
+        target_include_directories(prism_benchmark_harness
+            PUBLIC benchmarks)
+        target_compile_definitions(prism_benchmark_harness
             PRIVATE PRISM_REPOSITORY_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
         )
-        target_compile_options(prism_benchmarks PRIVATE ${PRISM_WARNING_OPTIONS})
+        target_compile_options(prism_benchmark_harness PRIVATE ${PRISM_WARNING_OPTIONS})
+
+        foreach(language norwegian english)
+            add_executable(prism_benchmarks_${language}
+                benchmarks/prism_benchmarks_${language}.cpp)
+            target_link_libraries(prism_benchmarks_${language}
+                PRIVATE prism_benchmark_harness)
+            target_compile_options(prism_benchmarks_${language}
+                PRIVATE ${PRISM_WARNING_OPTIONS})
+        endforeach()
     endif()
 endif()
 
