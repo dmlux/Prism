@@ -1,11 +1,15 @@
 # Example texts
 
-Two Norwegian prose texts written specifically for the Prism repository —
-one per written standard — used as checked-in fixtures for the segmentation
-parity tests, the tagger tests, and the reproducible benchmark suite:
+Original prose texts written specifically for the Prism repository, used as
+checked-in fixtures for the segmentation parity tests, the tagger tests, and
+the reproducible benchmark suite:
 
-- `skarvholmen-bokmaal.txt` — Bokmål short story (~4.6 kB)
-- `fjellvatnet-nynorsk.txt` — Nynorsk essay (~3.9 kB)
+- `skarvholmen-bokmaal.txt` — Norwegian Bokmål short story (~4.6 kB)
+- `fjellvatnet-nynorsk.txt` — Norwegian Nynorsk essay (~3.9 kB)
+- `harbor-english.txt` — English short story (~4.2 kB); covers English
+  abbreviations (`Mr.`, `Dr.`, `e.g.`, `cf.`, `a.m.`, `approx.`, `Nov.`), a
+  missing space after punctuation (`water.Every`), a hyphen across a line
+  break (`boat-\nhouse`), a URL, and an e-mail address
 
 Both texts are original works created for this repository and are dedicated
 to the public domain under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/).

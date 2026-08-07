@@ -107,4 +107,12 @@ TEST(Engine, ExecutesFastArtifactFixturesWithRecordedParity)
     ExpectFixtureParity(kRoot + "/models/prism-no-0.2.3-fast");
 }
 
+// The English artifact uses the ModernBERT/Ettin backbone with a different
+// tokenizer and special-token template; the language-independent runtime must
+// reproduce its recorded Python parity through the same engine.
+TEST(Engine, ExecutesEnglishFixtureBatchWithRecordedParity)
+{
+    ExpectFixtureParity(kRoot + "/models/prism-en-0.1.0");
+}
+
 } // namespace

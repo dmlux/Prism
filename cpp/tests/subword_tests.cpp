@@ -3,11 +3,13 @@
 // subword IDs of the checked-in CC0 example texts through the combined
 // segmentation + BPE pipeline.
 
+#include "prism/artifact.h"
 #include "prism/segmentation.h"
 #include "prism/subword.h"
 
 #include <fstream>
 #include <sstream>
+#include <unordered_set>
 
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
@@ -92,6 +94,43 @@ TEST_F(SubwordTokenizerTest, FixtureSubwordIdsMatchPythonReference)
                 tokenizer_->Encode(sentences[index]).input_ids, Ids(expected_ids[index]))
                 << fixture << " sentence " << index;
         }
+    }
+}
+
+// English uses the ModernBERT tokenizer (null unk_token, "[CLS]"/"[SEP]"
+// template) and its own abbreviations, both read generically from the
+// artifact. The C++ pipeline must still reproduce the Python reference IDs.
+TEST(EnglishSubwordTokenizer, FixtureSubwordIdsMatchPythonReference)
+{
+    const auto artifact_directory = kRoot + "/models/prism-en-0.1.0";
+    if (!std::ifstream(artifact_directory + "/manifest.json")) {
+        GTEST_SKIP() << "Local English artifact is not present.";
+    }
+    const prism::subword::Tokenizer tokenizer(artifact_directory + "/vocabulary.json");
+
+    // The English segmentation policy travels in the artifact manifest.
+    const prism::artifact::Artifact loaded(artifact_directory);
+    const prism::segmentation::SegmentationPolicy policy{
+        std::unordered_set<std::string>(
+            loaded.segmentation_abbreviations().begin(),
+            loaded.segmentation_abbreviations().end()),
+        128};
+
+    std::ifstream text_file(
+        kRoot + "/data/examples/harbor-english.txt", std::ios::binary);
+    std::ifstream oracle_file(
+        kRoot + "/data/examples/harbor-english-subword-parity.json");
+    ASSERT_TRUE(text_file && oracle_file) << "Checked-in English fixture is missing.";
+    std::stringstream buffer;
+    buffer << text_file.rdbuf();
+    const auto oracle = nlohmann::json::parse(oracle_file);
+    const auto& expected_ids = oracle.at("sentence_input_ids");
+
+    const auto sentences = prism::segmentation::Segment(buffer.str(), policy);
+    ASSERT_EQ(sentences.size(), expected_ids.size());
+    for (std::size_t index = 0; index < sentences.size(); ++index) {
+        EXPECT_EQ(tokenizer.Encode(sentences[index]).input_ids, Ids(expected_ids[index]))
+            << "harbor-english sentence " << index;
     }
 }
 
