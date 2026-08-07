@@ -3711,3 +3711,46 @@ English Wikipedia); a gold-only English student as the first measured
 baseline; then teacher training, silver labeling, distillation,
 calibration, export, and native-runtime verification. The int8
 quantization path for ModernBERT is a separate follow-up.
+
+## English pipeline: CLI package, silver sources, tests
+
+The English profile now has the full command-line pipeline, ported from
+the Norwegian package to the single `en` profile and delegating to the
+same shared training/evaluation/export machinery. `norwegian/` is
+untouched.
+
+- **CLI package** (`prism/languages/english/`): `train_baseline`,
+  `evaluate_baseline`, `calibrate_baseline`, `export_artifact`,
+  `checkpoint_loading`, `tagger`. Single `en` language tag (no nb/nn/no
+  macrolanguage handling), single Ettin teacher (the `--teacher-backbone
+  base/large` selector is dropped), `prism-en` artifact naming. English
+  UD needs no morphology remapping, so the evaluation UFeats policy is
+  empty; the export path (ExecuTorch/XNNPACK lowering, fixtures, parity
+  gates, manifest, licenses) is shared and unchanged.
+- **Language transforms** (`data/english.py`): identity lemma
+  normalization — English keeps the literal `$` token, unlike Norwegian's
+  `$` marker — and identity lemma/morphology decoders.
+- **Silver pipeline**: `data/gutenberg.py` (public-domain Project
+  Gutenberg adapter — strips the PG header/footer so only the underlying
+  public-domain text remains, reflows paragraphs, shared sentence
+  extraction; reads a `.txt` directory tree or a tar archive), English
+  Wikipedia dump constants reusing the language-independent wikitext
+  parser, an English abbreviation inventory
+  (`english/silver_extraction.py`), and the `prepare_silver_corpus`
+  (`--source gutenberg-eng | wikipedia-eng`) and `label_silver_corpus`
+  CLIs. British/American dialect coverage is addressed **here**, in the
+  silver sources (both included, no spelling normalization), not in the
+  American-leaning EWT gold — UPOS/morphology are dialect-invariant and
+  lemma edit-rules generalise across spellings.
+- **Backbone loader**: `PretrainedBackboneSpec` gained optional
+  `attention_implementation` and `config_overrides`; the English student
+  loads ModernBERT with `attn_implementation="eager"` and
+  `reference_compile=False`. Defaults preserve Norwegian behaviour.
+- **Tests**: `test_english_profile.py` and `test_english_data.py` (profile
+  registry, backbone export settings, pinned revisions, identity
+  transforms, Gutenberg parser). The full suite is 302 + 12 green.
+
+A 1-epoch gold-only smoke run reached dev UPOS 96.0%, lemma-rule 96.9%,
+bundle exact 93.5%. The full 12-epoch gold-only baseline is training; its
+measured dev metrics and the exported `prism-en` artifact are recorded
+once the run and evaluation complete.
