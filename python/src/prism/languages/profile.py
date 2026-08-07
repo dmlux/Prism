@@ -16,6 +16,12 @@ class LanguageProfileSpec:
     student_backbone: PretrainedBackboneSpec
     gold_treebank: UniversalDependenciesTreebankSpec
     alternate_teacher_backbones: tuple[PretrainedBackboneSpec, ...] = ()
+    # int8 export quantization strategy discriminator, resolved to a concrete
+    # Int8QuantizationStrategy at export time (prism.exporting.quantization).
+    # The default is the GPT-BERT/NorBERT4 path; ModernBERT profiles override
+    # it (e.g. "modernbert"). Kept a plain string so profiles carry no
+    # dependency on prism.exporting.
+    quantization: str = "xnnpack-embedding-dynamic"
 
     def __post_init__(self) -> None:
         if not self.language_tag or self.language_tag.strip() != self.language_tag:

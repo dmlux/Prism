@@ -41,9 +41,9 @@ from prism.exporting import (
     build_fixtures_payload,
     build_labels_payload,
     decoded_sentence_predictions,
-    fold_scaled_linear_parametrizations,
     lower_to_executorch_xnnpack,
     quantize_adapter_int8,
+    resolve_int8_quantization_strategy,
     maximum_task_probability_difference,
     pad_character_token_batch,
     pad_tokenized_batch,
@@ -564,6 +564,15 @@ def main() -> None:
         arguments.language_tag,
         treebank_release=arguments.treebank_release,
     )
+    quantization_strategy = resolve_int8_quantization_strategy(
+        profiles[0].quantization
+    )
+    if arguments.precision == "int8" and not quantization_strategy.supports_int8():
+        raise SystemExit(
+            "int8 quantization is not supported for this profile's backbone "
+            f"({profiles[0].student_backbone.model_id}); export with "
+            "--precision fp32."
+        )
     tagger = load_english_token_tagger(
         checkpoint_path=arguments.checkpoint_path,
         required_language_tags=tuple(profile.language_tag for profile in profiles),
@@ -600,8 +609,7 @@ def main() -> None:
         tagger.model.backbone.to(torch.float16)
         print("Precision: fp16 backbone, fp32 task heads")
     elif arguments.precision == "int8":
-        folded = fold_scaled_linear_parametrizations(adapter)
-        print(f"Folded {folded} scale-parametrized linears (exact).")
+        adapter = quantization_strategy.prepare_float_adapter(adapter)
         calibration_batches = []
         for profile in profiles:
             calibration_sentences = _fitting_fixture_sentences(
@@ -631,6 +639,7 @@ def main() -> None:
         adapter = quantize_adapter_int8(
             adapter=adapter,
             calibration_batches=calibration_batches,
+            strategy=quantization_strategy,
         )
         print(
             "Precision: int8 (dynamic linears, per-channel embeddings); "
@@ -735,6 +744,7 @@ def main() -> None:
         example_inputs=example_inputs,
         external_data_name=external_data_name,
         quantized=arguments.precision == "int8",
+        int8_strategy=quantization_strategy,
     )
     program_bytes = lowered.program_bytes
     program_file_name = "model-xnnpack.pte"
@@ -907,6 +917,7 @@ def main() -> None:
             example_inputs=tuple(tensor for _, tensor in small_inputs),
             external_data_name=external_data_name,
             quantized=arguments.precision == "int8",
+            int8_strategy=quantization_strategy,
         )
         small_bytes = small_lowered.program_bytes
         small_file_name = (

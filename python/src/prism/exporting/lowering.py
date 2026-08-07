@@ -6,9 +6,13 @@ fail with the install command instead of an import traceback.
 """
 
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import torch
 from torch import Tensor, nn
+
+if TYPE_CHECKING:
+    from prism.exporting.quantization import Int8QuantizationStrategy
 
 
 def _require_executorch_module(module_path: str) -> object:
@@ -67,50 +71,25 @@ def quantize_adapter_int8(
     *,
     adapter: nn.Module,
     calibration_batches: Sequence[tuple[Tensor, ...]],
+    strategy: "Int8QuantizationStrategy | None" = None,
 ) -> nn.Module:
     """Quantize an export adapter to int8 and return its eager twin.
 
-    Linear layers become dynamically quantized (per-channel int8 weights,
-    runtime-quantized activations); embedding tables become per-channel
-    int8 (fused into ``embedding_byte`` during lowering). The returned
-    module executes in eager PyTorch as the numerical twin of the lowered
-    program, so quality gates and fixtures run against it directly.
+    Delegates to the backbone's :class:`Int8QuantizationStrategy`; the default
+    reproduces the historical XNNPACK dynamic-linear + per-channel-embedding
+    path (GPT-BERT / NorBERT4). The returned module executes in eager PyTorch as
+    the numerical twin of the lowered program, so quality gates and fixtures run
+    against it directly.
     """
 
-    xnnpack_quantizer_module = _require_executorch_module(
-        "executorch.backends.xnnpack.quantizer.xnnpack_quantizer"
-    )
-    quantize_pt2e = _require_executorch_module(
-        "torchao.quantization.pt2e.quantize_pt2e"
-    )
-    composable = _require_executorch_module(
-        "torchao.quantization.pt2e.quantizer.composable_quantizer"
-    )
-    embedding = _require_executorch_module(
-        "torchao.quantization.pt2e.quantizer.embedding_quantizer"
-    )
+    if strategy is None:
+        from prism.exporting.quantization import XnnpackEmbeddingDynamicInt8Strategy
 
-    adapter.eval()
-    training_module = torch.export.export(
-        adapter,
-        tuple(calibration_batches[0]),
-        strict=True,
-    ).module()
-    xnnpack_quantizer = xnnpack_quantizer_module.XNNPACKQuantizer()
-    xnnpack_quantizer.set_global(
-        xnnpack_quantizer_module.get_symmetric_quantization_config(
-            is_per_channel=True,
-            is_dynamic=True,
-        )
+        strategy = XnnpackEmbeddingDynamicInt8Strategy()
+    return strategy.quantize(
+        adapter=adapter,
+        calibration_batches=calibration_batches,
     )
-    quantizer = composable.ComposableQuantizer(
-        [embedding.EmbeddingQuantizer(), xnnpack_quantizer]
-    )
-    prepared = quantize_pt2e.prepare_pt2e(training_module, quantizer)
-    with torch.no_grad():
-        for batch in calibration_batches:
-            prepared(*batch)
-    return quantize_pt2e.convert_pt2e(prepared)
 
 
 def lower_to_executorch_xnnpack(
@@ -119,6 +98,7 @@ def lower_to_executorch_xnnpack(
     example_inputs: tuple[Tensor, ...],
     external_data_name: str | None = None,
     quantized: bool = False,
+    int8_strategy: "Int8QuantizationStrategy | None" = None,
 ) -> "LoweredXnnpackProgram":
     """Capture an export adapter strictly and lower it to an XNNPACK program.
 
@@ -149,6 +129,7 @@ def lower_to_executorch_xnnpack(
         adapter = quantize_adapter_int8(
             adapter=adapter,
             calibration_batches=(example_inputs,),
+            strategy=int8_strategy,
         )
     else:
         adapter.eval()

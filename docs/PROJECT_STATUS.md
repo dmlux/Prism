@@ -3785,3 +3785,44 @@ Next quality levers: distillation from the Ettin-encoder-400m teacher
 Norwegian) and licensed silver training (Project Gutenberg + English
 Wikipedia). A 1-epoch smoke run had reached UPOS 96.0% / lemma 96.9% /
 bundle 93.5%, consistent with the full run.
+
+## Backbone-specific int8 quantization interface
+
+int8 quantization is architecture-specific and is now encapsulated behind a
+language-independent strategy interface rather than a shared hack, so each
+backbone family owns its own quantization behaviour.
+
+- **Root cause (diagnosed).** ModernBERT builds its sliding-window attention
+  mask by advanced-indexing `attention_mask` with `arange`-derived integer
+  index tensors (`attention_mask[arange_i, arange_j + offset]`). Under PT2E
+  `prepare_pt2e`, the calibration forward floats one of those index tensors and
+  `aten.index` rejects it (`IndexError: tensors used as indices must be long,
+  int, byte or bool tensors`). Graph inspection confirmed the integer index
+  nodes are not themselves annotated by the XNNPACK/embedding quantizer, so
+  this is a subtle `prepare_pt2e`/ModernBERT interaction, not a one-line
+  annotation filter. NorBERT4/GPT-BERT does not index its mask this way and
+  quantizes cleanly.
+- **Interface.** `prism.exporting.quantization.Int8QuantizationStrategy`
+  (`supports_int8`, `prepare_float_adapter`, `quantize`).
+  `XnnpackEmbeddingDynamicInt8Strategy` is the historical default (dynamic
+  per-channel int8 linears + per-channel int8 embeddings, plus the NorBERT4
+  scale-linear folding, moved out of the export CLI into the strategy).
+  `ModernBertInt8Strategy` declines int8 with a clear message and documents the
+  root cause. A profile selects its strategy by the string discriminator
+  `LanguageProfileSpec.quantization` (default `xnnpack-embedding-dynamic`;
+  English sets `modernbert`), resolved at export time by
+  `resolve_int8_quantization_strategy`, so `prism.exporting` keeps no
+  dependency on `prism.languages`.
+- **Wiring.** `lower_to_executorch_xnnpack` and `quantize_adapter_int8` take an
+  optional strategy (default preserves prior behaviour, so Norwegian is
+  byte-identical and untouched). The English export resolves the strategy and
+  fails fast when int8 is requested on a backbone that declines it. The fp32
+  path is unchanged for every backbone: the `prism-en-0.1.0` fp32 export
+  re-runs with identical parity (2.3·10⁻⁶).
+- **Tests.** `test_int8_quantization_strategy.py` (resolution, `supports_int8`
+  per profile, ModernBERT decline, unknown-strategy rejection). Full suite
+  314 + 6 green.
+
+This is the general pattern going forward: where shared code would otherwise be
+bent to fit two backbones, a language-independent interface is introduced and
+each language implements its own specifics.

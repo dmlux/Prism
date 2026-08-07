@@ -173,6 +173,19 @@ The only open item is int8 PT2E quantization (a RoPE/mask advanced-indexing
 edge in the calibration run); it is not part of the shipped configuration and
 is deferred.
 
+**Backbone-specific quantization behind an interface.** int8 quantization is
+architecture-specific, so it lives behind a language-independent
+`Int8QuantizationStrategy` (`prism.exporting.quantization`) that a profile
+selects by a string discriminator (`LanguageProfileSpec.quantization`).
+NorBERT4/GPT-BERT keeps the historical XNNPACK dynamic-linear plus
+per-channel-embedding path (`XnnpackEmbeddingDynamicInt8Strategy`, the default),
+including its scale-parametrized-linear folding; Ettin/ModernBERT uses
+`ModernBertInt8Strategy`, which declines int8 with a clear message and records
+the exact root cause (PT2E floats ModernBERT's `arange`-derived sliding-window
+mask index). The fp32 path is untouched for every backbone. This keeps the
+shared export flow generic and each backbone's quirks contained — the pattern
+for any future language whose backbone needs its own quantization.
+
 **Data.** Gold: `UD_English-EWT` (CC-BY-SA-4.0, ~254k tokens — the largest
 English UD treebank), pinned by revision; `UD_English-GUM` is excluded because
 it is CC BY-NC-SA 4.0 (non-commercial). English has no written-standard split,

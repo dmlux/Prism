@@ -35,6 +35,8 @@ ENGLISH_PROFILE = LanguageProfileSpec(
     student_backbone=ETTIN_ENCODER_17M_BACKBONE,
     teacher_backbone=ETTIN_ENCODER_400M_BACKBONE,
     gold_treebank=ENGLISH_EWT_TREEBANK,
+    # Ettin is ModernBERT; its int8 PT2E path differs from GPT-BERT/NorBERT4.
+    quantization="modernbert",
 )
 
 ENGLISH_PROFILES = (ENGLISH_PROFILE,)

@@ -35,6 +35,13 @@ from prism.exporting.lowering import (
     maximum_absolute_difference,
     run_executorch_program,
 )
+from prism.exporting.quantization import (
+    DEFAULT_INT8_QUANTIZATION,
+    Int8QuantizationStrategy,
+    ModernBertInt8Strategy,
+    XnnpackEmbeddingDynamicInt8Strategy,
+    resolve_int8_quantization_strategy,
+)
 from prism.exporting.shapes import (
     FixedExportShapes,
     pad_character_token_batch,
@@ -75,6 +82,11 @@ __all__ = [
     "fold_scaled_linear_parametrizations",
     "lower_to_executorch_xnnpack",
     "quantize_adapter_int8",
+    "DEFAULT_INT8_QUANTIZATION",
+    "Int8QuantizationStrategy",
+    "ModernBertInt8Strategy",
+    "XnnpackEmbeddingDynamicInt8Strategy",
+    "resolve_int8_quantization_strategy",
     "maximum_absolute_difference",
     "maximum_task_probability_difference",
     "pad_character_token_batch",
