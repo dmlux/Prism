@@ -48,6 +48,11 @@ and referenced from the language profile with an exact revision:
 git clone https://github.com/UniversalDependencies/UD_Norwegian-Bokmaal.git \
   data/raw/UD_Norwegian-Bokmaal
 git -C data/raw/UD_Norwegian-Bokmaal checkout 396d11f0c2bd290a2a2711015c04ac25bc3dcc06
+
+# English (Ettin profile): UD_English-EWT gold treebank
+git clone https://github.com/UniversalDependencies/UD_English-EWT.git \
+  data/raw/UD_English-EWT
+git -C data/raw/UD_English-EWT checkout 4a4d77f599ea53cc405f85d0cec4b2f14f81d42b
 ```
 
 Prepared silver corpora live under `data/processed/<source>/`;
@@ -192,6 +197,14 @@ without code changes. A new language needs four things:
    distillation. For Norwegian these are `ltg/norbert4-xsmall` and
    `ltg/norbert4-large` (with `ltg/norbert4-base` as a registered
    alternate teacher; the released model was distilled from large).
+   English is the second reference profile
+   (`prism/languages/english/`): the Ettin encoder suite
+   (`jhu-clsp/ettin-encoder-17m` student, `jhu-clsp/ettin-encoder-400m`
+   teacher). A first-class `transformers` architecture such as ModernBERT
+   needs no `trust_remote_code`; set the spec's
+   `attention_implementation="eager"` and
+   `config_overrides=(("reference_compile", False),)` for a portable
+   ExecuTorch export graph.
 3. **A language profile** — a `LanguageProfileSpec` wiring tags, names,
    backbones, and treebank paths together
    (`python/src/prism/languages/<language>/profile.py`):

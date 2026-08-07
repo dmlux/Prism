@@ -107,6 +107,86 @@ Primary references:
 - [NorBERT4 model card](https://huggingface.co/ltg/norbert4-base)
 - [UD Norwegian Nynorsk](https://github.com/UniversalDependencies/UD_Norwegian-Nynorsk)
 
+## English expansion (Ettin backbone)
+
+English is the first non-Norwegian language profile. It is a deliberate test
+of the language-independent core: the model heads, training, distillation,
+silver pipeline, calibration, export, and native runtimes stay **unchanged**,
+and only the language profile — backbone family, tokenizer, treebank, and (to
+come) silver adapters — is replaced. `python/src/prism/languages/norwegian/`
+is not touched; the English package sits beside it under
+`python/src/prism/languages/english/`.
+
+**Why the backbone family had to change.** NorBERT4 is not the classic
+LTG-BERT; it is the GPT-BERT architecture (`GptBertForMaskedLM`: RoPE,
+local–global attention, loaded through `trust_remote_code`). There is no
+modern, large-corpus **English** model in that same architecture with the
+size range Prism needs: same-architecture English weights exist only at
+BabyLM scale (`ltg/gpt-bert-babylm-*`, ~100M words, base size only — no
+compact student, no large teacher). Keeping GPT-BERT literally would have
+required pretraining English encoders from scratch on a web corpus
+(GPU-cluster scale, off the MPS development path). The profile therefore
+adopts the closest modern family that natively spans both required sizes.
+
+**Backbone decision.** Three options were evaluated against the two size
+targets (student ≈ `norbert4-xsmall` 17M, teacher ≈ `norbert4-large` 360M):
+
+| Option | Student / teacher | Verdict |
+| --- | --- | --- |
+| **Ettin encoder suite** (ModernBERT lineage, Weller et al. 2025) | `jhu-clsp/ettin-encoder-17m` (16.80M) / `jhu-clsp/ettin-encoder-400m` | **Selected** |
+| Classic BERT (Turc et al. 2019 miniatures + BERT-large-WWM) | `google/bert_uncased_L-12_H-256_A-4` (~17.5M) / `bert-large-*-whole-word-masking` (~335M) | Fallback only |
+| GPT-BERT BabyLM | `ltg/gpt-bert-babylm-base` | Rejected |
+
+Ettin is objectively strongest on every quality-relevant axis: ~2T open
+tokens versus BERT's ~3.3B (2018) and BabyLM's ~100M; a modern architecture
+(RoPE, local–global attention, GeGLU) conceptually close to GPT-BERT rather
+than a generation backwards; and, decisively for distillation, a **paired
+suite** — student and teacher share one tokenizer, recipe, and data, so
+soft-label alignment is clean. The proposed classic-BERT pairing additionally
+mixed an uncased WordPiece-30522 student with a cased WordPiece-28996 teacher.
+MIT-licensed with fully open data. Ettin's one theoretical disadvantage —
+ModernBERT lowering to ExecuTorch was unproven — was the reason for the export
+spike below; it is retired. The classic-BERT pairing is kept documented as a
+zero-export-risk fallback, not adopted. The teacher starts at 400M (like-for-like
+with `norbert4-large`); `ettin-encoder-1b` is a registered upgrade path.
+
+**Architecture impact is contained.** Unlike NorBERT4, Ettin/ModernBERT is a
+first-class `transformers` architecture, so `trust_remote_code` is off. Two
+settings are pinned for a portable, deterministic export graph:
+`attn_implementation="eager"` (avoids SDPA/flash and unpadding paths) and
+`reference_compile=False` (no internal `torch.compile` during export capture or
+MPS training). These are realized as a backward-compatible extension to
+`PretrainedBackboneSpec` — new optional `attention_implementation` and
+`config_overrides` fields whose defaults preserve the exact prior behaviour for
+the Norwegian specs — so the shared loader stays generic and Norwegian is
+byte-for-byte unaffected.
+
+**Export spike (risk retired).** `ettin-encoder-17m`, wrapped in Prism's own
+`BackboneExportAdapter`, lowers cleanly through the existing production path
+`lower_to_executorch_xnnpack` (`torch.export(strict=True)` →
+`to_edge_transform_and_lower` → XNNPACK → `to_executorch`) with fp32 parity of
+**2.7·10⁻⁵** against eager, and program-data separation produces a small `.pte`
+plus a shared `model.ptd` — exactly the structure of the shipped
+`quantization: none` Norwegian artifact. The NorBERT4-specific
+`fold_scaled_linear_parametrizations` pass is a correct no-op on ModernBERT.
+The only open item is int8 PT2E quantization (a RoPE/mask advanced-indexing
+edge in the calibration run); it is not part of the shipped configuration and
+is deferred.
+
+**Data.** Gold: `UD_English-EWT` (CC-BY-SA-4.0, ~254k tokens — the largest
+English UD treebank), pinned by revision; `UD_English-GUM` is excluded because
+it is CC BY-NC-SA 4.0 (non-commercial). English has no written-standard split,
+so there is a single `en` profile rather than the `nb`/`nn`/`no` triple.
+Silver (planned, mirroring the Norwegian adapters): Project Gutenberg
+(public domain, the `nbdigital` analogue) and an English Wikipedia dump
+(CC BY-SA 4.0, the `wikipedia` analogue).
+
+Primary references:
+
+- [Ettin suite](https://huggingface.co/blog/ettin) · [paper](https://arxiv.org/abs/2507.11412)
+- [ettin-encoder-17m](https://huggingface.co/jhu-clsp/ettin-encoder-17m) · [ettin-encoder-400m](https://huggingface.co/jhu-clsp/ettin-encoder-400m)
+- [UD English EWT](https://github.com/UniversalDependencies/UD_English-EWT)
+
 ## Current student and remaining production gap
 
 The implemented NorBERT4-xsmall student already predicts UPOS, the observed

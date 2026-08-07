@@ -1,6 +1,6 @@
 # Prism project status
 
-Last updated: 2026-08-04
+Last updated: 2026-08-07
 
 ## Product direction
 
@@ -3641,3 +3641,73 @@ distribution contract — size equals the label count, entry 0 equals
 the decision, descending order, sum ≈ 1 — and the label-inventory
 counts. The `TaggedToken` records/structs gained the field additively
 (Java keeps the previous-arity convenience constructors).
+
+## English language profile scaffold (Ettin backbone)
+
+First non-Norwegian language profile, begun as a strict test of the
+language-independent core: heads, training, distillation, silver
+pipeline, calibration, export, and native runtimes stay unchanged; only
+the profile (backbone family, tokenizer, treebank, silver adapters) is
+replaced. `prism/languages/norwegian/` is untouched — the English
+package sits beside it under `prism/languages/english/`. Full rationale
+in [MODEL_STRATEGY.md](MODEL_STRATEGY.md) ("English expansion").
+
+**Backbone evaluation and decision.** NorBERT4 is the GPT-BERT
+architecture (`GptBertForMaskedLM`), and no modern large-corpus English
+model exists in that architecture across the sizes Prism needs
+(same-architecture English is BabyLM-scale only). Three options were
+compared against the size targets (student ≈ `norbert4-xsmall` 17M,
+teacher ≈ `norbert4-large` 360M): the **Ettin encoder suite**
+(ModernBERT lineage; `jhu-clsp/ettin-encoder-17m` 16.80M student,
+`jhu-clsp/ettin-encoder-400m` teacher; MIT, ~2T open tokens) was
+selected over a classic BERT pairing (`google/bert_uncased_L-12_H-256_A-4`
++ `bert-large-*-whole-word-masking`, kept only as a zero-export-risk
+fallback) and over GPT-BERT BabyLM (rejected: ~100M words, base only).
+Ettin wins on data scale (~600× over classic BERT), modern architecture
+close to GPT-BERT, and a paired student/teacher suite with one shared
+tokenizer and recipe — clean for distillation. Teacher starts at 400M
+like-for-like; `ettin-encoder-1b` is the registered upgrade path.
+
+**Export spike (the one open risk) passed.** `ettin-encoder-17m`, wrapped
+in Prism's own `BackboneExportAdapter`, lowered through the production
+`lower_to_executorch_xnnpack` path (`torch.export(strict=True)` →
+`to_edge_transform_and_lower` → XNNPACK → `to_executorch`) with fp32
+parity **2.7·10⁻⁵** against eager. Program-data separation produced a
+small `.pte` plus a shared `model.ptd`, exactly the shipped
+`quantization: none` artifact shape. `fold_scaled_linear_parametrizations`
+is a correct no-op on ModernBERT. Only int8 PT2E quantization is still
+open (a RoPE/mask advanced-indexing edge in calibration) — not part of
+the shipped configuration, deferred.
+
+**Landed in this step:**
+
+- `prism/languages/english/backbones.py` — `ETTIN_ENCODER_17M_BACKBONE`
+  (student) and `ETTIN_ENCODER_400M_BACKBONE` (teacher), pinned to exact
+  Hugging Face commits, `trust_remote_code=False`,
+  `attention_implementation="eager"`, `config_overrides` disabling
+  `reference_compile`.
+- `prism/languages/english/profile.py` — `ENGLISH_PROFILE` (tag `en`,
+  single profile, no macrolanguage split), `UD_English-EWT` gold treebank
+  (CC-BY-SA-4.0; GUM excluded as CC BY-NC-SA 4.0) with a UD-2.17-pinned
+  variant, and `english_profile_for_language_tag` /
+  `english_training_profiles_for_language_tag` resolvers mirroring the
+  Norwegian API so the CLI package can be copied with minimal change.
+- `prism/modeling/backbones.py` — `PretrainedBackboneSpec` gained optional
+  `attention_implementation` and `config_overrides` fields, and
+  `load_backbone_model` threads them (`attn_implementation` kwarg +
+  post-load `setattr` on the config). Defaults preserve the exact prior
+  behaviour; the Norwegian specs are byte-for-byte unaffected.
+- Gold data cloned to `data/raw/UD_English-EWT/` (git-ignored) at the
+  pinned revision `4a4d77f5…` (`en_ewt-ud-{train,dev,test}.conllu`).
+
+**Verification.** The 75 backbone/language/profile tests pass. End-to-end,
+`load_backbone_model(ENGLISH_PROFILE.student_backbone)` returns a
+`ModernBertModel` with 16.80M parameters, `reference_compile=False`, and
+`_attn_implementation="eager"`.
+
+**Not yet done (next steps):** the English CLI package (copy of the
+Norwegian entry points); English silver adapters (Project Gutenberg +
+English Wikipedia); a gold-only English student as the first measured
+baseline; then teacher training, silver labeling, distillation,
+calibration, export, and native-runtime verification. The int8
+quantization path for ModernBERT is a separate follow-up.
