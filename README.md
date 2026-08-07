@@ -6,7 +6,9 @@
   <a href="https://github.com/dmlux/Prism/releases?q=v0&expanded=true"><img src="https://img.shields.io/github/v/release/dmlux/Prism?filter=v*&label=library&color=blue" alt="latest library release"></a>
   <a href="https://central.sonatype.com/artifact/io.github.dmlux/prism"><img src="https://img.shields.io/maven-central/v/io.github.dmlux/prism?label=maven%20central&color=blue" alt="Maven Central"></a>
   <a href="https://github.com/dmlux/Prism/releases?q=prism-no&expanded=true"><img src="https://img.shields.io/github/v/release/dmlux/Prism?filter=prism-no-*&label=model%3A%20norwegian&color=purple" alt="latest Norwegian model release"></a>
-  <a href="https://huggingface.co/dmlux/prism-no"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20hub-dmlux%2Fprism--no-yellow" alt="Hugging Face model"></a>
+  <a href="https://github.com/dmlux/Prism/releases?q=prism-en&expanded=true"><img src="https://img.shields.io/github/v/release/dmlux/Prism?filter=prism-en-*&label=model%3A%20english&color=purple" alt="latest English model release"></a>
+  <a href="https://huggingface.co/dmlux/prism-no"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20hub-dmlux%2Fprism--no-yellow" alt="Hugging Face Norwegian model"></a>
+  <a href="https://huggingface.co/dmlux/prism-en"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20hub-dmlux%2Fprism--en-yellow" alt="Hugging Face English model"></a>
 </p>
 
 # Prism
@@ -15,14 +17,16 @@ Prism is an open-source NLP toolkit for fast, local, privacy-friendly
 linguistic analysis on end-user devices. It tags text with
 part-of-speech (UPOS), morphological features, and lemmata — each
 decision with a **calibrated confidence** — fully offline, optimized
-for small bundles and native performance. The current model covers
-Norwegian: Bokmål (`nb`) and Nynorsk (`nn`) in one set of weights.
+for small bundles and native performance. Models currently cover
+**Norwegian** (Bokmål `nb`, Nynorsk `nn`, one shared set of weights) and
+**English** (`en`), with more languages coming — the model, training,
+export, and artifact contracts are language-independent by design.
 
 **Highlights**
 
-- **Built for devices, not servers:** the deployable model is a 45 MB
-  artifact tagging ~3,200 tokens/s on a laptop CPU — no GPU, no
-  network, no Python.
+- **Built for devices, not servers:** deployable models are compact
+  artifacts (tens of MB — the Norwegian int8 model is 45 MB, tagging
+  ~3,200 tokens/s on a laptop CPU) — no GPU, no network, no Python.
 - **Native APIs for every major platform:** Swift, C++, C, and Java
   (Kotlin-compatible) over one shared model contract, plus the Python
   reference runtime. Three integration routes: PrismKit (Swift),
@@ -36,8 +40,10 @@ Norwegian: Bokmål (`nb`) and Nynorsk (`nn`) in one set of weights.
   applications can highlight results in their own documents — robust
   against the internal text repairs (see
   [docs/INTEGRATION.md](docs/INTEGRATION.md#source-mapping)).
-- **Quality that competes:** beats UDPipe 2.17 on UPOS and lemmata on
-  the official UD test splits at a twentieth of its size.
+- **Quality that competes with UDPipe 2.17** at a fraction of its size:
+  the Norwegian model beats it on UPOS and lemmata; the English model
+  lands within ~0.5 pp on the harder English Web Treebank (per-language
+  test tables below).
 
 ## How it works
 
@@ -45,7 +51,7 @@ Norwegian: Bokmål (`nb`) and Nynorsk (`nn`) in one set of weights.
 flowchart TB
     Text["raw text"] --> Seg["sentence segmentation"]
     Seg --> BPE["byte-level BPE subwords"]
-    BPE --> Backbone["compact Transformer backbone<br/>(NorBERT4-xsmall, distilled)"]
+    BPE --> Backbone["compact Transformer backbone<br/>(NorBERT4-xsmall / Ettin, distilled)"]
     Backbone --> Tokens["token representations<br/>+ character-CNN features"]
     Tokens --> Upos["UPOS head"]
     Tokens --> Morph["morphology heads"]
@@ -71,24 +77,26 @@ the structured decoder, distillation, calibration, and export, with
 every number verified against the implementation and diagrams for each
 stage.
 
-**Model facts** (prism-no 0.2.3)
+**Model facts**
 
-| Fact | Value |
-| --- | --- |
-| Parameters | 17.6 M (16.9 M backbone incl. 9.8 M embedding, 0.7 M heads + character CNN) |
-| Architecture | 16-layer encoder-only Transformer (NorBERT4-xsmall: hidden 192, 3 attention heads), distilled from NorBERT4-large |
-| Tasks and label spaces | 17 UPOS tags · 18 morphology features · 1,059 lemma edit rules |
-| Vocabulary | 51,200 byte-level BPE subwords · 120-character vocabulary for the character CNN |
-| Languages | Norwegian Bokmål (`nb`) and Nynorsk (`nn`), one shared set of weights |
-| Sentence capacity | up to 96 tokens / 160 subwords per sentence (longer sentences are chunked automatically); fixed batch of 8 |
-| Precision variants | fp32 (≈ 94 MB) and int8 "fast" (≈ 45 MB) |
-| Training data | gold UD treebanks plus teacher-labeled silver text (NBdigital, municipal documents, Nynorsk Wikipedia) — details below |
-| Runtime | ExecuTorch / XNNPACK, CPU only, offline |
+| Fact | Norwegian (`prism-no` 0.2.3) | English (`prism-en` 0.1.0) |
+| --- | --- | --- |
+| Parameters | 17.6 M | 18.0 M |
+| Backbone | NorBERT4-xsmall (16-layer, hidden 192), distilled from NorBERT4-large | Ettin-encoder-17m (7-layer ModernBERT, hidden 256), distilled from Ettin-encoder-400m |
+| Label spaces | 17 UPOS · 18 morphology features · 1,059 lemma rules | 18 UPOS · 21 morphology features · 1,632 lemma rules |
+| Vocabulary | 51,200 byte-level BPE | 50,368 byte-level BPE (ModernBERT) |
+| Languages | Bokmål `nb`, Nynorsk `nn` (shared weights) | English `en` |
+| Sentence capacity | up to 96 tokens / 160 subwords, chunked automatically; fixed batch of 8 | same |
+| Precision variants | fp32 (≈ 94 MB) · int8 "fast" (≈ 45 MB) | fp32 (≈ 69 MB); int8 a tracked follow-up |
+| Training data | UD Bokmål/Nynorsk + silver (NBdigital, municipal docs, Nynorsk Wikipedia) | UD English-EWT + silver (Project Gutenberg, English Wikipedia) |
+| Runtime | ExecuTorch / XNNPACK, CPU only, offline | same |
 
 ## Quality and speed
 
-Evaluated once on the untouched official UD test splits against UDPipe
-2.17 (gold tokenization, official CoNLL definitions):
+Each model is evaluated once on its untouched official UD test split
+against UDPipe 2.17 (gold tokenization, official CoNLL definitions).
+
+**Norwegian** (`prism-no`) — beats UDPipe on UPOS and lemmata:
 
 | Test F1 | Prism | UDPipe 2.17 |
 | --- | ---: | ---: |
@@ -99,20 +107,31 @@ Evaluated once on the untouched official UD test splits against UDPipe
 | Nynorsk Lemmas | **98.68%** | 98.56% |
 | Nynorsk UFeats | 96.94% | **97.38%** |
 
-**Strengths:** best-in-class UPOS and lemmata; runs locally at
-~3,200 tokens/s (C++/Java) on an Apple M4 Max CPU — UDPipe's comparable
-models sit behind a ~700 MB server deployment; calibrated confidences;
-one model for both written standards, mixed input welcome.
+**English** (`prism-en`, EWT) — competitive, within ~0.4–0.6 pp on the
+harder English Web Treebank:
+
+| Test F1 | Prism | UDPipe 2.17 |
+| --- | ---: | ---: |
+| UPOS | 97.29% | **97.65%** |
+| UFeats | 97.71% | **98.16%** |
+| Lemmas | 97.36% | **97.99%** |
+
+**Strengths:** Norwegian leads UDPipe on UPOS and lemmata; both models
+run locally at thousands of tokens/s on a laptop CPU (Norwegian
+~3,200 tokens/s, C++/Java, Apple M4 Max) while UDPipe's comparable
+models sit behind a ~700 MB server deployment — with calibrated
+confidences and fully offline operation.
 
 **Weaknesses:** exact morphology bundles (UFeats — every feature of a
-word must match) trail UDPipe by ~0.4 pp; no dependency parsing, named
-entities, or raw-text sentence splitting beyond the shipped
-segmentation policy; one language so far (the architecture and
-artifact contract are language-independent by design).
+word must match) trail UDPipe; English trails UDPipe across the board on
+EWT web text (the 400M teacher beats UDPipe there, but distilling to a
+17M student gives up ~0.5 pp — a later-optimization target); no
+dependency parsing, named entities, or raw-text sentence splitting
+beyond the shipped segmentation policy.
 
 Complete tables — including the fast-versus-fp32 quality gate and the
 cross-binding runtime matrix — live in
-[docs/benchmarks/prism-no-0.2.2.md](docs/benchmarks/prism-no-0.2.2.md).
+[docs/benchmarks/](docs/benchmarks/).
 
 ## Get a model
 
@@ -122,8 +141,9 @@ bundles exactly one:
 
 | Artifact | Size | When to use |
 | --- | ---: | --- |
-| `prism-no-0.2.3-fast` | ≈ 45 MB | **Recommended.** int8, up to 2× faster, quality within 0.014 pp of fp32 |
-| `prism-no-0.2.3` | ≈ 94 MB | Bit-exact fp32 reference behind the published benchmark |
+| `prism-no-0.2.3-fast` | ≈ 45 MB | **Norwegian**, recommended. int8, up to 2× faster, quality within 0.014 pp of fp32 |
+| `prism-no-0.2.3` | ≈ 94 MB | Norwegian, bit-exact fp32 reference behind the published benchmark |
+| `prism-en-0.1.0` | ≈ 69 MB | **English** (`en`), fp32. int8 is a tracked follow-up for the ModernBERT backbone |
 
 ```bash
 curl -LO https://github.com/dmlux/Prism/releases/download/prism-no-0.2.3/prism-no-0.2.3-fast.tar.gz
@@ -324,6 +344,7 @@ python -m pip install -e './python[dev]'
 
 ```python
 from prism.languages.norwegian.tagger import NorwegianTagger
+# English is identical: from prism.languages.english.tagger import EnglishTagger
 
 tagger = NorwegianTagger(
     checkpoint_path=checkpoint,     # e.g. runs/<run>/best-development-task-accuracy.pt
@@ -343,8 +364,8 @@ your application already has words.
 
 ## Bring your own language
 
-Norwegian is the first language, not the last: the model, training,
-export, and artifact contracts are language-independent, and every
+Norwegian and English are the first languages, not the last: the model,
+training, export, and artifact contracts are language-independent, and every
 runtime reads any conforming artifact without code changes. If you have
 a [Universal Dependencies](https://universaldependencies.org/)-style
 treebank (CoNLL-U with `FORM`, `LEMMA`, `UPOS`, `FEATS`) and a Hugging
@@ -372,6 +393,16 @@ Språkbanken's NBdigital and municipal-documents corpora (National
 Library of Norway, CC0), the Nynorsk Wikipedia (CC BY-SA 4.0), and the
 [`ltg/norbert4-xsmall`](https://huggingface.co/ltg/norbert4-xsmall)
 backbone (Language Technology Group, University of Oslo, Apache 2.0).
+
+The English model uses the
+[UD English-EWT](https://github.com/UniversalDependencies/UD_English-EWT)
+treebank (Universal Dependencies contributors, CC BY-SA 4.0), with
+public-domain [Project Gutenberg](https://www.gutenberg.org/) texts and
+the English [Wikipedia](https://dumps.wikimedia.org/enwiki/)
+(CC BY-SA 4.0) as teacher-labeled silver sources, and the
+[`jhu-clsp/ettin-encoder-17m`](https://huggingface.co/jhu-clsp/ettin-encoder-17m)
+backbone (Ettin suite, JHU / Answer.AI, MIT).
+
 Pinned revisions and checksums travel inside every artifact
 (`manifest.json`, `LICENSES/`).
 
