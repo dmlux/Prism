@@ -59,6 +59,9 @@ from prism.exporting import (
 from prism.languages.norwegian import (
     norwegian_training_profiles_for_language_tag,
 )
+from prism.languages.norwegian.silver_extraction import (
+    NORWEGIAN_SILVER_ABBREVIATIONS,
+)
 from prism.languages.norwegian.checkpoint_loading import (
     LoadedNorwegianTagger,
     load_norwegian_token_tagger,
@@ -1063,6 +1066,7 @@ def main() -> None:
         treebanks=treebanks,
         quantization="none",
         calibration_file=calibration_file_name,
+        segmentation_abbreviations=tuple(sorted(NORWEGIAN_SILVER_ABBREVIATIONS)),
     )
     write_json_file(artifact_directory / "manifest.json", manifest.to_json_dict())
     write_licenses_directory(

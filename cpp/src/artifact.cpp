@@ -71,6 +71,17 @@ Artifact::Artifact(const std::filesystem::path& directory)
         language_tags_.push_back(tag.get<std::string>());
     }
 
+    // Optional: raw-text segmentation abbreviations. Absent in legacy
+    // artifacts, in which case the runtime uses a built-in default.
+    if (manifest.contains("segmentation")) {
+        const auto& segmentation = manifest.at("segmentation");
+        if (segmentation.contains("abbreviations")) {
+            for (const auto& abbreviation : segmentation.at("abbreviations")) {
+                segmentation_abbreviations_.push_back(abbreviation.get<std::string>());
+            }
+        }
+    }
+
     const auto& tokenizer = manifest.at("tokenizer");
     tokenizer_.file_name = tokenizer.at("file_name").get<std::string>();
     tokenizer_.padding_token_id = tokenizer.at("padding_token_id").get<std::int64_t>();

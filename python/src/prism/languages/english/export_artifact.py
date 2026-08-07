@@ -58,6 +58,9 @@ from prism.exporting import (
 from prism.languages.english import (
     english_training_profiles_for_language_tag,
 )
+from prism.languages.english.silver_extraction import (
+    ENGLISH_SILVER_ABBREVIATIONS,
+)
 from prism.languages.english.checkpoint_loading import (
     LoadedEnglishTagger,
     load_english_token_tagger,
@@ -1067,6 +1070,7 @@ def main() -> None:
         treebanks=treebanks,
         quantization="none",
         calibration_file=calibration_file_name,
+        segmentation_abbreviations=tuple(sorted(ENGLISH_SILVER_ABBREVIATIONS)),
     )
     write_json_file(artifact_directory / "manifest.json", manifest.to_json_dict())
     write_licenses_directory(

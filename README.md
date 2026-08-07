@@ -56,7 +56,7 @@ flowchart TB
     Tokens --> Upos["UPOS head"]
     Tokens --> Morph["morphology heads"]
     Tokens --> Lemma["lemma-rule head"]
-    Upos --> Out["calibrated probabilities<br/>one result per token"]
+    Upos --> Out["calibrated probabilities, one per token"]
     Morph --> Out
     Lemma --> Out
 ```
