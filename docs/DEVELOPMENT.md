@@ -3,7 +3,8 @@
 Setup, training, evaluation, and testing for working on Prism itself.
 Application integration lives in [INTEGRATION.md](INTEGRATION.md); the
 design rationale in [ARCHITECTURE.md](ARCHITECTURE.md); every accepted
-decision and milestone in [PROJECT_STATUS.md](PROJECT_STATUS.md).
+decision and milestone in [PROJECT_STATUS.md](PROJECT_STATUS.md); how to
+cut model and library releases in [RELEASING.md](RELEASING.md).
 
 ## What the codebase provides today
 
