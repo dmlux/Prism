@@ -91,8 +91,16 @@ gh workflow run java-natives.yml --repo dmlux/Prism --ref main
 runs the third-party consumer test against the downloaded fast model, and
 uploads `PrismNative.xcframework.zip` + `.checksum` as **workflow
 artifacts** (a `main` dispatch does not attach to any release). It also warms
-the compiler cache in `main` scope, which the later tag run restores. Wait
-for both to go green (the macOS slice build is ~1–2 h).
+the compiler cache in `main` scope, which the later tag run restores.
+
+> **Gate — do not tag until BOTH dispatches are green.** Two reasons:
+> (1) the tag run only restores a warm cache if the `main` dispatch has
+> already *finished* saving it, so tagging early forces a slow cold rebuild
+> (and, for the JAR, wastes the warm-up entirely); (2) you must confirm both
+> builds are actually healthy on `main` before cutting a public release —
+> otherwise you tag and only then discover a broken build. Wait for both run
+> conclusions to be `success` (macOS slices are ~1–2 h cold, minutes warm).
+> Never start Step 2/3 while either dispatch is still running or red.
 
 ### Step 2 — Pin the checksum into `Package.swift`
 
@@ -118,18 +126,20 @@ gh release create vX.Y.Z --target <commit-from-step-2> \
 ```
 
 `gh release create` with a new tag creates the tag and pushes it, which
-**re-triggers both workflows on the tag**. The tag runs rebuild (cache
-restored from the `main` dispatch → normally byte-identical) and, because the
-ref is now `refs/tags/v*`, attach the JAR, `PrismNative.xcframework.zip`, and
-its `.checksum` to the `vX.Y.Z` release.
+**re-triggers both workflows on the tag**. The tag runs rebuild and, because
+the ref is now `refs/tags/v*`, attach the JAR, `PrismNative.xcframework.zip`,
+and its `.checksum` to the `vX.Y.Z` release. The tag-run rebuild is *usually*
+byte-identical to the `main` dispatch but **not reliably so** (see Step 4) —
+which is why the pin was taken from the dispatch build, not this one.
 
 ### Step 4 — Verify the pin matches the attached bytes (critical)
 
-The tag re-trigger is the step that has bitten past releases: if the tag
-build is **not** byte-identical to the `main` dispatch build (ExecuTorch has
-shown a few-byte drift — this actually broke `v0.4.0`/`v0.4.1`), the checksum
-committed in Step 2 no longer matches the attached zip, and every SwiftPM
-consumer of the tag fails to resolve.
+The tag re-trigger is the step that has bitten every other release: the tag
+build is often **not** byte-identical to the `main` dispatch build (ExecuTorch
+has a nondeterministic few-byte drift — it broke `v0.4.0`/`v0.4.1`, and
+`v0.6.0` drifted `f6f86519…` on `main` vs `8733f897…` on the tag). When it
+drifts, the checksum committed in Step 2 no longer matches the zip the tag run
+attached, and **every SwiftPM consumer of the tag fails to resolve**.
 
 Always verify after the tag run finishes:
 
@@ -142,22 +152,33 @@ swift package compute-checksum /tmp/verify/PrismNative.xcframework.zip
 
 If they match, the release is consistent — done.
 
-If they differ, reconcile so the tag points at the checksum of the **actually
-attached** bytes (the attach step is deliberately `--clobber`-free, so the
-first-attached zip is authoritative and must not be replaced):
+If they differ, **do not move the tag and do not re-pin to the drifted
+bytes.** The correct fix keeps the tag immutable and makes the *attached
+bytes* equal the *already-committed* pin, by re-attaching the exact dispatch
+build the pin came from (it is proven good — it passed the consumer test in
+the dispatch run):
 
-1. Update `Package.swift` `prismNativeReleaseChecksum` to the computed value.
-2. Move the tag onto the corrected commit:
+```bash
+gh run download <prism-native-dispatch-run-id> --repo dmlux/Prism \
+  --name PrismNative.xcframework --dir /tmp/xcf
+gh release upload vX.Y.Z --repo dmlux/Prism \
+  /tmp/xcf/PrismNative.xcframework.zip \
+  /tmp/xcf/PrismNative.xcframework.zip.checksum --clobber
+```
 
-   ```bash
-   git commit -am "fix: correct PrismNative checksum for vX.Y.Z"
-   git tag -f vX.Y.Z && git push -f origin vX.Y.Z
-   ```
+Then re-run the verification above; it now matches. No tag move, no CI
+re-trigger. This is the **one sanctioned use of `--clobber`** on the
+XCFramework asset: replacing the tag-run's drifted rebuild with the exact
+bytes the tagged `Package.swift` already pins. (`v0.6.0` was reconciled this
+way.)
 
-   The re-pushed tag triggers CI again; its attach step now finds the zip
-   already present and **fails loudly on that one step by design** — that is
-   expected and harmless, because the authoritative zip is already attached
-   and now matches the tagged `Package.swift`.
+> **Why this is clumsy — and the planned fix.** The tag-run rebuild is pure
+> waste: it repeats a ~1 h build and can only *break* the release, never
+> improve it. The clean design is a single `workflow_dispatch(version)` that
+> builds once, commits the checksum, creates the tag+release, and attaches
+> **the bytes it just built** — no second build, no drift window, no manual
+> pin. Until that lands, the dispatch-then-tag dance above is the process.
+> See §6.
 
 ---
 
@@ -250,14 +271,43 @@ built.
 
 ---
 
+## 6. Planned simplification (not yet implemented)
+
+The current library flow has too many manual, fragile steps for what should
+be one button. The root cause is narrow: SwiftPM pins the binary target by a
+checksum that must live in the *tagged* `Package.swift`, so today we build on
+`main` to learn the checksum, commit it, then tag — and the tag rebuild
+(different bytes) is what forces the manual reconcile in Step 4.
+
+A single tag-producing workflow removes all of it. One
+`workflow_dispatch` with a `version` input would:
+
+1. build the XCFramework and the JAR once (parallel jobs);
+2. compute the XCFramework checksum;
+3. write URL + checksum into `Package.swift`, bump version strings, commit;
+4. create the tag + GitHub release at that commit (atomic);
+5. attach **the exact bytes just built** (no rebuild) plus the JAR.
+
+That eliminates the second build, the drift window, the manual checksum copy,
+and the "both dispatches green" gate — the only human input becomes the
+version number (optionally behind an Actions approval gate). The model
+releases could fold into the same or a sibling `workflow_dispatch` that
+packages `models/`, uploads the tarballs, and mirrors to Hugging Face.
+
+Until this lands, follow §1–§5.
+
+---
+
 ## Quick checklist (library `vX.Y.Z`)
 
 - [ ] Model that CI downloads is released (§1 ordering constraint).
 - [ ] Version bumps committed on `main`; `Package.swift` still on previous pin.
-- [ ] `gh workflow run` both workflows on `main`; both green.
+- [ ] `gh workflow run` both workflows on `main`; **wait for BOTH to be
+      green before tagging** — never tag while a dispatch runs (§3 gate).
 - [ ] Pin URL + checksum from the dispatch artifact into `Package.swift`; commit.
 - [ ] `gh release create vX.Y.Z` at that commit (`--latest`).
 - [ ] After tag CI: download the attached XCFramework, `compute-checksum`,
-      confirm it equals the tagged `Package.swift` — reconcile + re-tag if not.
+      confirm it equals the tagged `Package.swift`. If it drifted, re-attach
+      the dispatch build with `--clobber` (§4) — do not move the tag.
 - [ ] (Optional, separate) Maven Central per §5 — embed the release
       natives, then `mvn -Prelease deploy`, then Publish in the portal.
