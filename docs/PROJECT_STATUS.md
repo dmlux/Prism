@@ -3879,3 +3879,48 @@ the English-material advantage a classical tagger cannot. Note that
 will be compared, and Lemmas is razor-thin (+0.086 pp) so the smaller student
 may fall below UDPipe there until silver training closes it. Test splits remain
 untouched.
+
+## Language-independent native runtimes (all bindings load every model)
+
+Shipping a second backbone family surfaced everywhere the native runtimes had
+quietly assumed the Norwegian model. The transition points to a specific
+model are now generic interfaces with a per-model adapter selected from the
+artifact, so C++, Swift, and Java (which delegates to C++) all load and tag
+both NorBERT4 (GPT-BERT) and ModernBERT/Ettin artifacts without a code change.
+
+- **Subword tokenizer (C++ and Swift).** Normalization, pre-tokenization, and
+  the special-token template are read from `vocabulary.json`, each served by a
+  per-model adapter. Normalizer: `NFKC` folds Western-prose compatibility
+  characters (NorBERT4); `NFC` is the identity on already-composed input
+  (ModernBERT). Pre-tokenizer: NorBERT4's case-splitting `Split` regex (single
+  digits, upper/lower-case run boundaries) versus ModernBERT's byte-level GPT-2
+  regex (whole letter runs, whole digit runs, lowercase contraction suffixes, a
+  single attached leading space). `unk_token` is optional (ModernBERT's is
+  `null`), and the `[CLS]`/`[SEP]` prefix and suffix come from the
+  `TemplateProcessing` post-processor instead of a hard-coded `<s>`. C++
+  hand-writes the two pre-tokenizers as scanners; Swift drives them with
+  `NSRegularExpression` (the GPT-2 regex is a constant, NorBERT4's travels in
+  the artifact). An unrecognized normalizer/pre-tokenizer is a hard error.
+
+- **Segmentation policy (C++, Swift, Java-via-C++).** The abbreviation
+  inventory is language-specific and travels in the manifest
+  (`segmentation.abbreviations`); the runtime builds its `SegmentationPolicy`
+  from it and **hard-errors** on an empty inventory rather than falling back to
+  the built-in Norwegian set — a fallback that silently mis-segments any other
+  language. The manifest gained the field via `ModelArtifactManifest`; existing
+  Norwegian artifacts are re-exported to carry it (model bytes byte-identical,
+  only the manifest grows the block).
+
+- **Benchmarks (C++).** The single generic-loop `prism_benchmarks.cpp` is
+  replaced by a shared harness (`prism_benchmark_harness.*`) plus one slim
+  executable per language (`prism_benchmarks_norwegian`,
+  `prism_benchmarks_english`) that lists only its texts and artifacts.
+
+- **Parity (both native suites).** Every C++ test has a Swift counterpart
+  (the C-ABI tests excepted — Swift uses ExecuTorch directly). Swift engine
+  tests now assert recorded-output parity (fp32, int8, English) like C++'s
+  `ExpectFixtureParity`, not merely a valid distribution. English gains engine
+  and subword parity fixtures (`harbor-english`, a CC0 text with digits, mixed
+  case, abbreviations, a missing-space boundary, a URL, and an email); the C++
+  and Swift tokenizers reproduce the Python reference IDs exactly, and
+  Norwegian output is unchanged across all shared fixtures.
