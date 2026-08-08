@@ -13,9 +13,8 @@ The model releases are simple. The library release has one genuinely tricky
 step — pinning the SwiftPM binary-target checksum — described in full below.
 
 Optional, and **not** part of any workflow: publishing the Java JAR to Maven
-Central (`mvn -Prelease deploy`, see [INTEGRATION.md](INTEGRATION.md)). Skip
-it unless you explicitly intend a Maven Central release — the quota resets
-monthly.
+Central (`mvn -Prelease deploy`, see §5). Skip it unless you explicitly
+intend a Maven Central release — the free publishing quota resets monthly.
 
 ---
 
@@ -182,6 +181,75 @@ consumers.
 
 ---
 
+## 5. Maven Central (optional, Java only)
+
+The Java binding is also published to Maven Central as
+[`io.github.dmlux:prism`](https://central.sonatype.com/artifact/io.github.dmlux/prism)
+(since 0.2.0). This is a **separate manual step**, not triggered by any
+tag or workflow, and the free publishing quota resets monthly — only do
+it when you actually intend a Maven release for the version.
+
+Do it **after** the `vX.Y.Z` GitHub release exists, because the JAR
+published to Central must embed the same per-platform natives the CI
+built.
+
+### One-time setup on the release machine
+
+- **Credentials.** A Central user token lives in `~/.m2/settings.xml`
+  under `<server><id>central</id>…`. Generate it at
+  central.sonatype.com → *View Account → Generate User Token*. The
+  namespace `io.github.dmlux` is verified via GitHub login.
+- **GPG.** Central requires every artifact signed. Key setup and this
+  machine's quirks (`disable-ipv6` in `~/.gnupg/dirmngr.conf`,
+  `export GPG_TTY=$(tty)` for pinentry) are in the publishing runbook.
+  Pre-cache the passphrase in the agent before deploying:
+  `echo test | gpg --clearsign -o /dev/null`.
+- **Maven + JDK.** No system Maven is installed; use a portable
+  Apache Maven with `JAVA_HOME=$HOME/.sdkman/candidates/java/current`
+  (Temurin 21).
+
+### Deploy
+
+1. **Embed the release natives.** The `release` build reads natives from
+   `java/src/main/resources/` (gitignored). Populate it from the JAR the
+   `vX.Y.Z` release just got — so Central ships all four platforms, not
+   only the local one:
+
+   ```bash
+   gh release download vX.Y.Z --repo dmlux/Prism --pattern "*-all-platforms.jar" --dir /tmp
+   unzip -o /tmp/prism-*-all-platforms.jar 'io/github/dmlux/prism/native/*' \
+     -d java/src/main/resources/
+   ```
+
+2. **Dry run** (build + sign, no upload) to confirm the JAR carries all
+   four natives:
+
+   ```bash
+   mvn -q -Prelease -DskipTests -Dgpg.skip=true -f java/pom.xml clean package
+   unzip -l java/target/prism-*.jar | grep -c 'native/.*\(so\|dylib\)'   # expect 4
+   ```
+
+3. **Deploy** (signs and uploads; the `central-publishing` plugin waits
+   for Central to validate):
+
+   ```bash
+   mvn -Prelease -DskipTests -f java/pom.xml clean deploy
+   ```
+
+4. **Publish.** The upload lands in the portal as a *Validated*
+   deployment. Open central.sonatype.com → *Publishing → Deployments*
+   and click **Publish** (deliberately manual — Central never deletes a
+   published version). It resolves on `repo.maven.apache.org` within
+   ~15–60 min.
+
+> **Pitfall.** If a `deploy` invocation's output was piped through
+> `head`/truncated, the command can complete *invisibly* and still
+> upload — leaving a second, identical *Validated* deployment in the
+> portal. It is harmless; **Drop** the duplicate. A version can only be
+> published once.
+
+---
+
 ## Quick checklist (library `vX.Y.Z`)
 
 - [ ] Model that CI downloads is released (§1 ordering constraint).
@@ -191,4 +259,5 @@ consumers.
 - [ ] `gh release create vX.Y.Z` at that commit (`--latest`).
 - [ ] After tag CI: download the attached XCFramework, `compute-checksum`,
       confirm it equals the tagged `Package.swift` — reconcile + re-tag if not.
-- [ ] (Optional, separate) Maven Central `mvn -Prelease deploy`.
+- [ ] (Optional, separate) Maven Central per §5 — embed the release
+      natives, then `mvn -Prelease deploy`, then Publish in the portal.
