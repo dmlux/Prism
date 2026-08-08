@@ -35,7 +35,7 @@ reproduce them exactly. Regenerate them after changing a text:
 ```bash
 python -m prism.tools.subword_parity_fixture \
   --text data/examples/skarvholmen-bokmaal.txt \
-  --vocabulary models/prism-no-0.2.3/vocabulary.json \
+  --vocabulary models/prism-no-0.2.4/vocabulary.json \
   --output data/examples/skarvholmen-bokmaal-subword-parity.json
 ```
 

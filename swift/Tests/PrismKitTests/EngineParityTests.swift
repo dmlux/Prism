@@ -17,14 +17,14 @@ final class EngineParityTests: XCTestCase {
     }
 
     func testExecutesNorwegianFixtureBatchWithRecordedParity() throws {
-        try FixtureParity.expect(artifactURL: modelsRoot.appendingPathComponent("prism-no-0.2.3"))
+        try FixtureParity.expect(artifactURL: modelsRoot.appendingPathComponent("prism-no-0.2.4"))
     }
 
     /// The fast artifact's fixtures record its quantized eager twin; parity
     /// against them validates the int8 program end to end.
     func testExecutesFastArtifactFixturesWithRecordedParity() throws {
         try FixtureParity.expect(
-            artifactURL: modelsRoot.appendingPathComponent("prism-no-0.2.3-fast")
+            artifactURL: modelsRoot.appendingPathComponent("prism-no-0.2.4-fast")
         )
     }
 

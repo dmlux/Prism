@@ -7,7 +7,7 @@ behind the pipeline, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## The model artifact
 
-An artifact directory (for example `prism-no-0.2.3`) is the complete,
+An artifact directory (for example `prism-no-0.2.4`) is the complete,
 versioned integration contract:
 
 - `model-xnnpack*.pte` — the lowered ExecuTorch programs, one per fixed
@@ -234,7 +234,7 @@ so no external tokenization framework is required.
   (or the root `Package.swift` directly) — Swift packages are native
   Xcode projects, so no generated `.xcodeproj` is committed.
 - **Adding to an app:** depend on the Prism package with plain version
-  pinning — `.package(url: ..., from: "0.5.0")` or `exact:`. Since
+  pinning — `.package(url: ..., from: "0.6.0")` or `exact:`. Since
   0.4.2 Prism embeds the prebuilt ExecuTorch frameworks as **binary
   targets** (same URLs and checksums upstream's `swiftpm-*` snapshot
   manifest declares), so the manifest is fully version-stable; nothing
@@ -317,7 +317,7 @@ Add the package and select the product (Xcode: *File → Add Package
 Dependencies…*, or in a package manifest):
 
 ```swift
-.package(url: "https://github.com/dmlux/Prism.git", from: "0.5.0")
+.package(url: "https://github.com/dmlux/Prism.git", from: "0.6.0")
 // target dependency:
 .product(name: "PrismNative", package: "Prism")
 ```
@@ -419,7 +419,7 @@ regex engine, no ICU), parity-tested against the shared fixtures.
   ```cmake
   FetchContent_Declare(prism
       GIT_REPOSITORY https://github.com/dmlux/Prism.git
-      GIT_TAG v0.5.0
+      GIT_TAG v0.6.0
       SOURCE_SUBDIR cpp)
   FetchContent_MakeAvailable(prism)
   target_link_libraries(app PRIVATE prism)

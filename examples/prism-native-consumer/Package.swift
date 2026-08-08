@@ -8,7 +8,7 @@ import PackageDescription
 // from this directory with the locally built XCFramework:
 //
 //   PRISM_NATIVE_XCFRAMEWORK_PATH=$PWD/../../build/prism-native/PrismNative.xcframework \
-//     swift run consumer ../../models/prism-no-0.2.3-fast
+//     swift run consumer ../../models/prism-no-0.2.4-fast
 let package = Package(
     name: "prism-native-consumer",
     platforms: [

@@ -19,8 +19,8 @@ int main(int argc, char** argv)
             {"nynorsk", "fjellvatnet-nynorsk.txt"},
         },
         {
-            {"no-fp32", "models/prism-no-0.2.3"},
-            {"no-fast", "models/prism-no-0.2.3-fast"},
+            {"no-fp32", "models/prism-no-0.2.4"},
+            {"no-fast", "models/prism-no-0.2.4-fast"},
         },
         "bokmaal",
     };

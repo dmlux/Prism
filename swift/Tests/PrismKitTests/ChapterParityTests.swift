@@ -40,7 +40,7 @@ final class ChapterParityTests: XCTestCase {
     /// mismatch in either layer surfaces as an ID difference.
     func testFixtureSubwordIdsMatchPythonReference() throws {
         let vocabularyURL = repositoryRoot.appendingPathComponent(
-            "models/prism-no-0.2.3/vocabulary.json"
+            "models/prism-no-0.2.4/vocabulary.json"
         )
         try XCTSkipUnless(
             FileManager.default.fileExists(atPath: vocabularyURL.path),

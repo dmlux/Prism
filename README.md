@@ -79,7 +79,7 @@ stage.
 
 **Model facts**
 
-| Fact | Norwegian (`prism-no` 0.2.3) | English (`prism-en` 0.1.0) |
+| Fact | Norwegian (`prism-no` 0.2.4) | English (`prism-en` 0.1.0) |
 | --- | --- | --- |
 | Parameters | 17.6 M | 18.0 M |
 | Backbone | NorBERT4-xsmall (16-layer, hidden 192), distilled from NorBERT4-large | Ettin-encoder-17m (7-layer ModernBERT, hidden 256), distilled from Ettin-encoder-400m |
@@ -141,13 +141,13 @@ bundles exactly one:
 
 | Artifact | Size | When to use |
 | --- | ---: | --- |
-| `prism-no-0.2.3-fast` | ≈ 45 MB | **Norwegian**, recommended. int8, up to 2× faster, quality within 0.014 pp of fp32 |
-| `prism-no-0.2.3` | ≈ 94 MB | Norwegian, bit-exact fp32 reference behind the published benchmark |
+| `prism-no-0.2.4-fast` | ≈ 45 MB | **Norwegian**, recommended. int8, up to 2× faster, quality within 0.014 pp of fp32 |
+| `prism-no-0.2.4` | ≈ 94 MB | Norwegian, bit-exact fp32 reference behind the published benchmark |
 | `prism-en-0.1.0` | ≈ 69 MB | **English** (`en`), fp32. int8 is a tracked follow-up for the ModernBERT backbone |
 
 ```bash
-curl -LO https://github.com/dmlux/Prism/releases/download/prism-no-0.2.3/prism-no-0.2.3-fast.tar.gz
-tar -xzf prism-no-0.2.3-fast.tar.gz   # unpacks the prism-no-0.2.3-fast/ folder
+curl -LO https://github.com/dmlux/Prism/releases/download/prism-no-0.2.4/prism-no-0.2.4-fast.tar.gz
+tar -xzf prism-no-0.2.4-fast.tar.gz   # unpacks the prism-no-0.2.4-fast/ folder
 ```
 
 Unpack it wherever suits your project — the folder's path is what you
@@ -168,7 +168,7 @@ exact input string (not UTF-16 offsets; see
 
 **The artifact argument is a local filesystem path, not a model ID.**
 Unlike Hugging Face-style APIs, nothing is downloaded at runtime:
-`"prism-no-0.2.3-fast"` in the snippets below means *the unpacked
+`"prism-no-0.2.4-fast"` in the snippets below means *the unpacked
 folder from the release, addressed relative to your process's working
 directory*. In practice you either pass an absolute path, or ship the
 folder with your application and resolve it from there — as bundle
@@ -179,7 +179,7 @@ per platform.
 ### Swift
 
 Add the Prism package with plain version pinning —
-`.package(url: "https://github.com/dmlux/Prism.git", from: "0.5.0")`
+`.package(url: "https://github.com/dmlux/Prism.git", from: "0.6.0")`
 (or `exact:` for apps that must never float). Prism embeds the prebuilt
 ExecuTorch frameworks as binary targets, so its manifest is fully
 version-stable and nothing else needs to be added. A minimal complete
@@ -192,7 +192,7 @@ import PrismKit
 // Ship the artifact folder as a bundle resource (drag it into Xcode as
 // a folder reference) and resolve it from the bundle:
 let artifactDirectory = Bundle.main.resourceURL!
-    .appendingPathComponent("prism-no-0.2.3-fast")
+    .appendingPathComponent("prism-no-0.2.4-fast")
 
 // The default compute device (.automatic) picks the best program the
 // artifact ships; current artifacts contain CPU (XNNPACK) programs.
@@ -238,7 +238,7 @@ link the aggregate target: `target_link_libraries(app PRIVATE prism)`.
 // resolved relative to the working directory of your process — for
 // anything beyond experiments, build an absolute path (for example
 // from your executable's location or your app's data directory).
-prism::tagger::Tagger tagger("prism-no-0.2.3-fast");
+prism::tagger::Tagger tagger("prism-no-0.2.4-fast");
 for (const auto& sentence : tagger.TagText("Hun kjøpte tre gamle bøker.")) {
     for (const auto& token : sentence.tokens) {
         std::cout << token.text << " " << token.upos << " " << token.lemma
@@ -257,7 +257,7 @@ interface):
 
 /* Local directory path, resolved like any relative path in C —
  * against the process working directory. Prefer an absolute path. */
-prism_tagger* tagger = prism_tagger_create("prism-no-0.2.3-fast");
+prism_tagger* tagger = prism_tagger_create("prism-no-0.2.4-fast");
 prism_result* result = prism_tagger_tag_text(tagger, "Hun kjøpte tre gamle bøker.");
 for (size_t t = 0; t < prism_result_token_count(result, 0); ++t) {
     printf("%s %s %s %.3f\n",
@@ -283,7 +283,7 @@ Maven (`pom.xml`):
 <dependency>
   <groupId>io.github.dmlux</groupId>
   <artifactId>prism</artifactId>
-  <version>0.5.0</version>
+  <version>0.6.0</version>
 </dependency>
 ```
 
@@ -291,7 +291,7 @@ Gradle (`build.gradle.kts`, or the same line without parentheses in a
 Groovy `build.gradle`):
 
 ```kotlin
-implementation("io.github.dmlux:prism:0.5.0")
+implementation("io.github.dmlux:prism:0.6.0")
 ```
 
 The same JAR is attached to each [`v*` release](https://github.com/dmlux/Prism/releases)
@@ -308,7 +308,7 @@ import io.github.dmlux.prism.PrismTagger;
 // in your application's resources/installation directory — note that
 // a folder packed *inside* a JAR is not a filesystem path; extract it
 // to a data directory on first run, then load from there.
-Path artifact = Path.of("prism-no-0.2.3-fast");
+Path artifact = Path.of("prism-no-0.2.4-fast");
 
 try (PrismTagger tagger = PrismTagger.load(artifact)) {
     for (var sentence : tagger.tagText("Hun kjøpte tre gamle bøker.")) {

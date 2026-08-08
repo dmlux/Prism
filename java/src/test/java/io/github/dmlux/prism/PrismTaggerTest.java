@@ -135,7 +135,7 @@ public final class PrismTaggerTest {
 
     private static void artifactMetadata(PrismTagger tagger) {
         check("prism-no".equals(tagger.artifactName()), "artifact name");
-        check("0.2.3".equals(tagger.artifactVersion()), "artifact version");
+        check("0.2.4".equals(tagger.artifactVersion()), "artifact version");
         check(List.of("nb", "nn", "no").equals(tagger.languageTags()), "language tags");
 
         // Label inventories mirrored from labels.json.

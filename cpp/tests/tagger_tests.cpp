@@ -14,7 +14,7 @@
 namespace {
 
 const std::string kRoot = PRISM_REPOSITORY_ROOT;
-const std::string kArtifact = kRoot + "/models/prism-no-0.2.3";
+const std::string kArtifact = kRoot + "/models/prism-no-0.2.4";
 
 class TaggerTest : public ::testing::Test {
 protected:
@@ -154,7 +154,7 @@ TEST_F(TaggerTest, ExposesArtifactMetadata)
     prism::tagger::Tagger tagger(kArtifact);
 
     EXPECT_EQ(tagger.artifact().name(), "prism-no");
-    EXPECT_EQ(tagger.artifact().version(), "0.2.3");
+    EXPECT_EQ(tagger.artifact().version(), "0.2.4");
     EXPECT_EQ(tagger.artifact().language_tags(),
         (std::vector<std::string>{"nb", "nn", "no"}));
 
@@ -301,7 +301,7 @@ TEST_F(TaggerTest, CAbiExposesTheFullResultSurface)
     // Artifact metadata from manifest.json, valid for the tagger lifetime.
     // Since 0.2.3 the manifest also declares the BCP 47 macrolanguage "no".
     EXPECT_STREQ(prism_tagger_artifact_name(tagger), "prism-no");
-    EXPECT_STREQ(prism_tagger_artifact_version(tagger), "0.2.3");
+    EXPECT_STREQ(prism_tagger_artifact_version(tagger), "0.2.4");
     ASSERT_EQ(prism_tagger_language_tag_count(tagger), 3U);
     EXPECT_STREQ(prism_tagger_language_tag(tagger, 0), "nb");
     EXPECT_STREQ(prism_tagger_language_tag(tagger, 1), "nn");
@@ -361,7 +361,7 @@ TEST_F(TaggerTest, CAbiExposesTheFullResultSurface)
 // test pins the end-to-end runtime behaviour.
 TEST(TaggerFast, TagsRawTextWithReferenceDecisions)
 {
-    const auto artifact = kRoot + "/models/prism-no-0.2.3-fast";
+    const auto artifact = kRoot + "/models/prism-no-0.2.4-fast";
     if (!std::ifstream(artifact + "/manifest.json")) {
         GTEST_SKIP() << "Local fast artifact is not present.";
     }

@@ -11,7 +11,7 @@ final class PrismTaggerTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("models/prism-no-0.2.3")
+            .appendingPathComponent("models/prism-no-0.2.4")
         try XCTSkipUnless(
             FileManager.default.fileExists(
                 atPath: artifactURL.appendingPathComponent("manifest.json").path
@@ -109,7 +109,7 @@ final class PrismTaggerTests: XCTestCase {
         let tagger = try loadTagger()
 
         XCTAssertEqual(tagger.artifactName, "prism-no")
-        XCTAssertEqual(tagger.artifactVersion, "0.2.3")
+        XCTAssertEqual(tagger.artifactVersion, "0.2.4")
         // Since 0.2.3 the manifest also declares the BCP 47 macrolanguage,
         // so plain-"no" documents match without host-side aliases.
         XCTAssertEqual(tagger.languageTags, ["nb", "nn", "no"])
@@ -222,7 +222,7 @@ final class PrismTaggerTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("models/prism-no-0.2.3-fast")
+            .appendingPathComponent("models/prism-no-0.2.4-fast")
         try XCTSkipUnless(
             FileManager.default.fileExists(
                 atPath: artifactURL.appendingPathComponent("manifest.json").path

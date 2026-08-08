@@ -8,7 +8,7 @@ include(FetchContent)
 FetchContent_Declare(
     prism
     GIT_REPOSITORY https://github.com/dmlux/Prism.git
-    GIT_TAG v0.5.0
+    GIT_TAG v0.6.0
     SOURCE_SUBDIR cpp
 )
 FetchContent_MakeAvailable(prism)

@@ -96,7 +96,7 @@ void ExpectFixtureParity(const std::string& artifact)
 
 TEST(Engine, ExecutesFixtureBatchWithRecordedParity)
 {
-    ExpectFixtureParity(kRoot + "/models/prism-no-0.2.3");
+    ExpectFixtureParity(kRoot + "/models/prism-no-0.2.4");
 }
 
 // The fast artifact's fixtures record its quantized eager twin; parity
@@ -104,7 +104,7 @@ TEST(Engine, ExecutesFixtureBatchWithRecordedParity)
 // quantized kernels (embedding_byte) the runtime must provide.
 TEST(Engine, ExecutesFastArtifactFixturesWithRecordedParity)
 {
-    ExpectFixtureParity(kRoot + "/models/prism-no-0.2.3-fast");
+    ExpectFixtureParity(kRoot + "/models/prism-no-0.2.4-fast");
 }
 
 // The English artifact uses the ModernBERT/Ettin backbone with a different

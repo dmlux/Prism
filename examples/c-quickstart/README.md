@@ -17,7 +17,7 @@ to the configure step.
 # From this directory, with an unpacked model (see ../README.md):
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-build/quickstart ../../prism-no-0.2.3-fast
+build/quickstart ../../prism-no-0.2.4-fast
 ```
 
 Expected output: the artifact identity line followed by one line per
