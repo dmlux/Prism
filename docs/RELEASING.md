@@ -308,6 +308,6 @@ Until this lands, follow §1–§5.
 - [ ] `gh release create vX.Y.Z` at that commit (`--latest`).
 - [ ] After tag CI: download the attached XCFramework, `compute-checksum`,
       confirm it equals the tagged `Package.swift`. If it drifted, re-attach
-      the dispatch build with `--clobber` (§4) — do not move the tag.
+      the dispatch build with `--clobber` (§3 Step 4) — do not move the tag.
 - [ ] (Optional, separate) Maven Central per §5 — embed the release
       natives, then `mvn -Prelease deploy`, then Publish in the portal.
