@@ -42,11 +42,13 @@ on:
 
 jobs:
   build-native:
-    # The experimental suffix explains the expected red icon: the leg is
-    # continue-on-error and does not gate the run or the JAR.
+    # Experimental legs (Windows) tolerate failure at the STEP level below,
+    # so the job still concludes `success` and never reddens the commit's
+    # status rollup. Job-level continue-on-error is deliberately NOT used:
+    # it leaves the job's check-run at `failure`, which turns the commit
+    # badge red even though the run overall is green (measured on v0.5.0).
     name: "JNI native (${{ matrix.classifier }})${{ matrix.experimental && ' · experimental, may fail' || '' }}"
     runs-on: ${{ matrix.runner }}
-    continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
@@ -90,6 +92,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install torch (ExecuTorch build-time dependency)
+        continue-on-error: ${{ matrix.experimental }}
         run: python -m pip install "torch>=2.12,<2.13" pyyaml
         shell: bash
 
@@ -111,6 +114,7 @@ jobs:
             ccache-${{ matrix.classifier }}-
 
       - name: Configure
+        continue-on-error: ${{ matrix.experimental }}
         env:
           CCACHE_DIR: ${{ github.workspace }}/.ccache
           CCACHE_MAXSIZE: 1.5G
@@ -129,6 +133,7 @@ jobs:
         # Bounded parallelism: hosted runners have 7-16 GB of RAM, and the
         # Eigen BLAS translation units inside ExecuTorch OOM-kill the
         # compiler when every core builds one simultaneously.
+        continue-on-error: ${{ matrix.experimental }}
         env:
           CCACHE_DIR: ${{ github.workspace }}/.ccache
           CCACHE_MAXSIZE: 1.5G
@@ -139,10 +144,12 @@ jobs:
 
       - name: Test (model-dependent tests skip without a local artifact)
         if: ${{ matrix.run_tests != false }}
+        continue-on-error: ${{ matrix.experimental }}
         run: ctest --test-dir cpp/build --output-on-failure --build-config Release
         shell: bash
 
       - name: Stage native library
+        continue-on-error: ${{ matrix.experimental }}
         run: |
           mkdir -p staged/${{ matrix.classifier }}
           # Single-config generators place the library in cpp/build, the
@@ -155,6 +162,7 @@ jobs:
         shell: bash
 
       - uses: actions/upload-artifact@v4
+        continue-on-error: ${{ matrix.experimental }}
         with:
           name: native-${{ matrix.classifier }}
           path: staged/${{ matrix.classifier }}/${{ matrix.library }}
