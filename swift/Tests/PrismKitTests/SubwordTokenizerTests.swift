@@ -1,10 +1,11 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import PrismKit
 
 /// Token-by-token parity against the reference Hugging Face tokenizer,
 /// recorded in Resources/subword-parity.json by the Python exporter.
-final class SubwordTokenizerTests: XCTestCase {
+struct SubwordTokenizerTests {
     private struct ParityCase: Decodable {
         let tokens: [String]
         let hasSpaceBefore: [Bool]
@@ -21,27 +22,31 @@ final class SubwordTokenizerTests: XCTestCase {
     }
     private struct ParityFile: Decodable { let cases: [ParityCase] }
 
-    func testMatchesReferenceTokenizer() throws {
-        let vocabularyURL = URL(fileURLWithPath: #filePath)
+    static var vocabularyURL: URL {
+        URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("models/prism-no-0.2.4/vocabulary.json")
-        try XCTSkipUnless(
-            FileManager.default.fileExists(atPath: vocabularyURL.path),
-            "Local artifact is not present."
-        )
-        let tokenizer = try SubwordTokenizer(vocabularyURL: vocabularyURL)
+    }
 
-        let parityURL = try XCTUnwrap(
+    static var vocabularyPresent: Bool {
+        FileManager.default.fileExists(atPath: vocabularyURL.path)
+    }
+
+    @Test(.enabled(if: SubwordTokenizerTests.vocabularyPresent, "Local artifact is not present."))
+    func matchesReferenceTokenizer() throws {
+        let tokenizer = try SubwordTokenizer(vocabularyURL: Self.vocabularyURL)
+
+        let parityURL = try #require(
             Bundle.module.url(forResource: "subword-parity", withExtension: "json")
         )
         let parity = try JSONDecoder().decode(
             ParityFile.self,
             from: Data(contentsOf: parityURL)
         )
-        XCTAssertFalse(parity.cases.isEmpty)
+        #expect(!parity.cases.isEmpty)
 
         for (index, expected) in parity.cases.enumerated() {
             let encoded = tokenizer.encode(
@@ -50,16 +55,16 @@ final class SubwordTokenizerTests: XCTestCase {
                     hasSpaceBefore: expected.hasSpaceBefore
                 )
             )
-            XCTAssertEqual(
-                encoded.inputIds, expected.inputIds,
+            #expect(
+                encoded.inputIds == expected.inputIds,
                 "input_ids mismatch in case \(index): \(expected.tokens)"
             )
-            XCTAssertEqual(
-                encoded.firstSubwordIndices, expected.firstSubwordIndices,
+            #expect(
+                encoded.firstSubwordIndices == expected.firstSubwordIndices,
                 "first_subword_indices mismatch in case \(index)"
             )
-            XCTAssertEqual(
-                encoded.subwordEndIndices, expected.subwordEndIndices,
+            #expect(
+                encoded.subwordEndIndices == expected.subwordEndIndices,
                 "subword_end_indices mismatch in case \(index)"
             )
         }

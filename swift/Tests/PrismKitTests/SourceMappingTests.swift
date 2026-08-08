@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import PrismKit
 
@@ -6,7 +7,7 @@ import XCTest
 /// offsets are the same literals as in the C++ suite
 /// (`cpp/tests/source_mapping_tests.cpp`), which pins byte-offset parity
 /// across the bindings.
-final class SourceMappingTests: XCTestCase {
+struct SourceMappingTests {
     private let policy = SegmentationPolicy(
         abbreviationTokens: ["f.eks."],
         maximumTokenCount: 8
@@ -15,305 +16,294 @@ final class SourceMappingTests: XCTestCase {
     private func expectValidMapping(
         _ text: String,
         _ sentences: [PretokenizedSentence],
-        file: StaticString = #filePath,
-        line: UInt = #line
+        sourceLocation: SourceLocation = #_sourceLocation
     ) {
         let byteCount = text.utf8.count
         for sentence in sentences {
-            XCTAssertEqual(
-                sentence.tokenSourceRanges.count, sentence.tokens.count,
-                file: file, line: line
+            #expect(
+                sentence.tokenSourceRanges.count == sentence.tokens.count,
+                sourceLocation: sourceLocation
             )
-            XCTAssertFalse(sentence.sourceRanges.isEmpty, file: file, line: line)
+            #expect(!sentence.sourceRanges.isEmpty, sourceLocation: sourceLocation)
             for range in sentence.sourceRanges + sentence.tokenSourceRanges.flatMap({ $0 }) {
-                XCTAssertLessThan(range.start, range.end, file: file, line: line)
-                XCTAssertLessThanOrEqual(range.end, byteCount, file: file, line: line)
+                #expect(range.start < range.end, sourceLocation: sourceLocation)
+                #expect(range.end <= byteCount, sourceLocation: sourceLocation)
                 // Both boundaries must map back onto the original string —
                 // the helper rejects mid-codepoint offsets.
-                XCTAssertNotNil(range.range(in: text), file: file, line: line)
+                #expect(range.range(in: text) != nil, sourceLocation: sourceLocation)
             }
         }
     }
 
-    func testAsciiTokensMapToExactByteRanges() {
+    @Test func asciiTokensMapToExactByteRanges() {
         let text = "Katten sov. Hunden sov."
         let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
 
-        XCTAssertEqual(sentences.count, 2)
+        #expect(sentences.count == 2)
         expectValidMapping(text, sentences)
-        XCTAssertEqual(
-            sentences[0].tokenSourceRanges,
-            [
-                [Utf8ByteRange(start: 0, end: 6)],
-                [Utf8ByteRange(start: 7, end: 10)],
-                [Utf8ByteRange(start: 10, end: 11)],
-            ]
+        #expect(
+            sentences[0].tokenSourceRanges
+                == [
+                    [Utf8ByteRange(start: 0, end: 6)],
+                    [Utf8ByteRange(start: 7, end: 10)],
+                    [Utf8ByteRange(start: 10, end: 11)],
+                ]
         )
-        XCTAssertEqual(sentences[0].sourceRanges, [Utf8ByteRange(start: 0, end: 11)])
-        XCTAssertEqual(sentences[1].sourceRanges, [Utf8ByteRange(start: 12, end: 23)])
+        #expect(sentences[0].sourceRanges == [Utf8ByteRange(start: 0, end: 11)])
+        #expect(sentences[1].sourceRanges == [Utf8ByteRange(start: 12, end: 23)])
     }
 
-    func testNorwegianMultibyteLettersCountBytes() {
+    @Test func norwegianMultibyteLettersCountBytes() {
         let text = "Blåbær smaker godt."
         let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
 
-        XCTAssertEqual(sentences.count, 1)
+        #expect(sentences.count == 1)
         expectValidMapping(text, sentences)
-        XCTAssertEqual(sentences[0].tokens[0], "Blåbær")
-        XCTAssertEqual(
-            sentences[0].tokenSourceRanges,
-            [
-                [Utf8ByteRange(start: 0, end: 8)],
-                [Utf8ByteRange(start: 9, end: 15)],
-                [Utf8ByteRange(start: 16, end: 20)],
-                [Utf8ByteRange(start: 20, end: 21)],
-            ]
+        #expect(sentences[0].tokens[0] == "Blåbær")
+        #expect(
+            sentences[0].tokenSourceRanges
+                == [
+                    [Utf8ByteRange(start: 0, end: 8)],
+                    [Utf8ByteRange(start: 9, end: 15)],
+                    [Utf8ByteRange(start: 16, end: 20)],
+                    [Utf8ByteRange(start: 20, end: 21)],
+                ]
         )
     }
 
-    func testEmojiBeforeAndBetweenTokens() {
+    @Test func emojiBeforeAndBetweenTokens() {
         let before = "🙂 Katten sov."
         var sentences = RuntimeSegmentation.segment(before, policy: .norwegian())
-        XCTAssertEqual(sentences.count, 1)
+        #expect(sentences.count == 1)
         expectValidMapping(before, sentences)
-        XCTAssertEqual(
-            sentences[0].tokenSourceRanges,
-            [
-                [Utf8ByteRange(start: 0, end: 4)],
-                [Utf8ByteRange(start: 5, end: 11)],
-                [Utf8ByteRange(start: 12, end: 15)],
-                [Utf8ByteRange(start: 15, end: 16)],
-            ]
+        #expect(
+            sentences[0].tokenSourceRanges
+                == [
+                    [Utf8ByteRange(start: 0, end: 4)],
+                    [Utf8ByteRange(start: 5, end: 11)],
+                    [Utf8ByteRange(start: 12, end: 15)],
+                    [Utf8ByteRange(start: 15, end: 16)],
+                ]
         )
 
         let between = "Katten 🙂 sov."
         sentences = RuntimeSegmentation.segment(between, policy: .norwegian())
-        XCTAssertEqual(sentences.count, 1)
+        #expect(sentences.count == 1)
         expectValidMapping(between, sentences)
-        XCTAssertEqual(
-            sentences[0].tokenSourceRanges[1],
-            [Utf8ByteRange(start: 7, end: 11)]
+        #expect(
+            sentences[0].tokenSourceRanges[1]
+                == [Utf8ByteRange(start: 7, end: 11)]
         )
     }
 
-    func testDecomposedCombiningMarkStaysOnCodepointBoundaries() {
+    @Test func decomposedCombiningMarkStaysOnCodepointBoundaries() {
         // "a" plus combining ring (U+030A) is visually "å" but differently
         // encoded; every boundary stays a codepoint boundary of the input.
         let text = "a\u{030A} er fin."
         let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
 
-        XCTAssertEqual(sentences.count, 1)
-        XCTAssertEqual(
-            sentences[0].tokenSourceRanges,
-            [
-                [Utf8ByteRange(start: 0, end: 1)],
-                [Utf8ByteRange(start: 1, end: 3)],
-                [Utf8ByteRange(start: 4, end: 6)],
-                [Utf8ByteRange(start: 7, end: 10)],
-                [Utf8ByteRange(start: 10, end: 11)],
-            ]
+        #expect(sentences.count == 1)
+        #expect(
+            sentences[0].tokenSourceRanges
+                == [
+                    [Utf8ByteRange(start: 0, end: 1)],
+                    [Utf8ByteRange(start: 1, end: 3)],
+                    [Utf8ByteRange(start: 4, end: 6)],
+                    [Utf8ByteRange(start: 7, end: 10)],
+                    [Utf8ByteRange(start: 10, end: 11)],
+                ]
         )
     }
 
-    func testRepeatedIdenticalTokensMapToDistinctOccurrences() {
+    @Test func repeatedIdenticalTokensMapToDistinctOccurrences() {
         // A find()-style reconstruction would collapse onto the first
         // occurrence; the carried mapping assigns each repetition its bytes.
         let text = "ja ja ja ja."
         let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
 
-        XCTAssertEqual(sentences.count, 1)
+        #expect(sentences.count == 1)
         expectValidMapping(text, sentences)
-        XCTAssertEqual(
-            sentences[0].tokenSourceRanges,
-            [
-                [Utf8ByteRange(start: 0, end: 2)],
-                [Utf8ByteRange(start: 3, end: 5)],
-                [Utf8ByteRange(start: 6, end: 8)],
-                [Utf8ByteRange(start: 9, end: 11)],
-                [Utf8ByteRange(start: 11, end: 12)],
-            ]
+        #expect(
+            sentences[0].tokenSourceRanges
+                == [
+                    [Utf8ByteRange(start: 0, end: 2)],
+                    [Utf8ByteRange(start: 3, end: 5)],
+                    [Utf8ByteRange(start: 6, end: 8)],
+                    [Utf8ByteRange(start: 9, end: 11)],
+                    [Utf8ByteRange(start: 11, end: 12)],
+                ]
         )
     }
 
-    func testRestoredSentenceSpaceKeepsOriginalOffsets() {
+    @Test func restoredSentenceSpaceKeepsOriginalOffsets() {
         let text = "Han går langs veien.Et sekund senere står han."
         let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
 
-        XCTAssertEqual(sentences.count, 2)
+        #expect(sentences.count == 2)
         expectValidMapping(text, sentences)
-        XCTAssertEqual(sentences[0].sourceRanges, [Utf8ByteRange(start: 0, end: 21)])
-        XCTAssertEqual(sentences[1].sourceRanges, [Utf8ByteRange(start: 21, end: 48)])
-        XCTAssertEqual(sentences[1].tokens[0], "Et")
-        XCTAssertEqual(
-            sentences[1].tokenSourceRanges[0], [Utf8ByteRange(start: 21, end: 23)]
-        )
+        #expect(sentences[0].sourceRanges == [Utf8ByteRange(start: 0, end: 21)])
+        #expect(sentences[1].sourceRanges == [Utf8ByteRange(start: 21, end: 48)])
+        #expect(sentences[1].tokens[0] == "Et")
+        #expect(sentences[1].tokenSourceRanges[0] == [Utf8ByteRange(start: 21, end: 23)])
     }
 
-    func testDehyphenatedLineWrapKeepsBothFragments() {
+    @Test func dehyphenatedLineWrapKeepsBothFragments() {
         // The de-hyphenated model token stays "språkmodellen", but its
         // source mapping must point at the two contributing fragments —
         // never at a single invented range claiming "-\n" as token content.
         let text = "Dette er språk-\nmodellen til laget."
         let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
 
-        XCTAssertEqual(sentences.count, 1)
+        #expect(sentences.count == 1)
         expectValidMapping(text, sentences)
-        XCTAssertEqual(sentences[0].tokens[2], "språkmodellen")
-        XCTAssertEqual(
-            sentences[0].tokenSourceRanges[2],
-            [Utf8ByteRange(start: 9, end: 15), Utf8ByteRange(start: 17, end: 25)]
+        #expect(sentences[0].tokens[2] == "språkmodellen")
+        #expect(
+            sentences[0].tokenSourceRanges[2]
+                == [Utf8ByteRange(start: 9, end: 15), Utf8ByteRange(start: 17, end: 25)]
         )
         let fragments = sentences[0].tokenSourceRanges[2].map { fragment in
             String(text[fragment.range(in: text)!])
         }
-        XCTAssertEqual(fragments, ["språk", "modellen"])
+        #expect(fragments == ["språk", "modellen"])
         for range in sentences[0].tokenSourceRanges.flatMap({ $0 }) {
-            XCTAssertTrue(range.end <= 15 || range.start >= 17)
+            #expect(range.end <= 15 || range.start >= 17)
         }
         // The sentence splits at the removed hyphen instead of bridging it.
-        XCTAssertEqual(
-            sentences[0].sourceRanges,
-            [Utf8ByteRange(start: 0, end: 15), Utf8ByteRange(start: 17, end: 36)]
+        #expect(
+            sentences[0].sourceRanges
+                == [Utf8ByteRange(start: 0, end: 15), Utf8ByteRange(start: 17, end: 36)]
         )
     }
 
-    func testWrappedLineMergesAcrossNewlineWhitespace() {
+    @Test func wrappedLineMergesAcrossNewlineWhitespace() {
         let text = "Katten\nhennes sov."
         let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
 
-        XCTAssertEqual(sentences.count, 1)
+        #expect(sentences.count == 1)
         expectValidMapping(text, sentences)
-        XCTAssertEqual(sentences[0].sourceRanges, [Utf8ByteRange(start: 0, end: 18)])
+        #expect(sentences[0].sourceRanges == [Utf8ByteRange(start: 0, end: 18)])
     }
 
-    func testCollapsedWhitespaceRunsKeepTokenOffsets() {
+    @Test func collapsedWhitespaceRunsKeepTokenOffsets() {
         let text = "Hun   sov."
         let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
 
-        XCTAssertEqual(sentences.count, 1)
-        XCTAssertEqual(
-            sentences[0].tokenSourceRanges,
-            [
-                [Utf8ByteRange(start: 0, end: 3)],
-                [Utf8ByteRange(start: 6, end: 9)],
-                [Utf8ByteRange(start: 9, end: 10)],
-            ]
+        #expect(sentences.count == 1)
+        #expect(
+            sentences[0].tokenSourceRanges
+                == [
+                    [Utf8ByteRange(start: 0, end: 3)],
+                    [Utf8ByteRange(start: 6, end: 9)],
+                    [Utf8ByteRange(start: 9, end: 10)],
+                ]
         )
     }
 
-    func testAbbreviationUrlAndEmailStayContiguous() {
+    @Test func abbreviationUrlAndEmailStayContiguous() {
         var sentences = RuntimeSegmentation.segment("Vi har f.eks. kake.", policy: .norwegian())
-        XCTAssertEqual(sentences[0].tokens[2], "f.eks.")
-        XCTAssertEqual(
-            sentences[0].tokenSourceRanges[2], [Utf8ByteRange(start: 7, end: 13)]
-        )
+        #expect(sentences[0].tokens[2] == "f.eks.")
+        #expect(sentences[0].tokenSourceRanges[2] == [Utf8ByteRange(start: 7, end: 13)])
 
         sentences = RuntimeSegmentation.segment("Se https://prism.no i dag.", policy: .norwegian())
-        XCTAssertEqual(sentences[0].tokens[1], "https://prism.no")
-        XCTAssertEqual(
-            sentences[0].tokenSourceRanges[1], [Utf8ByteRange(start: 3, end: 19)]
-        )
+        #expect(sentences[0].tokens[1] == "https://prism.no")
+        #expect(sentences[0].tokenSourceRanges[1] == [Utf8ByteRange(start: 3, end: 19)])
 
         sentences = RuntimeSegmentation.segment(
             "Skriv til post@prism.no i dag.", policy: .norwegian()
         )
-        XCTAssertEqual(sentences[0].tokens[2], "post@prism.no")
-        XCTAssertEqual(
-            sentences[0].tokenSourceRanges[2], [Utf8ByteRange(start: 10, end: 23)]
-        )
+        #expect(sentences[0].tokens[2] == "post@prism.no")
+        #expect(sentences[0].tokenSourceRanges[2] == [Utf8ByteRange(start: 10, end: 23)])
     }
 
-    func testChunkingSlicesTokenRangesAndClipsSentenceRanges() {
+    @Test func chunkingSlicesTokenRangesAndClipsSentenceRanges() {
         let words = (0..<19).map { "ord\($0)" }
         let text = words.joined(separator: " ") + "."
 
         let sentences = RuntimeSegmentation.segment(text, policy: policy)
 
-        XCTAssertEqual(sentences.count, 3)
+        #expect(sentences.count == 3)
         expectValidMapping(text, sentences)
-        XCTAssertEqual(sentences[1].tokens[0], "ord8")
-        XCTAssertEqual(
-            sentences[1].tokenSourceRanges[0], [Utf8ByteRange(start: 40, end: 44)]
-        )
-        XCTAssertEqual(sentences[0].sourceRanges, [Utf8ByteRange(start: 0, end: 39)])
-        XCTAssertEqual(sentences[1].sourceRanges, [Utf8ByteRange(start: 40, end: 85)])
-        XCTAssertEqual(sentences[2].sourceRanges, [Utf8ByteRange(start: 86, end: 104)])
+        #expect(sentences[1].tokens[0] == "ord8")
+        #expect(sentences[1].tokenSourceRanges[0] == [Utf8ByteRange(start: 40, end: 44)])
+        #expect(sentences[0].sourceRanges == [Utf8ByteRange(start: 0, end: 39)])
+        #expect(sentences[1].sourceRanges == [Utf8ByteRange(start: 40, end: 85)])
+        #expect(sentences[2].sourceRanges == [Utf8ByteRange(start: 86, end: 104)])
     }
 
-    func testRangeInStringMapsAndRejectsInvalidBounds() {
+    @Test func rangeInStringMapsAndRejectsInvalidBounds() {
         let text = "🙂å ok"
         // å (2 bytes) follows the 4-byte emoji.
         let emoji = Utf8ByteRange(start: 0, end: 4)
         let aRing = Utf8ByteRange(start: 4, end: 6)
-        XCTAssertEqual(String(text[emoji.range(in: text)!]), "🙂")
-        XCTAssertEqual(String(text[aRing.range(in: text)!]), "å")
+        #expect(String(text[emoji.range(in: text)!]) == "🙂")
+        #expect(String(text[aRing.range(in: text)!]) == "å")
 
         // Mid-codepoint and out-of-bounds boundaries are rejected, not
         // rounded.
-        XCTAssertNil(Utf8ByteRange(start: 1, end: 4).range(in: text))
-        XCTAssertNil(Utf8ByteRange(start: 0, end: 5).range(in: text))
-        XCTAssertNil(Utf8ByteRange(start: 0, end: 99).range(in: text))
+        #expect(Utf8ByteRange(start: 1, end: 4).range(in: text) == nil)
+        #expect(Utf8ByteRange(start: 0, end: 5).range(in: text) == nil)
+        #expect(Utf8ByteRange(start: 0, end: 99).range(in: text) == nil)
     }
 
-    func testLeadingAndTrailingWhitespaceShiftsRanges() {
+    @Test func leadingAndTrailingWhitespaceShiftsRanges() {
         let text = "  Katten sov.  "
         let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
 
-        XCTAssertEqual(sentences.count, 1)
+        #expect(sentences.count == 1)
         expectValidMapping(text, sentences)
-        XCTAssertEqual(
-            sentences[0].tokenSourceRanges,
-            [
-                [Utf8ByteRange(start: 2, end: 8)],
-                [Utf8ByteRange(start: 9, end: 12)],
-                [Utf8ByteRange(start: 12, end: 13)],
-            ]
+        #expect(
+            sentences[0].tokenSourceRanges
+                == [
+                    [Utf8ByteRange(start: 2, end: 8)],
+                    [Utf8ByteRange(start: 9, end: 12)],
+                    [Utf8ByteRange(start: 12, end: 13)],
+                ]
         )
-        XCTAssertEqual(sentences[0].sourceRanges, [Utf8ByteRange(start: 2, end: 13)])
+        #expect(sentences[0].sourceRanges == [Utf8ByteRange(start: 2, end: 13)])
     }
 
-    func testConsecutiveMultibyteLettersFormOneToken() {
+    @Test func consecutiveMultibyteLettersFormOneToken() {
         let text = "æøå er bokstaver."
         let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
 
-        XCTAssertEqual(sentences.count, 1)
+        #expect(sentences.count == 1)
         expectValidMapping(text, sentences)
-        XCTAssertEqual(sentences[0].tokens[0], "æøå")
-        XCTAssertEqual(
-            sentences[0].tokenSourceRanges,
-            [
-                [Utf8ByteRange(start: 0, end: 6)],
-                [Utf8ByteRange(start: 7, end: 9)],
-                [Utf8ByteRange(start: 10, end: 19)],
-                [Utf8ByteRange(start: 19, end: 20)],
-            ]
+        #expect(sentences[0].tokens[0] == "æøå")
+        #expect(
+            sentences[0].tokenSourceRanges
+                == [
+                    [Utf8ByteRange(start: 0, end: 6)],
+                    [Utf8ByteRange(start: 7, end: 9)],
+                    [Utf8ByteRange(start: 10, end: 19)],
+                    [Utf8ByteRange(start: 19, end: 20)],
+                ]
         )
     }
 
-    func testRepeatedIdenticalSentencesMapToDistinctOccurrences() {
+    @Test func repeatedIdenticalSentencesMapToDistinctOccurrences() {
         let text = "Han sov. Han sov."
         let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
 
-        XCTAssertEqual(sentences.count, 2)
+        #expect(sentences.count == 2)
         expectValidMapping(text, sentences)
-        XCTAssertEqual(sentences[0].sourceRanges, [Utf8ByteRange(start: 0, end: 8)])
-        XCTAssertEqual(sentences[1].sourceRanges, [Utf8ByteRange(start: 9, end: 17)])
-        XCTAssertEqual(sentences[0].tokenSourceRanges[0], [Utf8ByteRange(start: 0, end: 3)])
-        XCTAssertEqual(sentences[1].tokenSourceRanges[0], [Utf8ByteRange(start: 9, end: 12)])
+        #expect(sentences[0].sourceRanges == [Utf8ByteRange(start: 0, end: 8)])
+        #expect(sentences[1].sourceRanges == [Utf8ByteRange(start: 9, end: 17)])
+        #expect(sentences[0].tokenSourceRanges[0] == [Utf8ByteRange(start: 0, end: 3)])
+        #expect(sentences[1].tokenSourceRanges[0] == [Utf8ByteRange(start: 9, end: 12)])
     }
 
-    func testMultipleRepairedBoundariesStayAligned() {
+    @Test func multipleRepairedBoundariesStayAligned() {
         let text = "De gikk.De kom.De sov."
         let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
 
-        XCTAssertEqual(sentences.count, 3)
+        #expect(sentences.count == 3)
         expectValidMapping(text, sentences)
-        XCTAssertEqual(sentences[0].sourceRanges, [Utf8ByteRange(start: 0, end: 8)])
-        XCTAssertEqual(sentences[1].sourceRanges, [Utf8ByteRange(start: 8, end: 15)])
-        XCTAssertEqual(sentences[2].sourceRanges, [Utf8ByteRange(start: 15, end: 22)])
+        #expect(sentences[0].sourceRanges == [Utf8ByteRange(start: 0, end: 8)])
+        #expect(sentences[1].sourceRanges == [Utf8ByteRange(start: 8, end: 15)])
+        #expect(sentences[2].sourceRanges == [Utf8ByteRange(start: 15, end: 22)])
     }
 
-    func testChunkHelperSlicesCallerProvidedRanges() {
+    @Test func chunkHelperSlicesCallerProvidedRanges() {
         let sentence = PretokenizedSentence(
             tokens: ["a", "b", "c"],
             hasSpaceBefore: [false, true, true],
@@ -327,17 +317,17 @@ final class SourceMappingTests: XCTestCase {
 
         let chunks = RuntimeSegmentation.chunk(sentence, maximumTokenCount: 2)
 
-        XCTAssertEqual(chunks.count, 2)
-        XCTAssertEqual(
-            chunks[0].tokenSourceRanges,
-            [[Utf8ByteRange(start: 0, end: 1)], [Utf8ByteRange(start: 2, end: 3)]]
+        #expect(chunks.count == 2)
+        #expect(
+            chunks[0].tokenSourceRanges
+                == [[Utf8ByteRange(start: 0, end: 1)], [Utf8ByteRange(start: 2, end: 3)]]
         )
-        XCTAssertEqual(chunks[0].sourceRanges, [Utf8ByteRange(start: 0, end: 3)])
-        XCTAssertEqual(chunks[1].tokenSourceRanges, [[Utf8ByteRange(start: 4, end: 5)]])
-        XCTAssertEqual(chunks[1].sourceRanges, [Utf8ByteRange(start: 4, end: 5)])
+        #expect(chunks[0].sourceRanges == [Utf8ByteRange(start: 0, end: 3)])
+        #expect(chunks[1].tokenSourceRanges == [[Utf8ByteRange(start: 4, end: 5)]])
+        #expect(chunks[1].sourceRanges == [Utf8ByteRange(start: 4, end: 5)])
     }
 
-    func testEveryFixtureTokenStaysAnchored() throws {
+    @Test func everyFixtureTokenStaysAnchored() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -355,8 +345,8 @@ final class SourceMappingTests: XCTestCase {
             // Document order: sentence ranges never move backwards.
             var previousStart = 0
             for sentence in sentences {
-                let start = try XCTUnwrap(sentence.sourceRanges.first).start
-                XCTAssertGreaterThanOrEqual(start, previousStart, fixture)
+                let start = try #require(sentence.sourceRanges.first).start
+                #expect(start >= previousStart, "\(fixture)")
                 previousStart = start
             }
         }

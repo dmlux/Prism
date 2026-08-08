@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import PrismKit
 
@@ -9,28 +10,38 @@ import XCTest
 /// Set `PRISM_ARTIFACT` to an artifact directory (absolute or relative to
 /// the repository root) to benchmark a different manifest variant, for
 /// example a single-program copy.
-final class ChapterBenchmarkTests: XCTestCase {
-    func testChapterEndToEndTiming() throws {
-        let root = URL(fileURLWithPath: #filePath)
+struct ChapterBenchmarkTests {
+    static var repositoryRoot: URL {
+        URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let chapterURL = root.appendingPathComponent(
-            "data/examples/skarvholmen-bokmaal.txt"
-        )
+    }
+
+    static var chapterURL: URL {
+        repositoryRoot.appendingPathComponent("data/examples/skarvholmen-bokmaal.txt")
+    }
+
+    static var artifactURL: URL {
+        let root = repositoryRoot
         let artifactOverride = ProcessInfo.processInfo.environment["PRISM_ARTIFACT"]
-        let artifactURL = artifactOverride.map {
+        return artifactOverride.map {
             $0.hasPrefix("/")
                 ? URL(fileURLWithPath: $0)
                 : root.appendingPathComponent($0)
         } ?? root.appendingPathComponent("models/prism-no-0.2.4")
-        for url in [chapterURL, artifactURL.appendingPathComponent("manifest.json")] {
-            try XCTSkipUnless(
-                FileManager.default.fileExists(atPath: url.path),
-                "Local fixture is not present."
-            )
-        }
+    }
+
+    static var fixturesPresent: Bool {
+        [chapterURL, artifactURL.appendingPathComponent("manifest.json")]
+            .allSatisfy { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    @Test(.enabled(if: ChapterBenchmarkTests.fixturesPresent, "Local fixture is not present."))
+    func chapterEndToEndTiming() throws {
+        let chapterURL = Self.chapterURL
+        let artifactURL = Self.artifactURL
         let text = try String(contentsOf: chapterURL, encoding: .utf8)
 
         var stamp = Date()
@@ -68,7 +79,7 @@ final class ChapterBenchmarkTests: XCTestCase {
             format: "BENCH tag(sentences): %.0f ms for %d tokens = %.0f tokens/s",
             total * 1000, tokenCount, Double(tokenCount) / total
         ))
-        XCTAssertEqual(tagged.count, sentences.count)
+        #expect(tagged.count == sentences.count)
 
         // Full-pipeline cold/warm runs on a fresh tagger, comparable across
         // the language bindings: raw text in, tagged sentences out.

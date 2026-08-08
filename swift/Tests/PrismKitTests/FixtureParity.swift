@@ -1,5 +1,6 @@
 import ExecuTorch
-import XCTest
+import Foundation
+import Testing
 
 @testable import PrismKit
 
@@ -58,18 +59,18 @@ enum FixtureParity {
         let fixtures: [Fixture]
     }
 
-    /// Skips when the artifact is absent; otherwise asserts recorded parity.
-    static func expect(
-        artifactURL: URL,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) throws {
-        try XCTSkipUnless(
-            FileManager.default.fileExists(
-                atPath: artifactURL.appendingPathComponent("manifest.json").path
-            ),
-            "Local artifact is not present."
+    /// Whether a Prism artifact is present at `url` (its `manifest.json` exists).
+    /// Callers gate parity tests on this via a `.enabled(if:)` trait, so the
+    /// body below can assume the artifact is present.
+    static func artifactExists(_ url: URL) -> Bool {
+        FileManager.default.fileExists(
+            atPath: url.appendingPathComponent("manifest.json").path
         )
+    }
+
+    /// Asserts recorded parity for the artifact at `artifactURL`. Presence is
+    /// guaranteed by the caller's `.enabled(if: artifactExists(_:))` trait.
+    static func expect(artifactURL: URL) throws {
         let artifact = try PrismArtifact(contentsOf: artifactURL)
         let program = try artifact.program(for: .cpu)
         let dataFilePaths = (program.dataFiles ?? []).map {
@@ -100,33 +101,31 @@ enum FixtureParity {
             case "bool":
                 values.append(Value(Tensor<Bool>(input.data.map(\.bool), shape: input.shape)))
             default:
-                XCTFail("Unexpected input dtype \(input.dtype)", file: file, line: line)
+                Issue.record("Unexpected input dtype \(input.dtype)")
             }
         }
 
         let outputs = try module.forward(values)
-        XCTAssertEqual(outputs.count, program.outputNames.count, file: file, line: line)
+        #expect(outputs.count == program.outputNames.count)
         // The lemma head is recorded as two top-k tensors, so the fixture holds
         // one expected entry more than the program's output list.
-        XCTAssertEqual(
-            outputs.count + 1, fixture.expectedOutputs.count, file: file, line: line
-        )
+        #expect(outputs.count + 1 == fixture.expectedOutputs.count)
 
         // The first output is the calibrated UPOS distribution; compare it
         // against the recorded expectation at every position.
-        let upos: Tensor<Float> = try XCTUnwrap(outputs[0].tensor(), file: file, line: line)
+        let upos: Tensor<Float> = try #require(outputs[0].tensor())
         let produced = try upos.scalars()
         let expected = fixture.expectedOutputs[0].data
-        XCTAssertEqual(produced.count, expected.count, file: file, line: line)
+        #expect(produced.count == expected.count)
         var largestDifference = 0.0
         for index in produced.indices {
             largestDifference = max(largestDifference, abs(Double(produced[index]) - expected[index]))
         }
-        XCTAssertLessThanOrEqual(largestDifference, tolerance, file: file, line: line)
+        #expect(largestDifference <= tolerance)
 
         // Every row must be a probability distribution over the UPOS labels.
         let labelCount = artifact.labels.schema.upos.labels.count
         let firstRow = produced.prefix(labelCount)
-        XCTAssertEqual(Double(firstRow.reduce(0, +)), 1.0, accuracy: 1e-3, file: file, line: line)
+        #expect(abs(Double(firstRow.reduce(0, +)) - 1.0) <= 1e-3)
     }
 }

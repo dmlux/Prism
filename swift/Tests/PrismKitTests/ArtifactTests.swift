@@ -1,8 +1,9 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import PrismKit
 
-final class ArtifactTests: XCTestCase {
+struct ArtifactTests {
     private func writeArtifact(manifest: String, labels: String) throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -86,73 +87,79 @@ final class ArtifactTests: XCTestCase {
         }
         """
 
-    func testDecodesManifestAndLabels() throws {
+    @Test func decodesManifestAndLabels() throws {
         let directory = try writeArtifact(manifest: manifestJSON, labels: labelsJSON)
         let artifact = try PrismArtifact(contentsOf: directory)
 
-        XCTAssertEqual(artifact.manifest.artifactVersion, "0.2.0")
-        XCTAssertEqual(artifact.manifest.tokenizer.paddingTokenId, 3)
-        XCTAssertEqual(artifact.manifest.calibrationFile, "calibration.json")
-        XCTAssertEqual(artifact.manifest.programs[0].dataFiles, ["model.ptd"])
-        XCTAssertEqual(artifact.manifest.dataFiles?.first?.fileName, "model.ptd")
-        XCTAssertEqual(artifact.labels.schema.upos.labels, ["ADJ", "NOUN"])
-        XCTAssertEqual(artifact.labels.schema.morphology.features[0].name, "Gender")
-        XCTAssertFalse(artifact.labels.schema.morphology.features[0].allowsMultipleValues)
-        XCTAssertEqual(artifact.labels.characterVocabulary?.identifiers()["b"], 2)
+        #expect(artifact.manifest.artifactVersion == "0.2.0")
+        #expect(artifact.manifest.tokenizer.paddingTokenId == 3)
+        #expect(artifact.manifest.calibrationFile == "calibration.json")
+        #expect(artifact.manifest.programs[0].dataFiles == ["model.ptd"])
+        #expect(artifact.manifest.dataFiles?.first?.fileName == "model.ptd")
+        #expect(artifact.labels.schema.upos.labels == ["ADJ", "NOUN"])
+        #expect(artifact.labels.schema.morphology.features[0].name == "Gender")
+        #expect(!artifact.labels.schema.morphology.features[0].allowsMultipleValues)
+        #expect(artifact.labels.characterVocabulary?.identifiers()["b"] == 2)
     }
 
-    func testSelectsProgramByDevice() throws {
+    @Test func selectsProgramByDevice() throws {
         let directory = try writeArtifact(manifest: manifestJSON, labels: labelsJSON)
         let artifact = try PrismArtifact(contentsOf: directory)
 
-        XCTAssertEqual(try artifact.program(for: .cpu).backend, "xnnpack")
-        XCTAssertEqual(try artifact.program(for: .automatic).backend, "xnnpack")
-        XCTAssertThrowsError(try artifact.program(for: .gpu)) { error in
-            XCTAssertEqual(error as? PrismError, .deviceUnavailable(.gpu))
+        #expect(try artifact.program(for: .cpu).backend == "xnnpack")
+        #expect(try artifact.program(for: .automatic).backend == "xnnpack")
+        #expect(throws: PrismError.deviceUnavailable(.gpu)) {
+            try artifact.program(for: .gpu)
         }
     }
 
-    func testLemmaEditRuleMirrorsReferenceSemantics() throws {
+    @Test func lemmaEditRuleMirrorsReferenceSemantics() throws {
         let identity = LemmaEditRule(
             prefixRemoval: 0, suffixRemoval: 0, prefixAddition: "", suffixAddition: ""
         )
-        XCTAssertEqual(try identity.apply(to: "bøker"), "bøker")
+        #expect(try identity.apply(to: "bøker") == "bøker")
 
         let pluralToStem = LemmaEditRule(
             prefixRemoval: 0, suffixRemoval: 2, prefixAddition: "", suffixAddition: ""
         )
-        XCTAssertEqual(try pluralToStem.apply(to: "bøker"), "bøk")
+        #expect(try pluralToStem.apply(to: "bøker") == "bøk")
 
         let overRemoval = LemmaEditRule(
             prefixRemoval: 3, suffixRemoval: 3, prefixAddition: "", suffixAddition: ""
         )
-        XCTAssertThrowsError(try overRemoval.apply(to: "abc"))
-    }
-
-    func testMissingManifestSurfacesTypedError() {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-        XCTAssertThrowsError(try PrismArtifact(contentsOf: directory)) { error in
-            XCTAssertEqual(error as? PrismError, .missingArtifactFile("manifest.json"))
+        #expect(throws: (any Error).self) {
+            try overRemoval.apply(to: "abc")
         }
     }
 
-    func testMissingMetadataFailsLoudly() throws {
+    @Test func missingManifestSurfacesTypedError() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        #expect(throws: PrismError.missingArtifactFile("manifest.json")) {
+            try PrismArtifact(contentsOf: directory)
+        }
+    }
+
+    @Test func missingMetadataFailsLoudly() throws {
         // A manifest without the required language tags must fail to decode,
         // not be guessed from the directory name.
         let manifest = manifestJSON.replacingOccurrences(
             of: "\"language_tags\": [\"nb\", \"nn\"],", with: ""
         )
         let directory = try writeArtifact(manifest: manifest, labels: labelsJSON)
-        XCTAssertThrowsError(try PrismArtifact(contentsOf: directory))
+        #expect(throws: (any Error).self) {
+            try PrismArtifact(contentsOf: directory)
+        }
     }
 
-    func testInvalidLanguageTagsFailLoudly() throws {
+    @Test func invalidLanguageTagsFailLoudly() throws {
         // Language tags must be a list; a bare string is a hard decode error.
         let manifest = manifestJSON.replacingOccurrences(
             of: "[\"nb\", \"nn\"]", with: "\"nb\""
         )
         let directory = try writeArtifact(manifest: manifest, labels: labelsJSON)
-        XCTAssertThrowsError(try PrismArtifact(contentsOf: directory))
+        #expect(throws: (any Error).self) {
+            try PrismArtifact(contentsOf: directory)
+        }
     }
 }

@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import PrismKit
 
@@ -6,8 +7,8 @@ import XCTest
 /// calibrated outputs against the values the exporter recorded — the same
 /// recorded-parity contract the C++ `Engine` suite enforces, across the fp32
 /// reference, the int8 fast twin, and the English ModernBERT artifact.
-final class EngineParityTests: XCTestCase {
-    private var modelsRoot: URL {
+struct EngineParityTests {
+    static var modelsRoot: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -16,21 +17,34 @@ final class EngineParityTests: XCTestCase {
             .appendingPathComponent("models")
     }
 
-    func testExecutesNorwegianFixtureBatchWithRecordedParity() throws {
-        try FixtureParity.expect(artifactURL: modelsRoot.appendingPathComponent("prism-no-0.2.4"))
+    @Test(.enabled(if: FixtureParity.artifactExists(
+        EngineParityTests.modelsRoot.appendingPathComponent("prism-no-0.2.4")
+    )))
+    func executesNorwegianFixtureBatchWithRecordedParity() throws {
+        try FixtureParity.expect(
+            artifactURL: Self.modelsRoot.appendingPathComponent("prism-no-0.2.4")
+        )
     }
 
     /// The fast artifact's fixtures record its quantized eager twin; parity
     /// against them validates the int8 program end to end.
-    func testExecutesFastArtifactFixturesWithRecordedParity() throws {
+    @Test(.enabled(if: FixtureParity.artifactExists(
+        EngineParityTests.modelsRoot.appendingPathComponent("prism-no-0.2.4-fast")
+    )))
+    func executesFastArtifactFixturesWithRecordedParity() throws {
         try FixtureParity.expect(
-            artifactURL: modelsRoot.appendingPathComponent("prism-no-0.2.4-fast")
+            artifactURL: Self.modelsRoot.appendingPathComponent("prism-no-0.2.4-fast")
         )
     }
 
     /// The English artifact uses the ModernBERT/Ettin backbone; the
     /// language-independent runtime reproduces its recorded parity too.
-    func testExecutesEnglishFixtureBatchWithRecordedParity() throws {
-        try FixtureParity.expect(artifactURL: modelsRoot.appendingPathComponent("prism-en-0.1.0"))
+    @Test(.enabled(if: FixtureParity.artifactExists(
+        EngineParityTests.modelsRoot.appendingPathComponent("prism-en-0.1.0")
+    )))
+    func executesEnglishFixtureBatchWithRecordedParity() throws {
+        try FixtureParity.expect(
+            artifactURL: Self.modelsRoot.appendingPathComponent("prism-en-0.1.0")
+        )
     }
 }
