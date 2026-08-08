@@ -2,52 +2,43 @@
 # the self-contained Java JAR (embedded natives, extracted at runtime by
 # PrismTagger — see docs/INTEGRATION.md).
 #
-# Triggers: manually via workflow_dispatch, or by pushing a tag like
-# `v0.2.0` (the shared library-release tag family for the Swift, C++,
-# C, and Java bindings). Tag runs additionally attach the assembled JAR to
-# the GitHub release of that tag.
+# This is a REUSABLE workflow (workflow_call) driven by release.yml, plus a
+# workflow_dispatch entry for ad-hoc builds. It no longer runs on tag pushes
+# and no longer attaches the JAR to a release: release.yml attaches the
+# artifact it produced here (see docs/RELEASING.md). The assembled JAR is
+# exposed as a workflow artifact and its filename as the `jar_name` output.
 #
-# Compiler-cache scoping: GitHub shares caches only within the ref that
-# saved them plus the default branch, so caches saved by tag runs are
-# invisible to later tags. The release runbook therefore dispatches this
-# workflow on main before tagging — that run saves the cache in main
-# scope, and the tag run restores it warm.
+# Supported platforms: macOS (arm64, x86_64) and Linux (x86_64, aarch64).
+# Windows is intentionally not built — no shipping consumer needs a prebuilt
+# Windows JNI native (Apple is served by PrismNative, servers/dev by these
+# legs), and a Windows JVM consumer can still build the DLL locally and load
+# it via java.library.path. It was previously an always-red experimental leg.
 #
-# Notes for the first runs:
+# Notes:
 # - The C++ build fetches the pinned ExecuTorch sources at configure time
 #   and resolves torch headers through the Python interpreter; torch is
 #   pinned to the same range as python/pyproject.toml.
 # - The test suites skip model-dependent tests cleanly when no local
 #   artifact is present, so ctest passes without downloading a model.
-# - Windows is included as an experimental leg (continue-on-error): the
-#   C++ code is written portably, but this pipeline has not yet been
-#   exercised on MSVC.
 
 name: java-natives
-# Run titles name the deliverable and the ref instead of the triggering
-# commit message — several workflows share one tag push, and identical
-# commit titles made runs indistinguishable in the Actions list.
 run-name: "Java all-platforms JAR · ${{ github.ref_name }}"
 
-# Attaching the assembled JAR to a release needs write access to
-# repository contents; everything else works with the read-only default.
+# Only reads the repository; release.yml owns attaching the JAR to a release.
 permissions:
-  contents: write
+  contents: read
 
 on:
+  workflow_call:
+    outputs:
+      jar_name:
+        description: "Filename of the assembled all-platforms JAR"
+        value: ${{ jobs.assemble-jar.outputs.jar_name }}
   workflow_dispatch:
-  push:
-    tags:
-      - "v*"
 
 jobs:
   build-native:
-    # Experimental legs (Windows) tolerate failure at the STEP level below,
-    # so the job still concludes `success` and never reddens the commit's
-    # status rollup. Job-level continue-on-error is deliberately NOT used:
-    # it leaves the job's check-run at `failure`, which turns the commit
-    # badge red even though the run overall is green (measured on v0.5.0).
-    name: "JNI native (${{ matrix.classifier }})${{ matrix.experimental && ' · experimental, may fail' || '' }}"
+    name: "JNI native (${{ matrix.classifier }})"
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -56,7 +47,6 @@ jobs:
           - runner: macos-14
             classifier: macos-aarch64
             library: libprism_jni.dylib
-            experimental: false
           # GitHub retired the Intel macOS runners; the x86_64 library is
           # cross-compiled on the arm64 runner instead. Tests are skipped
           # on this leg (the host cannot reliably execute the foreign
@@ -66,19 +56,12 @@ jobs:
             library: libprism_jni.dylib
             cmake_flags: -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_SYSTEM_NAME=Darwin -DCMAKE_SYSTEM_PROCESSOR=x86_64
             run_tests: false
-            experimental: false
           - runner: ubuntu-24.04
             classifier: linux-x86_64
             library: libprism_jni.so
-            experimental: false
           - runner: ubuntu-24.04-arm
             classifier: linux-aarch64
             library: libprism_jni.so
-            experimental: false
-          - runner: windows-2022
-            classifier: windows-x86_64
-            library: prism_jni.dll
-            experimental: true
     steps:
       - uses: actions/checkout@v4
 
@@ -92,7 +75,6 @@ jobs:
           python-version: "3.12"
 
       - name: Install torch (ExecuTorch build-time dependency)
-        continue-on-error: ${{ matrix.experimental }}
         run: python -m pip install "torch>=2.12,<2.13" pyyaml
         shell: bash
 
@@ -105,7 +87,6 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install ccache
       - name: Restore compiler cache
-        if: runner.os != 'Windows'
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.ccache
@@ -114,7 +95,6 @@ jobs:
             ccache-${{ matrix.classifier }}-
 
       - name: Configure
-        continue-on-error: ${{ matrix.experimental }}
         env:
           CCACHE_DIR: ${{ github.workspace }}/.ccache
           CCACHE_MAXSIZE: 1.5G
@@ -133,36 +113,26 @@ jobs:
         # Bounded parallelism: hosted runners have 7-16 GB of RAM, and the
         # Eigen BLAS translation units inside ExecuTorch OOM-kill the
         # compiler when every core builds one simultaneously.
-        continue-on-error: ${{ matrix.experimental }}
         env:
           CCACHE_DIR: ${{ github.workspace }}/.ccache
           CCACHE_MAXSIZE: 1.5G
         run: |
-          cmake --build cpp/build --parallel 2 --config Release
+          cmake --build cpp/build --parallel 2
           command -v ccache > /dev/null && ccache --show-stats || true
         shell: bash
 
       - name: Test (model-dependent tests skip without a local artifact)
         if: ${{ matrix.run_tests != false }}
-        continue-on-error: ${{ matrix.experimental }}
-        run: ctest --test-dir cpp/build --output-on-failure --build-config Release
+        run: ctest --test-dir cpp/build --output-on-failure
         shell: bash
 
       - name: Stage native library
-        continue-on-error: ${{ matrix.experimental }}
         run: |
           mkdir -p staged/${{ matrix.classifier }}
-          # Single-config generators place the library in cpp/build, the
-          # Visual Studio multi-config generator in cpp/build/Release.
-          if [ -f "cpp/build/${{ matrix.library }}" ]; then
-            cp "cpp/build/${{ matrix.library }}" staged/${{ matrix.classifier }}/
-          else
-            cp "cpp/build/Release/${{ matrix.library }}" staged/${{ matrix.classifier }}/
-          fi
+          cp "cpp/build/${{ matrix.library }}" staged/${{ matrix.classifier }}/
         shell: bash
 
       - uses: actions/upload-artifact@v4
-        continue-on-error: ${{ matrix.experimental }}
         with:
           name: native-${{ matrix.classifier }}
           path: staged/${{ matrix.classifier }}/${{ matrix.library }}
@@ -170,12 +140,10 @@ jobs:
 
   assemble-jar:
     name: assemble self-contained JAR
-    # Runs when the required platform legs succeed; the experimental
-    # Windows leg reports success even on failure (continue-on-error),
-    # so a missing Windows library never blocks the JAR — it is simply
-    # not embedded.
     needs: build-native
     runs-on: ubuntu-24.04
+    outputs:
+      jar_name: ${{ steps.rename.outputs.jar_name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -205,19 +173,14 @@ jobs:
         run: mvn -q -f java/pom.xml -DskipTests package
 
       - name: Rename with platform summary
+        id: rename
         run: |
           version=$(mvn -q -f java/pom.xml help:evaluate -Dexpression=project.version -DforceStdout)
           cp "java/target/prism-${version}.jar" "prism-${version}-all-platforms.jar"
-          echo "JAR_NAME=prism-${version}-all-platforms.jar" >> "$GITHUB_ENV"
+          echo "jar_name=prism-${version}-all-platforms.jar" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
           name: prism-jar-embedded-natives
-          path: ${{ env.JAR_NAME }}
+          path: ${{ steps.rename.outputs.jar_name }}
           if-no-files-found: error
-
-      - name: Attach to release (tag builds only)
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${GITHUB_REF_NAME}" "${JAR_NAME}" --clobber

@@ -4,13 +4,10 @@ Prism publishes two independent release families from this one repository:
 
 - **Model artifacts** — tag `prism-<lang>-<semver>` (e.g. `prism-no-0.2.4`,
   `prism-en-0.1.0`). A GitHub release carrying the packaged model tarballs.
-  The library code is not involved.
+  The library code is not involved (§1).
 - **Library / bindings** — tag `v<semver>` (e.g. `v0.6.0`). Versions the
-  Swift/C++/C/Java code. Two CI workflows fire on `v*` tags and attach the
-  binary deliverables to the release.
-
-The model releases are simple. The library release has one genuinely tricky
-step — pinning the SwiftPM binary-target checksum — described in full below.
+  Swift/C++/C/Java code. Produced by the **`release`** workflow (§2), which
+  builds the binaries and creates the tag + release in one run.
 
 Optional, and **not** part of any workflow: publishing the Java JAR to Maven
 Central (`mvn -Prelease deploy`, see §5). Skip it unless you explicitly
@@ -24,8 +21,7 @@ intend a Maven Central release — the free publishing quota resets monthly.
    `.tar.gz`, plus a `SHA256SUMS` file and (for convenience) a top-level
    copy of each `manifest.json`.
 2. Verify integrity: `shasum -a 256 -c models/prism-<lang>-<ver>.SHA256SUMS`.
-3. Create the release (does not touch the library; `prism-*` tags trigger no
-   CI):
+3. Create the release (`prism-*` tags trigger no CI):
 
    ```bash
    gh release create prism-<lang>-<ver> \
@@ -39,146 +35,113 @@ intend a Maven Central release — the free publishing quota resets monthly.
      models/prism-<lang>-<ver>-fast-manifest.json
    ```
 
-   Use `--latest=false` so a model release never steals the "Latest" badge
-   from the newest library release. Omit the `-fast` assets for models that
-   ship a single precision.
+   `--latest=false` keeps the "Latest" badge on the newest library release.
+   Omit the `-fast` assets for single-precision models.
 4. Mirror to Hugging Face — see §4.
 
-> **Ordering constraint.** The library CI's consumer test downloads a
-> specific released model (currently `prism-no-0.2.4-fast`, hard-coded in
-> `.github/workflows/prism-native.yml`). That model release **must exist
-> before** you dispatch or tag the matching library version, or the CI fails.
+> **Ordering constraint.** The library `release` workflow's Apple consumer
+> test downloads a released model (the `consumer_model` input, default
+> `prism-no-0.2.4`). That model release **must exist before** you run the
+> library release for a version that depends on it.
 
 ---
 
-## 2. Library release (`v<semver>`) — overview
+## 2. Library release (`v<semver>`) — the `release` workflow
 
-The library ships one binary deliverable per platform, attached to the
-GitHub release by CI:
+One workflow does the whole thing: it builds the Apple XCFramework and the
+Java JAR **once**, pins the freshly-built XCFramework's SwiftPM checksum into
+`Package.swift`, commits that, and creates the tag + GitHub release attaching
+**the exact bytes it built**. Because nothing is rebuilt after the checksum
+is taken, the byte-drift that used to break SwiftPM consumers cannot happen
+(that was the whole hazard of the old manual flow — see §3).
 
-- **`prism-<ver>-all-platforms.jar`** — `java-natives.yml`. Self-contained
-  JAR with embedded natives for macOS and Linux.
-- **`PrismNative.xcframework.zip`** (+ `.checksum`) — `prism-native.yml`.
-  The Apple SwiftPM binary target for the stable C ABI.
+### Prepare
 
-Both workflows trigger on `workflow_dispatch` and on `v*` tag pushes.
+Put the release commit on `main` with **every version string bumped** to the
+target version — `java/pom.xml`, README, `docs/INTEGRATION.md`, the
+`examples/`. Do **not** touch `Package.swift`'s `prismNativeReleaseURL` /
+`prismNativeReleaseChecksum`; the workflow owns those two lines. Optionally
+write release notes to `docs/release-notes/v<ver>.md` (else the release gets
+auto-generated notes).
 
-The complication: SwiftPM pins a binary target by **URL + checksum**, and
-those two values live in the tagged `Package.swift`. So `Package.swift` at
-tag `v<ver>` must already contain the checksum of the `PrismNative.xcframework.zip`
-that ends up attached to the `v<ver>` release. That is a chicken-and-egg the
-release flow resolves by **building once on `main` first**, committing that
-checksum, and only then tagging.
+### Run
 
----
+Actions → **release** → *Run workflow*, with:
 
-## 3. Library release — step by step
+- `version` — e.g. `0.6.1` (no leading `v`).
+- `consumer_model` — usually the default; set it if this version needs a
+  newer model for the Apple consumer test.
+- `latest` — whether to mark it the repo's Latest release.
+- `dry_run` — **run once with this checked first.** It builds and verifies
+  the checksum and prints a summary, but commits/tags/publishes nothing.
 
-Assume the target version is `X.Y.Z` and the release commit (version bumps
-across the tree, docs, examples) is already on `main`, with `Package.swift`
-still pointing `prismNativeReleaseURL` / `prismNativeReleaseChecksum` at the
-*previous* release. Confirm the model that CI downloads (§1 ordering
-constraint) is already released.
+The workflow then (when `dry_run` is off):
 
-### Step 1 — Dispatch both workflows on `main`
+1. builds the five Apple slices → `PrismNative.xcframework.zip` (+ runs the
+   third-party consumer test) and the four-platform JAR, in parallel;
+2. checks preconditions: `main` hasn't moved, `pom.xml` version == `version`,
+   tag `v<version>` doesn't exist;
+3. verifies the built zip's `sha256` equals its recorded checksum and the
+   build job's output, then pins that URL + checksum into `Package.swift`;
+4. commits `chore: pin PrismNative URL + checksum for v<version>`, pushes it
+   to `main`, and creates the tag + release attaching the XCFramework zip,
+   its `.checksum`, and the JAR.
 
-```bash
-gh workflow run prism-native.yml --repo dmlux/Prism --ref main
-gh workflow run java-natives.yml --repo dmlux/Prism --ref main
-```
+### Verify
 
-`prism-native` builds all five slices, assembles `PrismNative.xcframework`,
-runs the third-party consumer test against the downloaded fast model, and
-uploads `PrismNative.xcframework.zip` + `.checksum` as **workflow
-artifacts** (a `main` dispatch does not attach to any release). It also warms
-the compiler cache in `main` scope, which the later tag run restores.
-
-> **Gate — do not tag until BOTH dispatches are green.** Two reasons:
-> (1) the tag run only restores a warm cache if the `main` dispatch has
-> already *finished* saving it, so tagging early forces a slow cold rebuild
-> (and, for the JAR, wastes the warm-up entirely); (2) you must confirm both
-> builds are actually healthy on `main` before cutting a public release —
-> otherwise you tag and only then discover a broken build. Wait for both run
-> conclusions to be `success` (macOS slices are ~1–2 h cold, minutes warm).
-> Never start Step 2/3 while either dispatch is still running or red.
-
-### Step 2 — Pin the checksum into `Package.swift`
-
-Download the checksum the dispatch run produced and edit `Package.swift`:
-
-```bash
-gh run download <prism-native-run-id> --repo dmlux/Prism \
-  --name PrismNative.xcframework --dir /tmp/xcf
-cat /tmp/xcf/PrismNative.xcframework.zip.checksum
-```
-
-- `prismNativeReleaseURL` →
-  `https://github.com/dmlux/Prism/releases/download/vX.Y.Z/PrismNative.xcframework.zip`
-- `prismNativeReleaseChecksum` → the value just printed
-
-Commit it: `chore: pin PrismNative URL + checksum for vX.Y.Z`.
-
-### Step 3 — Create the release + tag
-
-```bash
-gh release create vX.Y.Z --target <commit-from-step-2> \
-  --title "Prism library X.Y.Z" --notes-file <notes> --latest
-```
-
-`gh release create` with a new tag creates the tag and pushes it, which
-**re-triggers both workflows on the tag**. The tag runs rebuild and, because
-the ref is now `refs/tags/v*`, attach the JAR, `PrismNative.xcframework.zip`,
-and its `.checksum` to the `vX.Y.Z` release. The tag-run rebuild is *usually*
-byte-identical to the `main` dispatch but **not reliably so** (see Step 4) —
-which is why the pin was taken from the dispatch build, not this one.
-
-### Step 4 — Verify the pin matches the attached bytes (critical)
-
-The tag re-trigger is the step that has bitten every other release: the tag
-build is often **not** byte-identical to the `main` dispatch build (ExecuTorch
-has a nondeterministic few-byte drift — it broke `v0.4.0`/`v0.4.1`, and
-`v0.6.0` drifted `f6f86519…` on `main` vs `8733f897…` on the tag). When it
-drifts, the checksum committed in Step 2 no longer matches the zip the tag run
-attached, and **every SwiftPM consumer of the tag fails to resolve**.
-
-Always verify after the tag run finishes:
+Consistency is guaranteed by construction (the attached bytes are the ones
+whose checksum was pinned), but confirm the published release:
 
 ```bash
 gh release download vX.Y.Z --repo dmlux/Prism \
   --pattern "PrismNative.xcframework.zip" --dir /tmp/verify
-swift package compute-checksum /tmp/verify/PrismNative.xcframework.zip
-# must equal prismNativeReleaseChecksum in Package.swift @ vX.Y.Z
+diff <(sha256sum /tmp/verify/PrismNative.xcframework.zip | cut -d' ' -f1) \
+     <(git show vX.Y.Z:Package.swift | grep -A1 prismNativeReleaseChecksum | grep -oE '[0-9a-f]{64}')
 ```
 
-If they match, the release is consistent — done.
+Then build a quickstart under `examples/` against the tag as a smoke test.
 
-If they differ, **do not move the tag and do not re-pin to the drifted
-bytes.** The correct fix keeps the tag immutable and makes the *attached
-bytes* equal the *already-committed* pin, by re-attaching the exact dispatch
-build the pin came from (it is proven good — it passed the consumer test in
-the dispatch run):
+> **Notes.** The `release` job commits to `main` with the default
+> `GITHUB_TOKEN`; if `main` is branch-protected against direct pushes, grant
+> the token an exception or use the manual fallback. A `GITHUB_TOKEN` commit
+> does not re-trigger workflows, so the pin commit starts no new run. The
+> reusable `prism-native` / `java-natives` workflows can still be run
+> standalone via *Run workflow* for ad-hoc builds; they no longer run on tag
+> pushes and no longer attach anything — only `release` does.
 
-```bash
-gh run download <prism-native-dispatch-run-id> --repo dmlux/Prism \
-  --name PrismNative.xcframework --dir /tmp/xcf
-gh release upload vX.Y.Z --repo dmlux/Prism \
-  /tmp/xcf/PrismNative.xcframework.zip \
-  /tmp/xcf/PrismNative.xcframework.zip.checksum --clobber
-```
+---
 
-Then re-run the verification above; it now matches. No tag move, no CI
-re-trigger. This is the **one sanctioned use of `--clobber`** on the
-XCFramework asset: replacing the tag-run's drifted rebuild with the exact
-bytes the tagged `Package.swift` already pins. (`v0.6.0` was reconciled this
-way.)
+## 3. Library release — manual fallback
 
-> **Why this is clumsy — and the planned fix.** The tag-run rebuild is pure
-> waste: it repeats a ~1 h build and can only *break* the release, never
-> improve it. The clean design is a single `workflow_dispatch(version)` that
-> builds once, commits the checksum, creates the tag+release, and attaches
-> **the bytes it just built** — no second build, no drift window, no manual
-> pin. Until that lands, the dispatch-then-tag dance above is the process.
-> See §6.
+If the `release` workflow can't be used (e.g. `main` is protected and the bot
+can't push), the original manual flow still works. Its one hazard is that the
+old design **rebuilt** the XCFramework on the tag, and ExecuTorch's build is
+not reliably byte-identical (it broke `v0.4.0`/`v0.4.1`, and `v0.6.0` drifted
+`f6f86519…` vs `8733f897…`), so the tagged `Package.swift` checksum could end
+up not matching the attached zip.
+
+1. **Dispatch** `prism-native` and `java-natives` on `main` (Actions → *Run
+   workflow*). Wait for **both green** before continuing — never tag while a
+   dispatch runs.
+2. **Pin.** Download the `PrismNative.xcframework` artifact from the
+   `prism-native` run, read `PrismNative.xcframework.zip.checksum`, and set
+   `prismNativeReleaseURL` (→ the `vX.Y.Z` URL) and `prismNativeReleaseChecksum`
+   in `Package.swift`. Commit.
+3. **Tag atomically.** `gh release create vX.Y.Z --target main --title … --latest`
+   — creates the tag *and* the release in one call, so the release exists
+   before any CI attach step. (These workflows no longer attach on tag push,
+   so upload the artifacts yourself: the JAR from `java-natives` and the
+   XCFramework zip + checksum from the `prism-native` run.)
+4. **Verify + reconcile.** Download the attached zip, `sha256sum` it, and
+   confirm it equals the `Package.swift` pin. If it drifted, re-attach the
+   **dispatch** artifact you pinned (it is proven good) with `--clobber` —
+   do **not** move the tag or re-pin to the drifted bytes:
+
+   ```bash
+   gh release upload vX.Y.Z --repo dmlux/Prism \
+     /path/to/dispatch/PrismNative.xcframework.zip \
+     /path/to/dispatch/PrismNative.xcframework.zip.checksum --clobber
+   ```
 
 ---
 
@@ -206,35 +169,30 @@ consumers.
 
 The Java binding is also published to Maven Central as
 [`io.github.dmlux:prism`](https://central.sonatype.com/artifact/io.github.dmlux/prism)
-(since 0.2.0). This is a **separate manual step**, not triggered by any
-tag or workflow, and the free publishing quota resets monthly — only do
-it when you actually intend a Maven release for the version.
+(since 0.2.0). A **separate manual step**, not triggered by any workflow, and
+the free publishing quota resets monthly — only do it when you actually
+intend a Maven release for the version.
 
-Do it **after** the `vX.Y.Z` GitHub release exists, because the JAR
-published to Central must embed the same per-platform natives the CI
-built.
+Do it **after** the `vX.Y.Z` GitHub release exists, because the JAR published
+to Central must embed the same per-platform natives the CI built.
 
 ### One-time setup on the release machine
 
-- **Credentials.** A Central user token lives in `~/.m2/settings.xml`
-  under `<server><id>central</id>…`. Generate it at
-  central.sonatype.com → *View Account → Generate User Token*. The
-  namespace `io.github.dmlux` is verified via GitHub login.
-- **GPG.** Central requires every artifact signed. Key setup and this
-  machine's quirks (`disable-ipv6` in `~/.gnupg/dirmngr.conf`,
-  `export GPG_TTY=$(tty)` for pinentry) are in the publishing runbook.
-  Pre-cache the passphrase in the agent before deploying:
+- **Credentials.** A Central user token in `~/.m2/settings.xml` under
+  `<server><id>central</id>…`. Generate at central.sonatype.com → *View
+  Account → Generate User Token*; namespace `io.github.dmlux` is verified via
+  GitHub login.
+- **GPG.** Central requires signed artifacts. Key setup and this machine's
+  quirks (`disable-ipv6` in `~/.gnupg/dirmngr.conf`, `export GPG_TTY=$(tty)`
+  for pinentry) are in the publishing runbook. Pre-cache the passphrase:
   `echo test | gpg --clearsign -o /dev/null`.
-- **Maven + JDK.** No system Maven is installed; use a portable
-  Apache Maven with `JAVA_HOME=$HOME/.sdkman/candidates/java/current`
-  (Temurin 21).
+- **Maven + JDK.** No system Maven; use a portable Apache Maven with
+  `JAVA_HOME=$HOME/.sdkman/candidates/java/current` (Temurin 21).
 
 ### Deploy
 
-1. **Embed the release natives.** The `release` build reads natives from
-   `java/src/main/resources/` (gitignored). Populate it from the JAR the
-   `vX.Y.Z` release just got — so Central ships all four platforms, not
-   only the local one:
+1. **Embed the release natives** (the `release` build reads
+   `java/src/main/resources/`, gitignored):
 
    ```bash
    gh release download vX.Y.Z --repo dmlux/Prism --pattern "*-all-platforms.jar" --dir /tmp
@@ -242,72 +200,42 @@ built.
      -d java/src/main/resources/
    ```
 
-2. **Dry run** (build + sign, no upload) to confirm the JAR carries all
-   four natives:
+2. **Dry run** (build + sign, no upload); confirm four natives:
 
    ```bash
    mvn -q -Prelease -DskipTests -Dgpg.skip=true -f java/pom.xml clean package
    unzip -l java/target/prism-*.jar | grep -c 'native/.*\(so\|dylib\)'   # expect 4
    ```
 
-3. **Deploy** (signs and uploads; the `central-publishing` plugin waits
-   for Central to validate):
+3. **Deploy** (signs and uploads; waits for Central to validate):
 
    ```bash
    mvn -Prelease -DskipTests -f java/pom.xml clean deploy
    ```
 
-4. **Publish.** The upload lands in the portal as a *Validated*
-   deployment. Open central.sonatype.com → *Publishing → Deployments*
-   and click **Publish** (deliberately manual — Central never deletes a
-   published version). It resolves on `repo.maven.apache.org` within
-   ~15–60 min.
+4. **Publish.** central.sonatype.com → *Publishing → Deployments* → **Publish**
+   (deliberately manual — Central never deletes). Resolves on
+   `repo.maven.apache.org` within ~15–60 min.
 
-> **Pitfall.** If a `deploy` invocation's output was piped through
-> `head`/truncated, the command can complete *invisibly* and still
-> upload — leaving a second, identical *Validated* deployment in the
-> portal. It is harmless; **Drop** the duplicate. A version can only be
-> published once.
+> **Pitfall.** A `deploy` whose output was piped through `head`/truncated can
+> complete *invisibly* and still upload, leaving a duplicate *Validated*
+> deployment. Harmless — **Drop** it.
 
 ---
 
-## 6. Planned simplification (not yet implemented)
+## Quick checklist
 
-The current library flow has too many manual, fragile steps for what should
-be one button. The root cause is narrow: SwiftPM pins the binary target by a
-checksum that must live in the *tagged* `Package.swift`, so today we build on
-`main` to learn the checksum, commit it, then tag — and the tag rebuild
-(different bytes) is what forces the manual reconcile in Step 4.
+**Model `prism-<lang>-<ver>`:** package → verify SHA → `gh release create`
+(`--latest=false`) → HF mirror (§4).
 
-A single tag-producing workflow removes all of it. One
-`workflow_dispatch` with a `version` input would:
+**Library `vX.Y.Z`:**
 
-1. build the XCFramework and the JAR once (parallel jobs);
-2. compute the XCFramework checksum;
-3. write URL + checksum into `Package.swift`, bump version strings, commit;
-4. create the tag + GitHub release at that commit (atomic);
-5. attach **the exact bytes just built** (no rebuild) plus the JAR.
-
-That eliminates the second build, the drift window, the manual checksum copy,
-and the "both dispatches green" gate — the only human input becomes the
-version number (optionally behind an Actions approval gate). The model
-releases could fold into the same or a sibling `workflow_dispatch` that
-packages `models/`, uploads the tarballs, and mirrors to Hugging Face.
-
-Until this lands, follow §1–§5.
-
----
-
-## Quick checklist (library `vX.Y.Z`)
-
-- [ ] Model that CI downloads is released (§1 ordering constraint).
-- [ ] Version bumps committed on `main`; `Package.swift` still on previous pin.
-- [ ] `gh workflow run` both workflows on `main`; **wait for BOTH to be
-      green before tagging** — never tag while a dispatch runs (§3 gate).
-- [ ] Pin URL + checksum from the dispatch artifact into `Package.swift`; commit.
-- [ ] `gh release create vX.Y.Z` at that commit (`--latest`).
-- [ ] After tag CI: download the attached XCFramework, `compute-checksum`,
-      confirm it equals the tagged `Package.swift`. If it drifted, re-attach
-      the dispatch build with `--clobber` (§3 Step 4) — do not move the tag.
-- [ ] (Optional, separate) Maven Central per §5 — embed the release
-      natives, then `mvn -Prelease deploy`, then Publish in the portal.
+- [ ] Model the consumer test downloads is released (§1 ordering constraint).
+- [ ] Version bumps committed on `main` (pom, README, INTEGRATION, examples);
+      `Package.swift` PrismNative pin left untouched.
+- [ ] Optional: release notes at `docs/release-notes/vX.Y.Z.md`.
+- [ ] Run the **release** workflow with `dry_run` checked; review the summary.
+- [ ] Run it again with `dry_run` off.
+- [ ] Verify the published XCFramework `sha256` == the tagged `Package.swift`
+      pin, and build an `examples/` quickstart against the tag.
+- [ ] (Optional, separate) Maven Central per §5.

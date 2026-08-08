@@ -1,0 +1,188 @@
+# One-button library release. Builds the Apple XCFramework and the Java JAR
+# once (via the reusable prism-native / java-natives workflows), pins the
+# freshly-built XCFramework's SwiftPM checksum into Package.swift, commits
+# that, and creates the tag + GitHub release attaching THE EXACT BYTES it
+# built. There is no second build, so the byte-drift that used to break
+# SwiftPM consumers (docs/RELEASING.md §3-§4) cannot happen.
+#
+# Precondition: the release commit is already on main with every version
+# string bumped to the target version (pom.xml, README, INTEGRATION,
+# examples). This workflow owns only Package.swift's PrismNative URL +
+# checksum and the tag/release — nothing else.
+#
+# Trigger it from the Actions tab (workflow_dispatch) with the version.
+# Run once with dry_run = true first to see the built checksum without
+# committing or publishing anything.
+
+name: release
+run-name: "Release v${{ inputs.version }}${{ inputs.dry_run && ' · dry run' || '' }}"
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without a leading v (e.g. 0.6.1)"
+        type: string
+        required: true
+      consumer_model:
+        description: "Model release the Apple consumer test downloads"
+        type: string
+        default: "prism-no-0.2.4"
+      latest:
+        description: "Mark this as the repository's Latest release"
+        type: boolean
+        default: true
+      dry_run:
+        description: "Build and verify only — do not commit, tag, or publish"
+        type: boolean
+        default: false
+
+jobs:
+  apple:
+    uses: ./.github/workflows/prism-native.yml
+    with:
+      consumer_model: ${{ inputs.consumer_model }}
+
+  jni:
+    uses: ./.github/workflows/java-natives.yml
+
+  finalize:
+    needs: [apple, jni]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Build and finalize the exact commit the release was dispatched
+          # from; guarded below against main having moved since.
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Preconditions
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # main must still point at the built commit (no push landed since).
+          git fetch origin main
+          head=$(git rev-parse HEAD)
+          main=$(git rev-parse origin/main)
+          if [ "$head" != "$main" ]; then
+            echo "::error::main moved since the build ($head vs $main); re-run the release."
+            exit 1
+          fi
+          # The tree must already be bumped to the target version.
+          pom=$(mvn -q -f java/pom.xml help:evaluate -Dexpression=project.version -DforceStdout)
+          if [ "$pom" != "$VERSION" ]; then
+            echo "::error::java/pom.xml is $pom but you asked to release $VERSION. Bump the tree first."
+            exit 1
+          fi
+          # The tag must not exist yet.
+          if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" >/dev/null 2>&1; then
+            echo "::error::tag v${VERSION} already exists."
+            exit 1
+          fi
+          echo "Preconditions OK for v${VERSION} at ${head}."
+
+      - name: Download the built XCFramework
+        uses: actions/download-artifact@v4
+        with:
+          name: PrismNative.xcframework
+          path: dist
+
+      - name: Download the built JAR
+        uses: actions/download-artifact@v4
+        with:
+          name: prism-jar-embedded-natives
+          path: dist
+
+      - name: Pin the checksum into Package.swift and verify integrity
+        env:
+          VERSION: ${{ inputs.version }}
+          BUILD_OUTPUT_CHECKSUM: ${{ needs.apple.outputs.xcframework_checksum }}
+        run: |
+          set -euo pipefail
+          zip=dist/PrismNative.xcframework.zip
+          # SwiftPM's compute-checksum is the SHA-256 of the zip, so sha256sum
+          # reproduces it without a Swift toolchain. All three must agree:
+          # the bytes we will attach, the .checksum recorded on the mac, and
+          # the reusable workflow's output.
+          actual=$(sha256sum "$zip" | cut -d' ' -f1)
+          recorded=$(tr -d '[:space:]' < dist/PrismNative.xcframework.zip.checksum)
+          echo "sha256(zip) = $actual"
+          echo "recorded    = $recorded"
+          echo "job output  = $BUILD_OUTPUT_CHECKSUM"
+          if [ "$actual" != "$recorded" ] || [ "$actual" != "$BUILD_OUTPUT_CHECKSUM" ]; then
+            echo "::error::checksum disagreement between the built zip, its .checksum, and the job output."
+            exit 1
+          fi
+
+          # Rewrite the two PrismNative pin lines, anchored to their variable
+          # names so the ExecuTorch checksums elsewhere are never touched.
+          perl -0pi -e 's{(prismNativeReleaseURL\s*=\s*\n\s*"https://github\.com/dmlux/Prism/releases/download/)v[^/]+(/PrismNative\.xcframework\.zip")}{${1}v'"$VERSION"'${2}}' Package.swift
+          perl -0pi -e 's/(prismNativeReleaseChecksum\s*=\s*\n\s*")[0-9a-f]{64}(")/${1}'"$actual"'${2}/' Package.swift
+
+          # Confirm the file now pins exactly the bytes we will attach.
+          pinned=$(grep -A1 prismNativeReleaseChecksum Package.swift | grep -oE '[0-9a-f]{64}')
+          pinned_url=$(grep -A1 prismNativeReleaseURL Package.swift | grep -oE 'download/v[^/]+/' | head -1)
+          echo "Package.swift now pins: $pinned  ($pinned_url)"
+          if [ "$pinned" != "$actual" ] || [ "$pinned_url" != "download/v${VERSION}/" ]; then
+            echo "::error::Package.swift pin did not update as expected."
+            exit 1
+          fi
+
+      - name: Summary
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          {
+            echo "## Release v${VERSION}${{ inputs.dry_run && ' (dry run)' || '' }}"
+            echo ""
+            echo "- XCFramework checksum: \`${{ needs.apple.outputs.xcframework_checksum }}\`"
+            echo "- JAR: \`${{ needs.jni.outputs.jar_name }}\`"
+            echo "- Package.swift pinned to \`v${VERSION}\` and that checksum"
+            if [ "${{ inputs.dry_run }}" = "true" ]; then
+              echo ""
+              echo "**Dry run** — nothing was committed, tagged, or published."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit, tag, and publish
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Package.swift
+          git commit -m "chore: pin PrismNative URL + checksum for v${VERSION}"
+          # main is still at the built commit (guarded above), so this is a
+          # fast-forward. A GITHUB_TOKEN commit does not re-trigger workflows.
+          git push origin HEAD:main
+
+          notes="docs/release-notes/v${VERSION}.md"
+          if [ -f "$notes" ]; then
+            notes_arg=(--notes-file "$notes")
+          else
+            notes_arg=(--generate-notes)
+          fi
+          latest_arg="--latest"
+          [ "${{ inputs.latest }}" = "true" ] || latest_arg="--latest=false"
+
+          # Creates the tag at the just-pushed pin commit and attaches the
+          # exact bytes we built and verified.
+          gh release create "v${VERSION}" --target main \
+            --title "Prism library ${VERSION}" \
+            "${notes_arg[@]}" $latest_arg \
+            "dist/PrismNative.xcframework.zip" \
+            "dist/PrismNative.xcframework.zip.checksum" \
+            "dist/${{ needs.jni.outputs.jar_name }}"
