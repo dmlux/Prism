@@ -254,4 +254,111 @@ final class SourceMappingTests: XCTestCase {
         XCTAssertNil(Utf8ByteRange(start: 0, end: 5).range(in: text))
         XCTAssertNil(Utf8ByteRange(start: 0, end: 99).range(in: text))
     }
+
+    func testLeadingAndTrailingWhitespaceShiftsRanges() {
+        let text = "  Katten sov.  "
+        let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
+
+        XCTAssertEqual(sentences.count, 1)
+        expectValidMapping(text, sentences)
+        XCTAssertEqual(
+            sentences[0].tokenSourceRanges,
+            [
+                [Utf8ByteRange(start: 2, end: 8)],
+                [Utf8ByteRange(start: 9, end: 12)],
+                [Utf8ByteRange(start: 12, end: 13)],
+            ]
+        )
+        XCTAssertEqual(sentences[0].sourceRanges, [Utf8ByteRange(start: 2, end: 13)])
+    }
+
+    func testConsecutiveMultibyteLettersFormOneToken() {
+        let text = "æøå er bokstaver."
+        let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
+
+        XCTAssertEqual(sentences.count, 1)
+        expectValidMapping(text, sentences)
+        XCTAssertEqual(sentences[0].tokens[0], "æøå")
+        XCTAssertEqual(
+            sentences[0].tokenSourceRanges,
+            [
+                [Utf8ByteRange(start: 0, end: 6)],
+                [Utf8ByteRange(start: 7, end: 9)],
+                [Utf8ByteRange(start: 10, end: 19)],
+                [Utf8ByteRange(start: 19, end: 20)],
+            ]
+        )
+    }
+
+    func testRepeatedIdenticalSentencesMapToDistinctOccurrences() {
+        let text = "Han sov. Han sov."
+        let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
+
+        XCTAssertEqual(sentences.count, 2)
+        expectValidMapping(text, sentences)
+        XCTAssertEqual(sentences[0].sourceRanges, [Utf8ByteRange(start: 0, end: 8)])
+        XCTAssertEqual(sentences[1].sourceRanges, [Utf8ByteRange(start: 9, end: 17)])
+        XCTAssertEqual(sentences[0].tokenSourceRanges[0], [Utf8ByteRange(start: 0, end: 3)])
+        XCTAssertEqual(sentences[1].tokenSourceRanges[0], [Utf8ByteRange(start: 9, end: 12)])
+    }
+
+    func testMultipleRepairedBoundariesStayAligned() {
+        let text = "De gikk.De kom.De sov."
+        let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
+
+        XCTAssertEqual(sentences.count, 3)
+        expectValidMapping(text, sentences)
+        XCTAssertEqual(sentences[0].sourceRanges, [Utf8ByteRange(start: 0, end: 8)])
+        XCTAssertEqual(sentences[1].sourceRanges, [Utf8ByteRange(start: 8, end: 15)])
+        XCTAssertEqual(sentences[2].sourceRanges, [Utf8ByteRange(start: 15, end: 22)])
+    }
+
+    func testChunkHelperSlicesCallerProvidedRanges() {
+        let sentence = PretokenizedSentence(
+            tokens: ["a", "b", "c"],
+            hasSpaceBefore: [false, true, true],
+            tokenSourceRanges: [
+                [Utf8ByteRange(start: 0, end: 1)],
+                [Utf8ByteRange(start: 2, end: 3)],
+                [Utf8ByteRange(start: 4, end: 5)],
+            ],
+            sourceRanges: [Utf8ByteRange(start: 0, end: 5)]
+        )
+
+        let chunks = RuntimeSegmentation.chunk(sentence, maximumTokenCount: 2)
+
+        XCTAssertEqual(chunks.count, 2)
+        XCTAssertEqual(
+            chunks[0].tokenSourceRanges,
+            [[Utf8ByteRange(start: 0, end: 1)], [Utf8ByteRange(start: 2, end: 3)]]
+        )
+        XCTAssertEqual(chunks[0].sourceRanges, [Utf8ByteRange(start: 0, end: 3)])
+        XCTAssertEqual(chunks[1].tokenSourceRanges, [[Utf8ByteRange(start: 4, end: 5)]])
+        XCTAssertEqual(chunks[1].sourceRanges, [Utf8ByteRange(start: 4, end: 5)])
+    }
+
+    func testEveryFixtureTokenStaysAnchored() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        for fixture in ["skarvholmen-bokmaal", "fjellvatnet-nynorsk"] {
+            let textURL = repositoryRoot.appendingPathComponent(
+                "data/examples/\(fixture).txt"
+            )
+            let text = try String(contentsOf: textURL, encoding: .utf8)
+
+            let sentences = RuntimeSegmentation.segment(text, policy: .norwegian())
+            expectValidMapping(text, sentences)
+
+            // Document order: sentence ranges never move backwards.
+            var previousStart = 0
+            for sentence in sentences {
+                let start = try XCTUnwrap(sentence.sourceRanges.first).start
+                XCTAssertGreaterThanOrEqual(start, previousStart, fixture)
+                previousStart = start
+            }
+        }
+    }
 }

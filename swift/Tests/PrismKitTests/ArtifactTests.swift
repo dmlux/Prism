@@ -136,4 +136,23 @@ final class ArtifactTests: XCTestCase {
             XCTAssertEqual(error as? PrismError, .missingArtifactFile("manifest.json"))
         }
     }
+
+    func testMissingMetadataFailsLoudly() throws {
+        // A manifest without the required language tags must fail to decode,
+        // not be guessed from the directory name.
+        let manifest = manifestJSON.replacingOccurrences(
+            of: "\"language_tags\": [\"nb\", \"nn\"],", with: ""
+        )
+        let directory = try writeArtifact(manifest: manifest, labels: labelsJSON)
+        XCTAssertThrowsError(try PrismArtifact(contentsOf: directory))
+    }
+
+    func testInvalidLanguageTagsFailLoudly() throws {
+        // Language tags must be a list; a bare string is a hard decode error.
+        let manifest = manifestJSON.replacingOccurrences(
+            of: "[\"nb\", \"nn\"]", with: "\"nb\""
+        )
+        let directory = try writeArtifact(manifest: manifest, labels: labelsJSON)
+        XCTAssertThrowsError(try PrismArtifact(contentsOf: directory))
+    }
 }

@@ -116,24 +116,28 @@ there), which are always present.
 The reproducible performance suite for the C++ layer is built on
 [Google Benchmark](https://github.com/google/benchmark) v1.9.1,
 vendored and version-pinned under `cpp/vendor/benchmark/` like the
-other third-party code, and built only when requested:
+other third-party code, and built only when requested. There is one
+slim executable per language over a shared harness
+(`benchmarks/prism_benchmark_harness.*`); each language file lists only
+its texts and artifacts:
 
 ```bash
 cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DPRISM_BENCHMARKS=ON
-cmake --build cpp/build --target prism_benchmarks --parallel
-cpp/build/prism_benchmarks
+cmake --build cpp/build --target prism_benchmarks_norwegian prism_benchmarks_english --parallel
+cpp/build/prism_benchmarks_norwegian
+cpp/build/prism_benchmarks_english
 ```
 
-It measures, over the checked-in CC0 example texts: runtime
+Each measures, over the checked-in CC0 example texts: runtime
 segmentation and subword BPE in isolation, tagger construction, and the
 end-to-end variants `TagText` (raw text including segmentation) versus
-`Tag(pretokenized)` (segmentation prepaid), each for the fp32 and the
-fast (int8) artifact when present under `models/`. Document-scale runs
-repeat the Bokmål text past 6,000 tokens to match the documented
-document-inference protocol; throughput appears as `items_per_second`
-(tokens/s). `PRISM_THREADS` overrides the CPU thread count for sweeps,
-and the usual Google Benchmark flags apply (for example
-`--benchmark_filter=TagText --benchmark_repetitions=5`).
+`Tag(pretokenized)` (segmentation prepaid), for every artifact variant
+present under `models/` (Norwegian ships fp32 and a fast int8 variant).
+Document-scale runs repeat the driving text past 6,000 tokens to match
+the documented document-inference protocol; throughput appears as
+`items_per_second` (tokens/s). `PRISM_THREADS` overrides the CPU thread
+count for sweeps, and the usual Google Benchmark flags apply (for
+example `--benchmark_filter=TagText --benchmark_repetitions=5`).
 
 For ad-hoc measurements of arbitrary texts and artifact variants, the
 small `prism_chapter_benchmark` tool (cold/warm end-to-end run over a

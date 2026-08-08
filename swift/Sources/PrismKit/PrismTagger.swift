@@ -85,7 +85,19 @@ public final class PrismTagger {
                 artifact.manifest.vocabularyFile
             )
         )
-        segmentationPolicy = .norwegian(
+        // The segmentation inventory travels in the artifact so every language
+        // segments with its own abbreviations; an empty one is a hard error
+        // rather than a silent fallback that would mis-segment the language.
+        guard let abbreviations = artifact.manifest.segmentation?.abbreviations,
+            !abbreviations.isEmpty
+        else {
+            throw PrismError.invalidArtifact(
+                "Artifact manifest declares no segmentation abbreviations; the "
+                    + "runtime cannot segment without the model's inventory."
+            )
+        }
+        segmentationPolicy = SegmentationPolicy(
+            abbreviationTokens: Set(abbreviations),
             maximumTokenCount: programs.last!.shapes.tokenCount
         )
         var lookup: [String: Int] = [:]

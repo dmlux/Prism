@@ -36,6 +36,12 @@ WIKIPEDIA_NNO_SOURCE_URL = (
     "https://dumps.wikimedia.org/nnwiki/latest/"
     "nnwiki-latest-pages-articles.xml.bz2"
 )
+WIKIPEDIA_ENG_CORPUS_ID = "enwiki-pages-articles"
+WIKIPEDIA_ENG_LANGUAGE_TAG = "en"
+WIKIPEDIA_ENG_SOURCE_URL = (
+    "https://dumps.wikimedia.org/enwiki/latest/"
+    "enwiki-latest-pages-articles.xml.bz2"
+)
 WIKIPEDIA_LICENSE_ID = "CC-BY-SA-4.0"
 WIKIPEDIA_LICENSE_URL = "https://creativecommons.org/licenses/by-sa/4.0/"
 WIKITEXT_EXTRACTION_VERSION = "prism-wikitext-plain-v1"

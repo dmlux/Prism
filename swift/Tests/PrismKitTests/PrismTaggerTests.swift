@@ -160,4 +160,89 @@ final class PrismTaggerTests: XCTestCase {
             XCTAssertEqual(tagged.tokens[1].lemma, "sove")
         }
     }
+
+    func testBatchSortingKeepsIdenticalSentencesAnchored() throws {
+        let tagger = try loadTagger()
+        // Twenty identical sentences force several batches and length-sorted
+        // reordering; every result must still point at its own occurrence.
+        let text = Array(repeating: "Katten sov.", count: 20).joined(separator: " ")
+
+        let sentences = try tagger.tag(text: text)
+
+        XCTAssertEqual(sentences.count, 20)
+        for (index, sentence) in sentences.enumerated() {
+            let base = index * 12
+            XCTAssertEqual(
+                sentence.sourceRanges, [Utf8ByteRange(start: base, end: base + 11)]
+            )
+            XCTAssertEqual(
+                sentence.tokens[0].sourceRanges[0],
+                Utf8ByteRange(start: base, end: base + 6)
+            )
+        }
+    }
+
+    func testTagsExampleTextsEndToEnd() throws {
+        // The checked-in CC0 example texts (see data/examples/README.md) with
+        // the Python reference implementation's sentence and token counts,
+        // through the full raw-text tagging pipeline.
+        let tagger = try loadTagger()
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let expectations: [(fixture: String, sentences: Int, tokens: Int)] = [
+            ("skarvholmen-bokmaal", 55, 905),
+            ("fjellvatnet-nynorsk", 41, 803),
+        ]
+        for expected in expectations {
+            let text = try String(
+                contentsOf: repositoryRoot.appendingPathComponent(
+                    "data/examples/\(expected.fixture).txt"
+                ),
+                encoding: .utf8
+            )
+            let tagged = try tagger.tag(text: text)
+            XCTAssertEqual(tagged.count, expected.sentences, expected.fixture)
+            XCTAssertEqual(
+                tagged.reduce(0) { $0 + $1.tokens.count },
+                expected.tokens,
+                expected.fixture
+            )
+        }
+    }
+
+    // The fast (int8) artifact must reproduce the same reference decisions;
+    // quality is gated on the development split at export time, and this pins
+    // the end-to-end runtime behaviour.
+    func testTagsFastRawTextWithReferenceDecisions() throws {
+        let artifactURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("models/prism-no-0.2.3-fast")
+        try XCTSkipUnless(
+            FileManager.default.fileExists(
+                atPath: artifactURL.appendingPathComponent("manifest.json").path
+            ),
+            "Local fast artifact is not present."
+        )
+        let tagger = try PrismTagger(artifactURL: artifactURL, device: .cpu)
+
+        let sentences = try tagger.tag(text: "Hun kjøpte tre gamle bøker den 17. mai.")
+
+        XCTAssertEqual(sentences.count, 1)
+        let tokens = sentences[0].tokens
+        XCTAssertEqual(
+            tokens.map(\.upos),
+            ["PRON", "VERB", "NUM", "ADJ", "NOUN", "DET", "ADJ", "NOUN", "PUNCT"]
+        )
+        XCTAssertEqual(
+            tokens.map(\.lemma),
+            ["hun", "kjøpe", "tre", "gammel", "bok", "den", "17.", "mai", "."]
+        )
+        XCTAssertTrue(tokens.allSatisfy { $0.uposConfidence > 0.9 })
+    }
 }

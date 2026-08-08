@@ -9,6 +9,14 @@ class PretrainedBackboneSpec:
     revision: str
     trust_remote_code: bool
     reinitialize_non_persistent_buffers: bool = False
+    # Optional ``attn_implementation`` for ``from_pretrained`` (e.g. "eager",
+    # required by ModernBERT for a portable ExecuTorch export graph). ``None``
+    # keeps the transformers default.
+    attention_implementation: str | None = None
+    # Config attributes to set after loading, as ordered ``(name, value)`` pairs
+    # (e.g. ``("reference_compile", False)`` for ModernBERT). Empty leaves the
+    # loaded config untouched, preserving the prior behaviour.
+    config_overrides: tuple[tuple[str, object], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.model_id or self.model_id.strip() != self.model_id:
@@ -34,15 +42,20 @@ def _reinitialize_non_persistent_buffers(model: PreTrainedModel) -> PreTrainedMo
 def load_backbone_model(
     spec: PretrainedBackboneSpec,
 ) -> PreTrainedModel:
-    from_pretrained = AutoModel.from_pretrained
-    model = from_pretrained(
-        spec.model_id,
-        revision=spec.revision,
-        trust_remote_code=spec.trust_remote_code,
-    )
+    load_keyword_arguments: dict[str, object] = {
+        "revision": spec.revision,
+        "trust_remote_code": spec.trust_remote_code,
+    }
+    if spec.attention_implementation is not None:
+        load_keyword_arguments["attn_implementation"] = spec.attention_implementation
+
+    model = AutoModel.from_pretrained(spec.model_id, **load_keyword_arguments)
 
     if model is None:
         raise RuntimeError("Backbone model could not be loaded.")
+
+    for attribute_name, attribute_value in spec.config_overrides:
+        setattr(model.config, attribute_name, attribute_value)
 
     if spec.reinitialize_non_persistent_buffers:
         model = _reinitialize_non_persistent_buffers(model)

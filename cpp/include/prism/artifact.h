@@ -80,6 +80,15 @@ public:
     const std::string& version() const { return version_; }
     const std::vector<std::string>& language_tags() const { return language_tags_; }
 
+    // Lowercase, period-terminated abbreviations that protect sentence
+    // boundaries during raw-text segmentation, carried in the manifest so the
+    // runtime segments per language without a hardcoded policy. Empty for
+    // legacy artifacts predating the field.
+    const std::vector<std::string>& segmentation_abbreviations() const
+    {
+        return segmentation_abbreviations_;
+    }
+
     // XNNPACK programs sorted by capacity, smallest first.
     const std::vector<Program>& programs() const { return programs_; }
 
@@ -88,6 +97,7 @@ private:
     std::string name_;
     std::string version_;
     std::vector<std::string> language_tags_;
+    std::vector<std::string> segmentation_abbreviations_;
     TokenizerContract tokenizer_;
     Labels labels_;
     std::vector<Program> programs_;

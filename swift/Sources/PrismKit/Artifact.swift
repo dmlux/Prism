@@ -86,10 +86,20 @@ public struct ArtifactManifest: Decodable, Sendable {
     public let characterUnicodeNormalization: String
     public let tokenizer: TokenizerContract
     public let programs: [ArtifactProgram]
+    /// The runtime segmentation inventory (language-specific abbreviations).
+    /// Optional only for artifacts that predate the field; the tagger requires
+    /// it and refuses to segment without it.
+    public let segmentation: SegmentationContract?
     /// Shared external tensor-data files (program-data separation); absent
     /// in artifacts whose programs embed their weights.
     public let dataFiles: [ArtifactDataFile]?
     public let calibrationFile: String?
+}
+
+public struct SegmentationContract: Decodable, Sendable {
+    /// Lowercase abbreviations including their trailing period ("f.eks."); the
+    /// model's own inventory, so every language segments with its own set.
+    public let abbreviations: [String]
 }
 
 public struct ArtifactDataFile: Decodable, Sendable {

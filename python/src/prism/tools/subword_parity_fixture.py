@@ -22,10 +22,19 @@ from pathlib import Path
 from transformers import PreTrainedTokenizerFast
 
 from prism.data.segmentation import segment_pretokenized_sentences
+from prism.languages.english.silver_extraction import (
+    english_sentence_extraction_policy,
+)
 from prism.languages.norwegian.silver_extraction import (
     norwegian_sentence_extraction_policy,
 )
 from prism.modeling.tokenizers import prepare_pretokenized_words
+
+
+_SENTENCE_EXTRACTION_POLICIES = {
+    "nb": norwegian_sentence_extraction_policy,
+    "en": english_sentence_extraction_policy,
+}
 
 
 def build_fixture(
@@ -33,9 +42,10 @@ def build_fixture(
     text: str,
     vocabulary_path: Path,
     maximum_token_count: int,
+    language: str,
 ) -> dict[str, object]:
     tokenizer = PreTrainedTokenizerFast(tokenizer_file=str(vocabulary_path))
-    policy = norwegian_sentence_extraction_policy(
+    policy = _SENTENCE_EXTRACTION_POLICIES[language](
         maximum_token_count=maximum_token_count,
     )
 
@@ -65,12 +75,14 @@ def main() -> None:
     parser.add_argument("--vocabulary", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--maximum-token-count", type=int, default=128)
+    parser.add_argument("--language", choices=("nb", "en"), default="nb")
     arguments = parser.parse_args()
 
     fixture = build_fixture(
         text=arguments.text.read_text(encoding="utf-8"),
         vocabulary_path=arguments.vocabulary,
         maximum_token_count=arguments.maximum_token_count,
+        language=arguments.language,
     )
     arguments.output.write_text(
         json.dumps(fixture, ensure_ascii=False), encoding="utf-8"

@@ -1,45 +1,23 @@
-// Reproducible performance suite for the C++ layer, built on Google
-// Benchmark. Everything it needs is checked in or downloadable from the
-// releases page, so anyone can run the same measurements on their own
-// machine:
-//
-//   cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DPRISM_BENCHMARKS=ON
-//   cmake --build cpp/build --target prism_benchmarks
-//   cpp/build/prism_benchmarks
-//
-// The text inputs are the checked-in CC0 example texts under data/examples/
-// (see the README there). The tagger benchmarks additionally need the local
-// model artifacts (models/prism-no-0.2.3 for fp32, models/prism-no-0.2.3-fast
-// for int8); variants whose artifact is missing are skipped with a note.
-// PRISM_THREADS overrides the CPU thread count for sweeps.
-//
-// Measured variants:
-//   - runtime segmentation per fixture (no model involved)
-//   - subword BPE encoding per fixture (vocabulary only)
-//   - tagger construction (artifact load without inference)
-//   - TagText: raw text in, including segmentation (fp32 and fast)
-//   - Tag(pretokenized): the same document with segmentation prepaid
-//     (fp32 and fast)
-//
-// The document-scale runs repeat the Bokmål fixture until it exceeds 6,000
-// tokens, matching the documented document-inference protocol; tokens/s is
-// reported through the items-per-second counter.
+#include "prism_benchmark_harness.h"
 
 #include <benchmark/benchmark.h>
 
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <memory>
 #include <sstream>
-#include <string>
-#include <vector>
+#include <stdexcept>
+#include <unordered_set>
 
+#include <prism/artifact.h>
 #include <prism/engine.h>
 #include <prism/segmentation.h>
 #include <prism/subword.h>
 #include <prism/tagger.h>
 
+namespace prism::benchmarks {
 namespace {
 
 const std::string kRoot = PRISM_REPOSITORY_ROOT;
@@ -64,11 +42,33 @@ std::size_t TokenCount(const std::vector<prism::segmentation::PretokenizedSenten
     return count;
 }
 
+// The runtime segmentation policy for an artifact comes from its manifest
+// abbreviations. Every shipped artifact declares them; an empty inventory is a
+// hard error rather than a silent fallback that would mis-segment the language.
+prism::segmentation::SegmentationPolicy PolicyForArtifact(const std::string& artifact_directory)
+{
+    const prism::artifact::Artifact artifact(artifact_directory);
+    const auto maximum_token_count = static_cast<std::size_t>(
+        artifact.programs().back().shapes.token_count);
+    const auto& abbreviations = artifact.segmentation_abbreviations();
+    if (abbreviations.empty()) {
+        throw std::runtime_error(
+            "Artifact manifest declares no segmentation abbreviations: "
+            + artifact_directory);
+    }
+    return prism::segmentation::SegmentationPolicy{
+        std::unordered_set<std::string>(abbreviations.begin(), abbreviations.end()),
+        maximum_token_count,
+    };
+}
+
 // Repeat a fixture until the document exceeds the target token count; the
 // documented document-inference protocol measures ~6,000-token documents.
-std::string BuildDocument(const std::string& text, std::size_t minimum_tokens)
+std::string BuildDocument(
+    const std::string& text,
+    std::size_t minimum_tokens,
+    const prism::segmentation::SegmentationPolicy& policy)
 {
-    const auto policy = prism::segmentation::NorwegianPolicy();
     std::string document = text;
     while (TokenCount(prism::segmentation::Segment(document, policy)) < minimum_tokens) {
         document += "\n\n";
@@ -77,14 +77,15 @@ std::string BuildDocument(const std::string& text, std::size_t minimum_tokens)
     return document;
 }
 
-void RegisterSegmentationBenchmark(const std::string& name, const std::string& text)
+void RegisterSegmentationBenchmark(
+    const std::string& name,
+    const std::string& text,
+    const prism::segmentation::SegmentationPolicy& policy)
 {
-    const auto tokens = TokenCount(
-        prism::segmentation::Segment(text, prism::segmentation::NorwegianPolicy()));
+    const auto tokens = TokenCount(prism::segmentation::Segment(text, policy));
     benchmark::RegisterBenchmark(
         ("Segment/" + name).c_str(),
-        [text, tokens](benchmark::State& state) {
-            const auto policy = prism::segmentation::NorwegianPolicy();
+        [text, policy, tokens](benchmark::State& state) {
             for (auto _ : state) {
                 benchmark::DoNotOptimize(prism::segmentation::Segment(text, policy));
             }
@@ -95,14 +96,16 @@ void RegisterSegmentationBenchmark(const std::string& name, const std::string& t
 }
 
 void RegisterSubwordBenchmark(
-    const std::string& name, const std::string& text, const std::string& vocabulary_path)
+    const std::string& name,
+    const std::string& text,
+    const std::string& vocabulary_path,
+    const prism::segmentation::SegmentationPolicy& policy)
 {
     benchmark::RegisterBenchmark(
         ("SubwordEncode/" + name).c_str(),
-        [text, vocabulary_path](benchmark::State& state) {
+        [text, vocabulary_path, policy](benchmark::State& state) {
             const prism::subword::Tokenizer tokenizer(vocabulary_path);
-            const auto sentences = prism::segmentation::Segment(
-                text, prism::segmentation::NorwegianPolicy());
+            const auto sentences = prism::segmentation::Segment(text, policy);
             const auto tokens = TokenCount(sentences);
             for (auto _ : state) {
                 for (const auto& sentence : sentences) {
@@ -116,7 +119,10 @@ void RegisterSubwordBenchmark(
 }
 
 void RegisterTaggerBenchmarks(
-    const std::string& precision, const std::string& artifact, const std::string& document)
+    const std::string& precision,
+    const std::string& artifact,
+    const std::string& document,
+    const prism::segmentation::SegmentationPolicy& policy)
 {
     benchmark::RegisterBenchmark(
         ("TaggerLoad/" + precision).c_str(),
@@ -132,10 +138,7 @@ void RegisterTaggerBenchmarks(
     // lazily on first use, and the steady-state numbers are the ones the
     // document-inference protocol gates.
     auto tagger = std::make_shared<prism::tagger::Tagger>(artifact);
-    const auto sentences = prism::segmentation::Segment(
-        document, prism::segmentation::NorwegianPolicy(
-                      static_cast<std::size_t>(
-                          tagger->artifact().programs().back().shapes.token_count)));
+    const auto sentences = prism::segmentation::Segment(document, policy);
     const auto tokens = TokenCount(sentences);
     (void)tagger->Tag({sentences.front()});
 
@@ -164,7 +167,7 @@ void RegisterTaggerBenchmarks(
 
 } // namespace
 
-int main(int argc, char** argv)
+int Run(int argc, char** argv, const LanguageBenchmarks& language)
 {
     benchmark::Initialize(&argc, argv);
 
@@ -173,43 +176,53 @@ int main(int argc, char** argv)
         prism::engine::SetThreadCount(static_cast<std::size_t>(std::atoi(threads)));
     }
 
-    const auto bokmaal = ReadFile(kRoot + "/data/examples/skarvholmen-bokmaal.txt");
-    const auto nynorsk = ReadFile(kRoot + "/data/examples/fjellvatnet-nynorsk.txt");
-    if (bokmaal.empty() || nynorsk.empty()) {
-        std::cerr << "Checked-in example texts are missing under data/examples/.\n";
-        return 1;
+    // The first present artifact supplies the segmentation policy and the
+    // subword vocabulary for the whole language.
+    std::string available_artifact;
+    for (const auto& variant : language.variants) {
+        if (std::ifstream(kRoot + "/" + variant.artifact_directory + "/manifest.json")) {
+            available_artifact = kRoot + "/" + variant.artifact_directory;
+            break;
+        }
     }
+    if (available_artifact.empty()) {
+        std::cerr << "note: no local artifact present; nothing to benchmark\n";
+        return 0;
+    }
+    const auto policy = PolicyForArtifact(available_artifact);
 
-    RegisterSegmentationBenchmark("bokmaal", bokmaal);
-    RegisterSegmentationBenchmark("nynorsk", nynorsk);
-
-    const auto document = BuildDocument(bokmaal, 6000);
-    const struct {
-        const char* precision;
-        std::string artifact;
-    } variants[] = {
-        {"fp32", kRoot + "/models/prism-no-0.2.3"},
-        {"fast", kRoot + "/models/prism-no-0.2.3-fast"},
-    };
-    bool vocabulary_registered = false;
-    for (const auto& variant : variants) {
-        if (!std::ifstream(variant.artifact + "/manifest.json")) {
-            std::cerr << "note: skipping " << variant.precision
-                      << " tagger benchmarks (missing artifact " << variant.artifact
-                      << ")\n";
+    std::string tagger_text;
+    for (const auto& text : language.texts) {
+        const auto content = ReadFile(kRoot + "/data/examples/" + text.file_name);
+        if (content.empty()) {
+            std::cerr << "note: missing example text " << text.name << "\n";
             continue;
         }
-        if (!vocabulary_registered) {
-            RegisterSubwordBenchmark(
-                "bokmaal", bokmaal, variant.artifact + "/vocabulary.json");
-            RegisterSubwordBenchmark(
-                "nynorsk", nynorsk, variant.artifact + "/vocabulary.json");
-            vocabulary_registered = true;
+        RegisterSegmentationBenchmark(text.name, content, policy);
+        RegisterSubwordBenchmark(
+            text.name, content, available_artifact + "/vocabulary.json", policy);
+        if (text.name == language.tagger_text_name) {
+            tagger_text = content;
         }
-        RegisterTaggerBenchmarks(variant.precision, variant.artifact, document);
+    }
+
+    if (!tagger_text.empty()) {
+        const auto document = BuildDocument(tagger_text, 6000, policy);
+        for (const auto& variant : language.variants) {
+            const auto artifact = kRoot + "/" + variant.artifact_directory;
+            if (!std::ifstream(artifact + "/manifest.json")) {
+                std::cerr << "note: skipping " << variant.label
+                          << " tagger benchmarks (missing artifact "
+                          << variant.artifact_directory << ")\n";
+                continue;
+            }
+            RegisterTaggerBenchmarks(variant.label, artifact, document, policy);
+        }
     }
 
     benchmark::RunSpecifiedBenchmarks();
     benchmark::Shutdown();
     return 0;
 }
+
+} // namespace prism::benchmarks

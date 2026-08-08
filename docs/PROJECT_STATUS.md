@@ -1,6 +1,6 @@
 # Prism project status
 
-Last updated: 2026-08-04
+Last updated: 2026-08-07
 
 ## Product direction
 
@@ -3641,3 +3641,286 @@ distribution contract — size equals the label count, entry 0 equals
 the decision, descending order, sum ≈ 1 — and the label-inventory
 counts. The `TaggedToken` records/structs gained the field additively
 (Java keeps the previous-arity convenience constructors).
+
+## English language profile scaffold (Ettin backbone)
+
+First non-Norwegian language profile, begun as a strict test of the
+language-independent core: heads, training, distillation, silver
+pipeline, calibration, export, and native runtimes stay unchanged; only
+the profile (backbone family, tokenizer, treebank, silver adapters) is
+replaced. `prism/languages/norwegian/` is untouched — the English
+package sits beside it under `prism/languages/english/`. Full rationale
+in [MODEL_STRATEGY.md](MODEL_STRATEGY.md) ("English expansion").
+
+**Backbone evaluation and decision.** NorBERT4 is the GPT-BERT
+architecture (`GptBertForMaskedLM`), and no modern large-corpus English
+model exists in that architecture across the sizes Prism needs
+(same-architecture English is BabyLM-scale only). Three options were
+compared against the size targets (student ≈ `norbert4-xsmall` 17M,
+teacher ≈ `norbert4-large` 360M): the **Ettin encoder suite**
+(ModernBERT lineage; `jhu-clsp/ettin-encoder-17m` 16.80M student,
+`jhu-clsp/ettin-encoder-400m` teacher; MIT, ~2T open tokens) was
+selected over a classic BERT pairing (`google/bert_uncased_L-12_H-256_A-4`
++ `bert-large-*-whole-word-masking`, kept only as a zero-export-risk
+fallback) and over GPT-BERT BabyLM (rejected: ~100M words, base only).
+Ettin wins on data scale (~600× over classic BERT), modern architecture
+close to GPT-BERT, and a paired student/teacher suite with one shared
+tokenizer and recipe — clean for distillation. Teacher starts at 400M
+like-for-like; `ettin-encoder-1b` is the registered upgrade path.
+
+**Export spike (the one open risk) passed.** `ettin-encoder-17m`, wrapped
+in Prism's own `BackboneExportAdapter`, lowered through the production
+`lower_to_executorch_xnnpack` path (`torch.export(strict=True)` →
+`to_edge_transform_and_lower` → XNNPACK → `to_executorch`) with fp32
+parity **2.7·10⁻⁵** against eager. Program-data separation produced a
+small `.pte` plus a shared `model.ptd`, exactly the shipped
+`quantization: none` artifact shape. `fold_scaled_linear_parametrizations`
+is a correct no-op on ModernBERT. Only int8 PT2E quantization is still
+open (a RoPE/mask advanced-indexing edge in calibration) — not part of
+the shipped configuration, deferred.
+
+**Landed in this step:**
+
+- `prism/languages/english/backbones.py` — `ETTIN_ENCODER_17M_BACKBONE`
+  (student) and `ETTIN_ENCODER_400M_BACKBONE` (teacher), pinned to exact
+  Hugging Face commits, `trust_remote_code=False`,
+  `attention_implementation="eager"`, `config_overrides` disabling
+  `reference_compile`.
+- `prism/languages/english/profile.py` — `ENGLISH_PROFILE` (tag `en`,
+  single profile, no macrolanguage split), `UD_English-EWT` gold treebank
+  (CC-BY-SA-4.0; GUM excluded as CC BY-NC-SA 4.0) with a UD-2.17-pinned
+  variant, and `english_profile_for_language_tag` /
+  `english_training_profiles_for_language_tag` resolvers mirroring the
+  Norwegian API so the CLI package can be copied with minimal change.
+- `prism/modeling/backbones.py` — `PretrainedBackboneSpec` gained optional
+  `attention_implementation` and `config_overrides` fields, and
+  `load_backbone_model` threads them (`attn_implementation` kwarg +
+  post-load `setattr` on the config). Defaults preserve the exact prior
+  behaviour; the Norwegian specs are byte-for-byte unaffected.
+- Gold data cloned to `data/raw/UD_English-EWT/` (git-ignored) at the
+  pinned revision `4a4d77f5…` (`en_ewt-ud-{train,dev,test}.conllu`).
+
+**Verification.** The 75 backbone/language/profile tests pass. End-to-end,
+`load_backbone_model(ENGLISH_PROFILE.student_backbone)` returns a
+`ModernBertModel` with 16.80M parameters, `reference_compile=False`, and
+`_attn_implementation="eager"`.
+
+**Not yet done (next steps):** the English CLI package (copy of the
+Norwegian entry points); English silver adapters (Project Gutenberg +
+English Wikipedia); a gold-only English student as the first measured
+baseline; then teacher training, silver labeling, distillation,
+calibration, export, and native-runtime verification. The int8
+quantization path for ModernBERT is a separate follow-up.
+
+## English pipeline: CLI package, silver sources, tests
+
+The English profile now has the full command-line pipeline, ported from
+the Norwegian package to the single `en` profile and delegating to the
+same shared training/evaluation/export machinery. `norwegian/` is
+untouched.
+
+- **CLI package** (`prism/languages/english/`): `train_baseline`,
+  `evaluate_baseline`, `calibrate_baseline`, `export_artifact`,
+  `checkpoint_loading`, `tagger`. Single `en` language tag (no nb/nn/no
+  macrolanguage handling), single Ettin teacher (the `--teacher-backbone
+  base/large` selector is dropped), `prism-en` artifact naming. English
+  UD needs no morphology remapping, so the evaluation UFeats policy is
+  empty; the export path (ExecuTorch/XNNPACK lowering, fixtures, parity
+  gates, manifest, licenses) is shared and unchanged.
+- **Language transforms** (`data/english.py`): identity lemma
+  normalization — English keeps the literal `$` token, unlike Norwegian's
+  `$` marker — and identity lemma/morphology decoders.
+- **Silver pipeline**: `data/gutenberg.py` (public-domain Project
+  Gutenberg adapter — strips the PG header/footer so only the underlying
+  public-domain text remains, reflows paragraphs, shared sentence
+  extraction; reads a `.txt` directory tree or a tar archive), English
+  Wikipedia dump constants reusing the language-independent wikitext
+  parser, an English abbreviation inventory
+  (`english/silver_extraction.py`), and the `prepare_silver_corpus`
+  (`--source gutenberg-eng | wikipedia-eng`) and `label_silver_corpus`
+  CLIs. British/American dialect coverage is addressed **here**, in the
+  silver sources (both included, no spelling normalization), not in the
+  American-leaning EWT gold — UPOS/morphology are dialect-invariant and
+  lemma edit-rules generalise across spellings.
+- **Backbone loader**: `PretrainedBackboneSpec` gained optional
+  `attention_implementation` and `config_overrides`; the English student
+  loads ModernBERT with `attn_implementation="eager"` and
+  `reference_compile=False`. Defaults preserve Norwegian behaviour.
+- **Tests**: `test_english_profile.py` and `test_english_data.py` (profile
+  registry, backbone export settings, pinned revisions, identity
+  transforms, Gutenberg parser). The full suite is 302 + 12 green.
+
+### First measured gold-only English baseline
+
+The gold-only English student (Ettin-encoder-17m, best epoch 3 by
+development-loss, early-stopped after 7; 13 min on MPS) measures on the
+EWT development split:
+
+| Metric | Value |
+| --- | --- |
+| UPOS accuracy | 96.65% |
+| UD UFeats F1 | 96.07% |
+| UD Lemmas F1 | 97.13% |
+| lemma-rule accuracy | 97.85% |
+
+Rare/OOV slices behave as expected (RARE UPOS 92.5%, OOV UPOS 88.3%).
+Sparse morphology features (Foreign 26 tokens, Style 14, Reflex 18 in the
+whole dev split) show volatile per-feature `annotated` accuracy on tiny
+denominators; they carry negligible weight in the aggregate UFeats F1. The
+high-support features (Number, PronType, VerbForm, Tense, Case, Degree,
+Gender — the latter legitimately present on English pronouns) all score
+0.94–0.99 annotated. Temperature calibration improved every head's ECE
+(UPOS 0.0112 → 0.0042).
+
+The first `prism-en-0.1.0` ExecuTorch artifact exports end to end through
+the shared XNNPACK pipeline on the real trained checkpoint: four fp32
+programs (160×96 plus 24×16, 48×32, 96×64) sharing one 68.7 MiB
+`model.ptd`, runtime parity max |Δ| = 2.3·10⁻⁶ with identical decoded
+predictions across all shapes — confirming the ModernBERT backbone ships,
+not just the export spike. The artifact is a local build (not committed);
+the released artifact follows after distillation.
+
+Next quality levers: distillation from the Ettin-encoder-400m teacher
+(selecting on development-loss and development-task-accuracy, as for
+Norwegian) and licensed silver training (Project Gutenberg + English
+Wikipedia). A 1-epoch smoke run had reached UPOS 96.0% / lemma 96.9% /
+bundle 93.5%, consistent with the full run.
+
+## Backbone-specific int8 quantization interface
+
+int8 quantization is architecture-specific and is now encapsulated behind a
+language-independent strategy interface rather than a shared hack, so each
+backbone family owns its own quantization behaviour.
+
+- **Root cause (diagnosed).** ModernBERT builds its sliding-window attention
+  mask by advanced-indexing `attention_mask` with `arange`-derived integer
+  index tensors (`attention_mask[arange_i, arange_j + offset]`). Under PT2E
+  `prepare_pt2e`, the calibration forward floats one of those index tensors and
+  `aten.index` rejects it (`IndexError: tensors used as indices must be long,
+  int, byte or bool tensors`). Graph inspection confirmed the integer index
+  nodes are not themselves annotated by the XNNPACK/embedding quantizer, so
+  this is a subtle `prepare_pt2e`/ModernBERT interaction, not a one-line
+  annotation filter. NorBERT4/GPT-BERT does not index its mask this way and
+  quantizes cleanly.
+- **Interface.** `prism.exporting.quantization.Int8QuantizationStrategy`
+  (`supports_int8`, `prepare_float_adapter`, `quantize`).
+  `XnnpackEmbeddingDynamicInt8Strategy` is the historical default (dynamic
+  per-channel int8 linears + per-channel int8 embeddings, plus the NorBERT4
+  scale-linear folding, moved out of the export CLI into the strategy).
+  `ModernBertInt8Strategy` declines int8 with a clear message and documents the
+  root cause. A profile selects its strategy by the string discriminator
+  `LanguageProfileSpec.quantization` (default `xnnpack-embedding-dynamic`;
+  English sets `modernbert`), resolved at export time by
+  `resolve_int8_quantization_strategy`, so `prism.exporting` keeps no
+  dependency on `prism.languages`.
+- **Wiring.** `lower_to_executorch_xnnpack` and `quantize_adapter_int8` take an
+  optional strategy (default preserves prior behaviour, so Norwegian is
+  byte-identical and untouched). The English export resolves the strategy and
+  fails fast when int8 is requested on a backbone that declines it. The fp32
+  path is unchanged for every backbone: the `prism-en-0.1.0` fp32 export
+  re-runs with identical parity (2.3·10⁻⁶).
+- **Tests.** `test_int8_quantization_strategy.py` (resolution, `supports_int8`
+  per profile, ModernBERT decline, unknown-strategy rejection). Full suite
+  314 + 6 green.
+
+This is the general pattern going forward: where shared code would otherwise be
+bent to fit two backbones, a language-independent interface is introduced and
+each language implements its own specifics.
+
+## English UDPipe 2.17 comparison baseline
+
+The `prism.languages.english.benchmark_udpipe` command (ported from Norwegian)
+scores UDPipe 2.17 on the gold-tokenized English EWT development split via the
+LINDAT REST service (`english-ewt-ud-2.17-251125`, confirmed against the model
+list). On the **2.17** development split (25,151 tokens):
+
+| Development metric | UDPipe 2.17 (English EWT) |
+| --- | ---: |
+| UPOS F1 | 97.5617% |
+| UFeats F1 | 97.8636% |
+| Lemmas F1 | 97.9224% |
+
+Prediction and analysis are stored under
+`runs/udpipe-2.17-251125/ud-2.17/en-development.{conllu,-analysis.json}`,
+alongside the existing Norwegian predictions (`--reuse-prediction` re-scores
+without another service call).
+
+**Release caveat (differs from Norwegian).** Unlike Norwegian — where the
+current-master and UD-2.17 CoNLL-U files are byte-identical, so no separate
+2.17 training was needed — the English EWT master and 2.17 splits **differ**
+(all three splits have distinct SHA-256s). Because the checkpoint schema is
+derived from the training split and the loader binds the treebank release to
+the checkpoint, an exact UDPipe-2.17 comparison requires the Prism model to be
+**trained and evaluated on `--treebank-release 2.17`**. The first gold-only
+baseline was trained on current-master and is therefore not directly
+comparable; the comparison model (teacher + distilled student) should pin
+`--treebank-release 2.17`. UD 2.17 English EWT is cloned at
+`c5baffde1e106bcd828c520109eb905bfc3ac06f` under
+`data/raw/ud-2.17/UD_English-EWT/`.
+
+### Teacher (Ettin-encoder-400m) beats UDPipe 2.17 on 2.17 dev
+
+The distillation teacher (Ettin-encoder-400m, trained on 2.17 gold,
+task-accuracy-selected, best epoch 12, ~3h12m on MPS), evaluated with the
+official UD metrics on the 2.17 development split:
+
+| 2.17 dev metric | Prism teacher | UDPipe 2.17 | Δ |
+| --- | ---: | ---: | ---: |
+| UD UPOS F1 | 98.2477% | 97.5617% | +0.686 pp |
+| UD UFeats F1 | 98.3849% | 97.8636% | +0.521 pp |
+| UD Lemmas F1 | 98.0086% | 97.9224% | +0.086 pp |
+
+The teacher leads UDPipe on all three core metrics, all crossing ~98%, with no
+morphology-logit correction — the web-pretrained ModernBERT backbone exploits
+the English-material advantage a classical tagger cannot. Note that
+`lemma-rule accuracy` (98.73%) overstates the comparable `UD Lemmas F1`
+(98.01%) by ~0.7 pp, as expected. Caveats: this is the dev-only 400M teacher
+(the ceiling); the shipped 17M student, distilled from it, is the artifact that
+will be compared, and Lemmas is razor-thin (+0.086 pp) so the smaller student
+may fall below UDPipe there until silver training closes it. Test splits remain
+untouched.
+
+## Language-independent native runtimes (all bindings load every model)
+
+Shipping a second backbone family surfaced everywhere the native runtimes had
+quietly assumed the Norwegian model. The transition points to a specific
+model are now generic interfaces with a per-model adapter selected from the
+artifact, so C++, Swift, and Java (which delegates to C++) all load and tag
+both NorBERT4 (GPT-BERT) and ModernBERT/Ettin artifacts without a code change.
+
+- **Subword tokenizer (C++ and Swift).** Normalization, pre-tokenization, and
+  the special-token template are read from `vocabulary.json`, each served by a
+  per-model adapter. Normalizer: `NFKC` folds Western-prose compatibility
+  characters (NorBERT4); `NFC` is the identity on already-composed input
+  (ModernBERT). Pre-tokenizer: NorBERT4's case-splitting `Split` regex (single
+  digits, upper/lower-case run boundaries) versus ModernBERT's byte-level GPT-2
+  regex (whole letter runs, whole digit runs, lowercase contraction suffixes, a
+  single attached leading space). `unk_token` is optional (ModernBERT's is
+  `null`), and the `[CLS]`/`[SEP]` prefix and suffix come from the
+  `TemplateProcessing` post-processor instead of a hard-coded `<s>`. C++
+  hand-writes the two pre-tokenizers as scanners; Swift drives them with
+  `NSRegularExpression` (the GPT-2 regex is a constant, NorBERT4's travels in
+  the artifact). An unrecognized normalizer/pre-tokenizer is a hard error.
+
+- **Segmentation policy (C++, Swift, Java-via-C++).** The abbreviation
+  inventory is language-specific and travels in the manifest
+  (`segmentation.abbreviations`); the runtime builds its `SegmentationPolicy`
+  from it and **hard-errors** on an empty inventory rather than falling back to
+  the built-in Norwegian set — a fallback that silently mis-segments any other
+  language. The manifest gained the field via `ModelArtifactManifest`; existing
+  Norwegian artifacts are re-exported to carry it (model bytes byte-identical,
+  only the manifest grows the block).
+
+- **Benchmarks (C++).** The single generic-loop `prism_benchmarks.cpp` is
+  replaced by a shared harness (`prism_benchmark_harness.*`) plus one slim
+  executable per language (`prism_benchmarks_norwegian`,
+  `prism_benchmarks_english`) that lists only its texts and artifacts.
+
+- **Parity (both native suites).** Every C++ test has a Swift counterpart
+  (the C-ABI tests excepted — Swift uses ExecuTorch directly). Swift engine
+  tests now assert recorded-output parity (fp32, int8, English) like C++'s
+  `ExpectFixtureParity`, not merely a valid distribution. English gains engine
+  and subword parity fixtures (`harbor-english`, a CC0 text with digits, mixed
+  case, abbreviations, a missing-space boundary, a URL, and an email); the C++
+  and Swift tokenizers reproduce the Python reference IDs exactly, and
+  Norwegian output is unchanged across all shared fixtures.

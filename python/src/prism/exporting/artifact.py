@@ -258,6 +258,11 @@ class ModelArtifactManifest:
     treebanks: tuple[TreebankProvenance, ...]
     quantization: str
     calibration_file: str | None
+    # Lowercase, period-terminated abbreviations that protect sentence
+    # boundaries during raw-text segmentation. Carried in the artifact so the
+    # native runtimes read them per language instead of hardcoding a policy;
+    # empty for legacy artifacts predating this field.
+    segmentation_abbreviations: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _require_non_empty(self.artifact_name, "Artifact name")
@@ -297,6 +302,9 @@ class ModelArtifactManifest:
             "treebanks": [treebank.to_json_dict() for treebank in self.treebanks],
             "quantization": self.quantization,
             "calibration_file": self.calibration_file,
+            "segmentation": {
+                "abbreviations": list(self.segmentation_abbreviations),
+            },
         }
 
 

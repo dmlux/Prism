@@ -1,4 +1,4 @@
-"""Export the selected Norwegian checkpoint as a versioned model artifact.
+"""Export the selected English checkpoint as a versioned model artifact.
 
 The resulting directory is the cross-platform release contract from
 ``docs/MODEL_STRATEGY.md``: a lowered ExecuTorch program with static shapes,
@@ -6,9 +6,8 @@ the manifest, the label schema, the subword vocabulary, recorded parity
 fixtures, and license provenance. The morphology logit correction is embedded
 in the exported graph, so native runtimes decode plain logits.
 
-The artifact records canonical decoding only. The versioned Nynorsk external
-treebank policy and confidence calibration remain documented follow-up tasks
-before a production release.
+The artifact records canonical decoding only; confidence calibration is
+baked into the graph when a calibration file is supplied.
 """
 
 import argparse
@@ -23,7 +22,7 @@ from torch import Tensor, nn
 from transformers import PreTrainedTokenizerBase
 
 from prism.conllu import read_sentences
-from prism.data import encode_norwegian_sentences
+from prism.data import encode_english_sentences
 from prism.data.examples import PretokenizedSentence
 from prism.exporting import (
     CalibratedProbabilityExportLayer,
@@ -42,9 +41,9 @@ from prism.exporting import (
     build_fixtures_payload,
     build_labels_payload,
     decoded_sentence_predictions,
-    fold_scaled_linear_parametrizations,
     lower_to_executorch_xnnpack,
     quantize_adapter_int8,
+    resolve_int8_quantization_strategy,
     maximum_task_probability_difference,
     pad_character_token_batch,
     pad_tokenized_batch,
@@ -56,15 +55,15 @@ from prism.exporting import (
     top_k_output_tensors,
     write_json_file,
 )
-from prism.languages.norwegian import (
-    norwegian_training_profiles_for_language_tag,
+from prism.languages.english import (
+    english_training_profiles_for_language_tag,
 )
-from prism.languages.norwegian.silver_extraction import (
-    NORWEGIAN_SILVER_ABBREVIATIONS,
+from prism.languages.english.silver_extraction import (
+    ENGLISH_SILVER_ABBREVIATIONS,
 )
-from prism.languages.norwegian.checkpoint_loading import (
-    LoadedNorwegianTagger,
-    load_norwegian_token_tagger,
+from prism.languages.english.checkpoint_loading import (
+    LoadedEnglishTagger,
+    load_english_token_tagger,
 )
 from prism.modeling import (
     encode_character_token_batch,
@@ -107,7 +106,7 @@ def parse_artifact_export_arguments(
 ) -> ArtifactExportArguments:
     parser = argparse.ArgumentParser(
         description=(
-            "Export a Norwegian checkpoint as a versioned ExecuTorch artifact."
+            "Export an English checkpoint as a versioned ExecuTorch artifact."
         ),
     )
     parser.add_argument(
@@ -129,8 +128,8 @@ def parse_artifact_export_arguments(
     )
     parser.add_argument(
         "--language-tag",
-        choices=("nb", "nn", "no"),
-        default="no",
+        choices=("en",),
+        default="en",
         help="Language coverage the exported artifact claims.",
     )
     parser.add_argument(
@@ -144,7 +143,7 @@ def parse_artifact_export_arguments(
         default=0.25,
         help=(
             "Correction embedded into the exported graph; 0.25 is the "
-            "selected canonical strength of the shipped Norwegian student."
+            "selected canonical strength of the shipped English student."
         ),
     )
     parser.add_argument(
@@ -275,9 +274,9 @@ def parse_artifact_export_arguments(
 
 def _pretokenized_development_sentences(
     development_path: Path,
-    tagger: LoadedNorwegianTagger,
+    tagger: LoadedEnglishTagger,
 ) -> tuple[PretokenizedSentence, ...]:
-    corpus = encode_norwegian_sentences(
+    corpus = encode_english_sentences(
         tuple(read_sentences(development_path)),
         schema=tagger.schema,
     )
@@ -324,7 +323,7 @@ def _padding_token_id(tokenizer: PreTrainedTokenizerBase) -> int:
 def build_fixture_input_tensors(
     *,
     sentences: tuple[PretokenizedSentence, ...],
-    tagger: LoadedNorwegianTagger,
+    tagger: LoadedEnglishTagger,
     shapes: FixedExportShapes,
 ) -> tuple[tuple[str, Tensor], ...]:
     """Tokenize, encode, and pad one sentence batch to the export contract."""
@@ -363,7 +362,7 @@ def build_fixture_input_tensors(
 
 
 def _output_names(
-    tagger: LoadedNorwegianTagger,
+    tagger: LoadedEnglishTagger,
     *,
     calibrated: bool = False,
 ) -> tuple[str, ...]:
@@ -381,7 +380,7 @@ def _output_names(
 def _decodable_flat_outputs(
     outputs: tuple[Tensor, ...],
     *,
-    tagger: LoadedNorwegianTagger,
+    tagger: LoadedEnglishTagger,
     calibrated: bool,
 ) -> tuple[Tensor, ...]:
     """Map calibrated probabilities back to decode-equivalent logits.
@@ -421,7 +420,7 @@ def _tensor_specs(
 
 
 def build_export_adapter(
-    tagger: LoadedNorwegianTagger,
+    tagger: LoadedEnglishTagger,
     *,
     morphology_logit_correction_strength: float,
     calibration: "TaskTemperatureCalibration | None" = None,
@@ -564,11 +563,20 @@ def _silver_corpus_paths(checkpoint: dict) -> tuple[str, ...]:
 def main() -> None:
     arguments = parse_artifact_export_arguments()
 
-    profiles = norwegian_training_profiles_for_language_tag(
+    profiles = english_training_profiles_for_language_tag(
         arguments.language_tag,
         treebank_release=arguments.treebank_release,
     )
-    tagger = load_norwegian_token_tagger(
+    quantization_strategy = resolve_int8_quantization_strategy(
+        profiles[0].quantization
+    )
+    if arguments.precision == "int8" and not quantization_strategy.supports_int8():
+        raise SystemExit(
+            "int8 quantization is not supported for this profile's backbone "
+            f"({profiles[0].student_backbone.model_id}); export with "
+            "--precision fp32."
+        )
+    tagger = load_english_token_tagger(
         checkpoint_path=arguments.checkpoint_path,
         required_language_tags=tuple(profile.language_tag for profile in profiles),
         treebank_release=arguments.treebank_release,
@@ -604,8 +612,7 @@ def main() -> None:
         tagger.model.backbone.to(torch.float16)
         print("Precision: fp16 backbone, fp32 task heads")
     elif arguments.precision == "int8":
-        folded = fold_scaled_linear_parametrizations(adapter)
-        print(f"Folded {folded} scale-parametrized linears (exact).")
+        adapter = quantization_strategy.prepare_float_adapter(adapter)
         calibration_batches = []
         for profile in profiles:
             calibration_sentences = _fitting_fixture_sentences(
@@ -635,6 +642,7 @@ def main() -> None:
         adapter = quantize_adapter_int8(
             adapter=adapter,
             calibration_batches=calibration_batches,
+            strategy=quantization_strategy,
         )
         print(
             "Precision: int8 (dynamic linears, per-channel embeddings); "
@@ -739,6 +747,7 @@ def main() -> None:
         example_inputs=example_inputs,
         external_data_name=external_data_name,
         quantized=arguments.precision == "int8",
+        int8_strategy=quantization_strategy,
     )
     program_bytes = lowered.program_bytes
     program_file_name = "model-xnnpack.pte"
@@ -911,6 +920,7 @@ def main() -> None:
             example_inputs=tuple(tensor for _, tensor in small_inputs),
             external_data_name=external_data_name,
             quantized=arguments.precision == "int8",
+            int8_strategy=quantization_strategy,
         )
         small_bytes = small_lowered.program_bytes
         small_file_name = (
@@ -1006,13 +1016,7 @@ def main() -> None:
             arguments.calibration_path,
             artifact_directory / calibration_file_name,
         )
-    # The joint model serves mixed and unspecified Norwegian input, so the
-    # artifact declares the BCP 47 macrolanguage alongside the written
-    # standards: hosts decide language support from the manifest, and
-    # documents tagged plain "no" must match without host-side aliases.
     manifest_language_tags = tuple(profile.language_tag for profile in profiles)
-    if arguments.language_tag == "no":
-        manifest_language_tags = (*manifest_language_tags, "no")
     manifest = ModelArtifactManifest(
         artifact_name=artifact_name,
         artifact_version=arguments.artifact_version,
@@ -1066,7 +1070,7 @@ def main() -> None:
         treebanks=treebanks,
         quantization="none",
         calibration_file=calibration_file_name,
-        segmentation_abbreviations=tuple(sorted(NORWEGIAN_SILVER_ABBREVIATIONS)),
+        segmentation_abbreviations=tuple(sorted(ENGLISH_SILVER_ABBREVIATIONS)),
     )
     write_json_file(artifact_directory / "manifest.json", manifest.to_json_dict())
     write_licenses_directory(

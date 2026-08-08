@@ -6,6 +6,7 @@
 #include <numeric>
 #include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "prism/engine.h"
 #include "prism/subword.h"
@@ -102,13 +103,33 @@ void ValidateSourceMapping(const segmentation::PretokenizedSentence& sentence)
     }
 }
 
+// Build the runtime segmentation policy from the artifact's manifest-carried
+// abbreviations. The inventory is language-specific and every shipped artifact
+// declares it; an empty one is a hard error rather than a silent fallback to
+// Norwegian, which would mis-segment any other language's sentence boundaries.
+segmentation::SegmentationPolicy PolicyFromArtifact(
+    const artifact::Artifact& artifact, std::size_t maximum_token_count)
+{
+    const auto& abbreviations = artifact.segmentation_abbreviations();
+    if (abbreviations.empty()) {
+        throw std::runtime_error(
+            "Artifact manifest declares no segmentation abbreviations; the "
+            "runtime cannot segment without the model's inventory.");
+    }
+    return segmentation::SegmentationPolicy{
+        std::unordered_set<std::string>(abbreviations.begin(), abbreviations.end()),
+        maximum_token_count,
+    };
+}
+
 } // namespace
 
 struct Tagger::Implementation {
     explicit Implementation(const std::filesystem::path& directory)
         : artifact(directory)
         , tokenizer(directory / artifact.tokenizer().file_name)
-        , policy(segmentation::NorwegianPolicy(
+        , policy(PolicyFromArtifact(
+              artifact,
               static_cast<std::size_t>(artifact.programs().back().shapes.token_count)))
     {
         std::int64_t identifier = kFirstLiteralCharacterId;
