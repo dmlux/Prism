@@ -11,8 +11,8 @@ Measured full-tagger sizes (English schema: 18 UPOS / 21 morphology features /
 ~1.6k lemma rules; production head WIDE_SHARED_MLP_STRUCTURED_MORPHOLOGY_
 CHARACTER_CNN):
 
-    H384 · 8L · FF1024 · V16384 -> backbone 21.7M + heads 2.3M = 23.9M  ~95.7 MB  <- default
-    H320 · 12L · FF1024 · V16384 -> backbone 23.2M + heads 1.7M = 24.9M  ~99.6 MB
+    H320 · 12L · FF1024 · V16384 -> backbone 23.2M + heads 1.7M = 24.9M  ~99.6 MB  <- default (deeper: morphology/syntax + NorBERT4-family alignment)
+    H384 · 8L · FF1024 · V16384 -> backbone 21.7M + heads 2.3M = 23.9M  ~95.7 MB  (wider fallback if UFeats disappoints)
     H384 · 10L · FF1024 · V16384 -> 27.8M                              ~111  MB (over budget)
 
 Special-token convention mirrors the canonical gpt_bert tokenizer:
@@ -51,9 +51,9 @@ TAGGER_FP32_BUDGET_MB = 100.0
 class PrismBertConfig:
     """Backbone dimensions for a per-language PrismBERT."""
 
-    hidden_size: int = 384
-    num_layers: int = 8
-    num_attention_heads: int = 6
+    hidden_size: int = 320
+    num_layers: int = 12
+    num_attention_heads: int = 5
     intermediate_size: int = 1024
     vocab_size: int = 16384
     position_bucket_size: int = 32
@@ -64,11 +64,13 @@ class PrismBertConfig:
             raise ValueError("hidden_size must be divisible by num_attention_heads.")
 
 
-# The shipped English default (measured ~95.7 MB full tagger).
+# The shipped English default (measured ~99.6 MB full tagger): deeper/narrower
+# for morphology + syntax and alignment with the deep NorBERT4 family the Prism
+# pipeline (pooling, LEARNED_LAST_FOUR aggregation, heads) is tuned on.
 PRISM_BERT_EN = PrismBertConfig(
-    hidden_size=384,
-    num_layers=8,
-    num_attention_heads=6,
+    hidden_size=320,
+    num_layers=12,
+    num_attention_heads=5,
     intermediate_size=1024,
     vocab_size=16384,
 )

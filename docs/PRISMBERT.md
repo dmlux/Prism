@@ -104,11 +104,44 @@ and its int8 linears fully delegate to XNNPACK — Weg A validated. Proceed to
 Stage 2 (pretrain), resolving the `to_executorch` out-variant during real
 export wiring.
 
-## Stage 2 — pretrain the deployable PrismBERT-en (~30 M)
+## Stage 2 — pretrain the deployable PrismBERT-en (in `prism.prismbert`)
 
-If Stage 1 holds: pretrain a strict-small-class config (hidden 384, 12 layers,
-FF 1280, 6 heads, small vocab) with the ltgoslo/gpt-bert recipe + **QAT**
-(torchao `prepare_qat_pt2e` → ExecuTorch XNNPACK), on English raw text. ~48
-GPU-hours for the 120 M baseline → a smaller model + one strong GPU is a few
-days. Confirm tied embeddings to stay < 100 MB fp32. Then distil the Prism
-tagger onto it and release fp32 + int8(`-fast`) from `main`.
+Stage 1 held, so we pretrain our own backbone. Everything lives in the
+`prism/prismbert/` package.
+
+**Config (finalized, measured):** `PRISM_BERT_EN` = hidden 320, 12 layers, 5
+heads, FF 1024, vocab 16384. The FULL tagger (backbone + heads + character CNN +
+structured morphology + lemma head) is **~99.6 MB fp32** — under the 100 MB
+budget and well above today's Ettin-17m (68.6 MB), using the headroom for
+capacity. Deeper/narrower chosen over wider/shallower (H384/8L, 95.7 MB) for
+morphology/syntax and alignment with the deep NorBERT4 family the Prism heads
+are tuned on; the wide variant is the fallback if UFeats disappoints.
+
+**Corpus (legally clean, commercial-safe):** `prism.prismbert.corpus` streams
+English Wikipedia (CC BY-SA 3.0/GFDL, ~3B tokens, modern register) + Project
+Gutenberg (`sedthh/gutenberg_english`, public domain, literary register — the
+primary Prism use case) to JSONL shards with pinned dataset revisions. No
+CommonCrawl-derived text (unclear copyright). ~4–5B clean tokens — ample for a
+~24M model. Weights release under CC BY-SA 4.0; the SA chain is honored by the
+CC-BY-SA Wikipedia + public-domain Gutenberg provenance.
+
+**Tokenizer:** `prism.prismbert.tokenizer` — byte-level BPE, vocab 16384,
+special tokens fixed to the gpt_bert ids.
+
+**Pretraining:** `prism.prismbert.pretrain` — fresh gpt_bert masked-LM, 15% MLM
+via HF Trainer. **This machine is Apple M4 Max (40-core GPU, 64 GB), MPS only —
+no CUDA**, so training is fp32 on MPS, days-to-weeks (not the 48-GPU-h CUDA
+reference), run iteratively (start ~1–2B tokens → measure → extend). Track
+held-out pseudo-perplexity; a `--smoke` run de-risks the loop first.
+
+**Teacher (no own large model):** reuse the existing **Ettin-encoder-400m (MIT)**
+as the distillation teacher — permissive license keeps the student commercially
+safe; cross-architecture logit + silver distillation is fine. Same pattern for
+other languages: pick a strong permissive large model, don't pretrain a teacher.
+
+**int8 + ship:** near-lossless post-training int8 expected (NorBERT4 family);
+QAT (`torchao prepare_qat_pt2e` → ExecuTorch XNNPACK) only as a fallback if the
+int8 gate regresses. Resolve the Stage-1 `to_executorch` out-variant during
+export wiring. Distil the tagger (existing pipeline, student backbone swapped)
+on gold + silver, then release fp32 + int8(`-fast`) **from `main`**; publish the
+raw PrismBERT-en backbone separately on HF (not bundled in the tagger tarball).
