@@ -18,20 +18,15 @@ CHARACTER_CNN):
 Special-token convention mirrors the canonical gpt_bert tokenizer:
 ``<unk>``=0, ``<s>``=1 (cls/bos), ``</s>``=2 (sep/eos), ``<pad>``=3, ``<mask>``=4.
 
-NOTE (pre-ship follow-up): the config/model code is currently obtained from the
-canonical ``gpt_bert`` reference via ``trust_remote_code``; vendor the modeling
-+ configuration modules into this package (transformers-5.x compatible) before
-publishing PrismBERT so we own the code and drop the third-party remote-code
-dependency.
+The modeling + configuration code is vendored in this package
+(``modeling_gpt_bert.py``, ``configuration_gpt_bert.py``, from the Apache-2.0
+BabyLM-community gpt_bert, adapted for transformers 5.x) — no
+``trust_remote_code`` / third-party remote-code dependency.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-
-# The canonical gpt_bert reference we template the config from (until vendored).
-GPT_BERT_REFERENCE = "BabyLM-community/babylm-baseline-100m-gpt-bert-mixed"
-GPT_BERT_REFERENCE_REVISION = "09629ffe557c4143aa7b857f92004f3e45689eff"
 
 # Special tokens (ids fixed to the gpt_bert convention; the trained tokenizer
 # must place them at exactly these ids).
@@ -77,36 +72,19 @@ PRISM_BERT_EN = PrismBertConfig(
 
 
 def build_gpt_bert_config(config: PrismBertConfig):
-    """Return a ``transformers`` config object for the gpt_bert architecture.
+    """Return the vendored ``ModelConfig`` for the gpt_bert architecture."""
 
-    Templates the canonical gpt_bert config (via ``trust_remote_code``) and
-    overrides the dimensions + special-token ids. Requires the optional
-    ``datasets``/``transformers`` remote-code fetch on first use.
-    """
+    from prism.prismbert.configuration_gpt_bert import ModelConfig
 
-    import transformers
-
-    # transformers 5.x reads ``all_tied_weights_keys`` during load; the canonical
-    # gpt_bert code predates it. Harmless empty-dict fallback.
-    pretrained_model = transformers.modeling_utils.PreTrainedModel
-    if not isinstance(getattr(pretrained_model, "all_tied_weights_keys", None), dict):
-        pretrained_model.all_tied_weights_keys = {}
-
-    from transformers import AutoConfig
-
-    hf_config = AutoConfig.from_pretrained(
-        GPT_BERT_REFERENCE,
-        revision=GPT_BERT_REFERENCE_REVISION,
-        trust_remote_code=True,
+    return ModelConfig(
+        hidden_size=config.hidden_size,
+        num_layers=config.num_layers,
+        num_attention_heads=config.num_attention_heads,
+        intermediate_size=config.intermediate_size,
+        vocab_size=config.vocab_size,
+        position_bucket_size=config.position_bucket_size,
+        max_position_embeddings=config.max_position_embeddings,
+        pad_token_id=SPECIAL_TOKENS["pad"][1],
+        bos_token_id=SPECIAL_TOKENS["cls"][1],
+        eos_token_id=SPECIAL_TOKENS["sep"][1],
     )
-    hf_config.hidden_size = config.hidden_size
-    hf_config.num_layers = config.num_layers
-    hf_config.num_hidden_layers = config.num_layers
-    hf_config.num_attention_heads = config.num_attention_heads
-    hf_config.intermediate_size = config.intermediate_size
-    hf_config.vocab_size = config.vocab_size
-    hf_config.position_bucket_size = config.position_bucket_size
-    hf_config.max_position_embeddings = config.max_position_embeddings
-    for role, (_, token_id) in SPECIAL_TOKENS.items():
-        setattr(hf_config, f"{role}_token_id", token_id)
-    return hf_config

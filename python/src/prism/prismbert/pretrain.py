@@ -82,12 +82,13 @@ class TokenBlockStream(IterableDataset):
 
 def pretrain(args: argparse.Namespace) -> None:
     from transformers import (
-        AutoModelForMaskedLM,
         DataCollatorForLanguageModeling,
         PreTrainedTokenizerFast,
         Trainer,
         TrainingArguments,
     )
+
+    from prism.prismbert.modeling_gpt_bert import GPTBERTForMaskedLM
 
     if not torch.backends.mps.is_available():
         print("WARNING: MPS not available; falling back to CPU (very slow).")
@@ -96,7 +97,7 @@ def pretrain(args: argparse.Namespace) -> None:
     config = PRISM_BERT_EN  # the resolved default; edit config.py to change dims
     hf_config = build_gpt_bert_config(config)
     hf_config.vocab_size = tokenizer.vocab_size
-    model = AutoModelForMaskedLM.from_config(hf_config, trust_remote_code=True)
+    model = GPTBERTForMaskedLM(hf_config)
     params = sum(p.numel() for p in model.parameters())
     print(
         f"Fresh PrismBERT: H{config.hidden_size}/L{config.num_layers}/"
@@ -144,32 +145,9 @@ def pretrain(args: argparse.Namespace) -> None:
         report_to=[],
         use_cpu=not torch.backends.mps.is_available(),
     )
-    # The canonical gpt_bert MaskedLM.forward computes its own loss but never
-    # passes the mask to the LM head (projects all positions, then compares to
-    # the flattened masked labels -> shape mismatch). Compute the standard MLM
-    # loss ourselves from the full logits instead, ignoring -100 positions.
-    import torch.nn.functional as F
-
-    class PrismBertTrainer(Trainer):
-        def compute_loss(
-            self, model, inputs, return_outputs=False, num_items_in_batch=None
-        ):
-            labels = inputs.pop("labels")
-            outputs = model(
-                input_ids=inputs["input_ids"],
-                attention_mask=inputs.get("attention_mask"),
-            )
-            logits = getattr(outputs, "logits", None)
-            if logits is None:
-                logits = outputs[0]
-            loss = F.cross_entropy(
-                logits.reshape(-1, logits.size(-1)),
-                labels.reshape(-1),
-                ignore_index=-100,
-            )
-            return (loss, outputs) if return_outputs else loss
-
-    trainer = PrismBertTrainer(
+    # The vendored GPTBERTForMaskedLM returns a correct HF masked-LM loss, so
+    # the standard Trainer handles loss and gradient-accumulation scaling.
+    trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_ds,
