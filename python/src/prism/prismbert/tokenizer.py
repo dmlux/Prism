@@ -9,12 +9,14 @@ directory (``tokenizer.json`` + configs) that both the pretraining loop and the
 downstream Prism pipeline (``load_backbone_tokenizer``) can load.
 
 A BPE vocabulary does not need the full corpus; training on a representative
-sample is standard and much faster. ``--sample-docs`` caps it.
+sample is standard and much faster. ``--sample-tokens`` caps it and the sources
+are interleaved so both registers (modern Wikipedia + literary Gutenberg) are
+represented rather than token-dense books dominating.
 
 Run:
     PYTHONPATH=python/src .venv/bin/python -m prism.prismbert.tokenizer \
         --corpus data/pretraining/en --output models/prism-bert-en/tokenizer \
-        --vocab-size 16384 --sample-docs 3000000
+        --vocab-size 16384 --sample-tokens 500000000
 """
 
 from __future__ import annotations
@@ -30,22 +32,45 @@ _SPECIAL_ORDER = ["unk", "cls", "sep", "pad", "mask"]  # -> ids 0,1,2,3,4
 SPECIAL_TOKEN_LIST = [SPECIAL_TOKENS[role][0] for role in _SPECIAL_ORDER]
 
 
-def _iter_corpus_text(corpus_dir: Path, sample_docs: int | None) -> Iterator[str]:
-    seen = 0
-    for shard in sorted(corpus_dir.glob("*.jsonl")):
+def _group_documents(shards: list[Path]) -> Iterator[str]:
+    for shard in shards:
         with shard.open(encoding="utf-8") as handle:
             for line in handle:
                 text = json.loads(line).get("text", "").strip()
-                if not text:
-                    continue
-                yield text
-                seen += 1
-                if sample_docs is not None and seen >= sample_docs:
-                    return
+                if text:
+                    yield text
+
+
+def _iter_corpus_text(corpus_dir: Path, sample_tokens: int | None) -> Iterator[str]:
+    """Round-robin documents across sources, capped by a whitespace-token budget.
+
+    Interleaving keeps both registers represented (books are token-dense and
+    would otherwise dominate the BPE statistics); the token budget bounds
+    training time/memory — a 16k vocab converges well under 1B tokens.
+    """
+
+    groups: dict[str, list[Path]] = {}
+    for shard in sorted(corpus_dir.glob("*.jsonl")):
+        groups.setdefault(shard.name.split("-")[0], []).append(shard)
+    iterators = {prefix: _group_documents(shards) for prefix, shards in groups.items()}
+
+    tokens = 0
+    active = list(iterators)
+    while active:
+        for prefix in list(active):
+            try:
+                text = next(iterators[prefix])
+            except StopIteration:
+                active.remove(prefix)
+                continue
+            yield text
+            tokens += text.count(" ") + 1
+            if sample_tokens is not None and tokens >= sample_tokens:
+                return
 
 
 def train_tokenizer(
-    *, corpus_dir: Path, output_dir: Path, vocab_size: int, sample_docs: int | None
+    *, corpus_dir: Path, output_dir: Path, vocab_size: int, sample_tokens: int | None
 ) -> None:
     from tokenizers import Tokenizer, decoders, models, pre_tokenizers, processors
     from tokenizers.trainers import BpeTrainer
@@ -60,13 +85,14 @@ def train_tokenizer(
         initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),
         show_progress=True,
     )
+    budget = "all" if sample_tokens is None else f"~{sample_tokens/1e6:.0f}M ws-tokens"
     print(
         f"Training byte-level BPE (vocab {vocab_size}) on {corpus_dir} "
-        f"(sample_docs={sample_docs})…",
+        f"(interleaved sources, budget {budget})…",
         flush=True,
     )
     tokenizer.train_from_iterator(
-        _iter_corpus_text(corpus_dir, sample_docs), trainer=trainer
+        _iter_corpus_text(corpus_dir, sample_tokens), trainer=trainer
     )
 
     cls_id, sep_id = SPECIAL_TOKENS["cls"][1], SPECIAL_TOKENS["sep"][1]
@@ -116,17 +142,18 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--vocab-size", type=int, default=16384)
     parser.add_argument(
-        "--sample-docs",
+        "--sample-tokens",
         type=int,
-        default=3_000_000,
-        help="Cap documents used for BPE training (None = all).",
+        default=500_000_000,
+        help="Whitespace-token budget for BPE training, interleaved across "
+        "sources (0 = use the entire corpus).",
     )
     arguments = parser.parse_args()
     train_tokenizer(
         corpus_dir=arguments.corpus,
         output_dir=arguments.output,
         vocab_size=arguments.vocab_size,
-        sample_docs=arguments.sample_docs,
+        sample_tokens=arguments.sample_tokens or None,
     )
 
 

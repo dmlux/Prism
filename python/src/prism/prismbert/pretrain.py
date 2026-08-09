@@ -123,13 +123,14 @@ def pretrain(args: argparse.Namespace) -> None:
         tokenizer=tokenizer, mlm=True, mlm_probability=0.15
     )
 
+    max_steps = 50 if args.smoke else args.max_steps
     training_args = TrainingArguments(
         output_dir=str(args.output),
-        max_steps=50 if args.smoke else args.max_steps,
+        max_steps=max_steps,
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.learning_rate,
-        warmup_ratio=0.02,
+        warmup_steps=max(1, int(0.02 * max_steps)),
         lr_scheduler_type="cosine",
         weight_decay=0.01,
         logging_steps=10 if args.smoke else 100,
@@ -143,7 +144,32 @@ def pretrain(args: argparse.Namespace) -> None:
         report_to=[],
         use_cpu=not torch.backends.mps.is_available(),
     )
-    trainer = Trainer(
+    # The canonical gpt_bert MaskedLM.forward computes its own loss but never
+    # passes the mask to the LM head (projects all positions, then compares to
+    # the flattened masked labels -> shape mismatch). Compute the standard MLM
+    # loss ourselves from the full logits instead, ignoring -100 positions.
+    import torch.nn.functional as F
+
+    class PrismBertTrainer(Trainer):
+        def compute_loss(
+            self, model, inputs, return_outputs=False, num_items_in_batch=None
+        ):
+            labels = inputs.pop("labels")
+            outputs = model(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs.get("attention_mask"),
+            )
+            logits = getattr(outputs, "logits", None)
+            if logits is None:
+                logits = outputs[0]
+            loss = F.cross_entropy(
+                logits.reshape(-1, logits.size(-1)),
+                labels.reshape(-1),
+                ignore_index=-100,
+            )
+            return (loss, outputs) if return_outputs else loss
+
+    trainer = PrismBertTrainer(
         model=model,
         args=training_args,
         train_dataset=train_ds,
