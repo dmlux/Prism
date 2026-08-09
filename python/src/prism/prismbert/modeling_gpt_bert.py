@@ -486,6 +486,7 @@ class GPTBERTForCausalLM(GPTBERTPreTrainedModel):
         output_attentions: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         labels: Optional[torch.LongTensor] = None,
+        num_items_in_batch: Optional[int] = None,
         **kwargs
     ) -> Union[tuple, CausalLMOutput]:
 
@@ -495,16 +496,21 @@ class GPTBERTForCausalLM(GPTBERTPreTrainedModel):
 
         loss = None
         if labels is not None:
-            # Standard cross-entropy over the full-vocabulary logits; -100
-            # positions are ignored (HF DataCollatorForLanguageModeling
-            # convention). Upstream instead flattened only the masked gold
-            # labels while the LM head projected every position -> shape
-            # mismatch under the HF Trainer.
-            loss = F.cross_entropy(
-                subword_prediction.reshape(-1, subword_prediction.size(-1)),
-                labels.reshape(-1),
-                ignore_index=-100,
-            )
+            # Standard masked-LM cross-entropy; -100 positions are ignored (HF
+            # DataCollatorForLanguageModeling convention). Under gradient
+            # accumulation the HF Trainer passes num_items_in_batch and expects
+            # a SUM normalised by it (not a per-microbatch mean), otherwise the
+            # loss and gradients scale with the number of accumulation steps.
+            # (Upstream flattened only the masked gold labels while the LM head
+            # projected every position -> shape mismatch under the HF Trainer.)
+            flat_logits = subword_prediction.reshape(-1, subword_prediction.size(-1))
+            flat_labels = labels.reshape(-1)
+            if num_items_in_batch is not None:
+                loss = F.cross_entropy(
+                    flat_logits, flat_labels, ignore_index=-100, reduction="sum"
+                ) / num_items_in_batch
+            else:
+                loss = F.cross_entropy(flat_logits, flat_labels, ignore_index=-100)
 
         if not return_dict:
             output = (
@@ -620,6 +626,7 @@ class GPTBERTForMaskedLM(GPTBERTPreTrainedModel):
         output_attentions: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         labels: Optional[torch.LongTensor] = None,
+        num_items_in_batch: Optional[int] = None,
         **kwargs
     ) -> Union[tuple, CausalLMOutput]:
 
@@ -629,16 +636,21 @@ class GPTBERTForMaskedLM(GPTBERTPreTrainedModel):
 
         loss = None
         if labels is not None:
-            # Standard cross-entropy over the full-vocabulary logits; -100
-            # positions are ignored (HF DataCollatorForLanguageModeling
-            # convention). Upstream instead flattened only the masked gold
-            # labels while the LM head projected every position -> shape
-            # mismatch under the HF Trainer.
-            loss = F.cross_entropy(
-                subword_prediction.reshape(-1, subword_prediction.size(-1)),
-                labels.reshape(-1),
-                ignore_index=-100,
-            )
+            # Standard masked-LM cross-entropy; -100 positions are ignored (HF
+            # DataCollatorForLanguageModeling convention). Under gradient
+            # accumulation the HF Trainer passes num_items_in_batch and expects
+            # a SUM normalised by it (not a per-microbatch mean), otherwise the
+            # loss and gradients scale with the number of accumulation steps.
+            # (Upstream flattened only the masked gold labels while the LM head
+            # projected every position -> shape mismatch under the HF Trainer.)
+            flat_logits = subword_prediction.reshape(-1, subword_prediction.size(-1))
+            flat_labels = labels.reshape(-1)
+            if num_items_in_batch is not None:
+                loss = F.cross_entropy(
+                    flat_logits, flat_labels, ignore_index=-100, reduction="sum"
+                ) / num_items_in_batch
+            else:
+                loss = F.cross_entropy(flat_logits, flat_labels, ignore_index=-100)
 
         if not return_dict:
             output = (
