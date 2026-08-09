@@ -88,7 +88,13 @@ targets.append(contentsOf: [
         path: "swift/Tests/PrismKitTests",
         resources: [.process("Resources")],
         linkerSettings: [
-            .unsafeFlags(["-Xlinker", "-all_load"])
+            .unsafeFlags(["-Xlinker", "-all_load"]),
+            // `-all_load` pulls in ExecuTorch 1.4's Apple image-processor
+            // object, which references CoreImage/CoreVideo/CoreGraphics;
+            // release links dead-strip less, so name them explicitly.
+            .linkedFramework("CoreImage"),
+            .linkedFramework("CoreVideo"),
+            .linkedFramework("CoreGraphics"),
         ]
     ),
 ])
