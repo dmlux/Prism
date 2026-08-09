@@ -76,6 +76,34 @@ is budget-sized but we will pretrain our own with canonical code anyway.
    quality vs the UDPipe-2.17-en floor (**UPOS 97.56 / UFeats 97.86 /
    Lemma 97.92**).
 
+### Stage-1 smoke-test result (2026-08-09) — plumbing + int8 delegation ✅
+
+Built a fresh, untrained Prism tagger (LINEAR heads, random) on the BabyLM
+backbone and ran it through the production int8 lowering
+(`scratchpad/babylm_int8_probe.py`):
+
+- **Plumbing works end-to-end:** `build_pretrained_token_tagger(backbone_spec=
+  babylm, schema=en-2.17, …)` builds (83 `nn.Linear`), the backbone tokenizer
+  loads, and the eager forward runs — with only the two documented handles
+  (`reinitialize_non_persistent_buffers=True` + the `all_tied_weights_keys`
+  shim). Fold is a no-op (0 scale-parametrized linears).
+- **int8 delegation:** in the lowered edge graph, `aten_linear_default` is
+  **95 delegated / 0 non-delegated** — every linear goes to XNNPACK, no
+  portable compute fallback. Same int8-friendly profile as NorBERT4 (whose
+  int8 we measured at 1.9× fp32). 149 grouped subgraphs.
+- **Open follow-up (not a delegation issue):** `to_executorch` currently fails
+  with `Missing out variants: quantized_decomposed::quantize_per_channel` — a
+  non-delegated per-channel quantize (likely on the embedding path) whose
+  portable out-variant is unregistered in this ET build. NorBERT4 completes
+  `to_executorch` (it fuses this into `embedding_byte`), so it is a solvable
+  export-config/pass detail to resolve when wiring the real PrismBERT export,
+  not a blocker. Reference: the NorBERT4 int8 export path.
+
+**Conclusion:** the GPT-BERT-en architecture integrates into the Prism pipeline
+and its int8 linears fully delegate to XNNPACK — Weg A validated. Proceed to
+Stage 2 (pretrain), resolving the `to_executorch` out-variant during real
+export wiring.
+
 ## Stage 2 — pretrain the deployable PrismBERT-en (~30 M)
 
 If Stage 1 holds: pretrain a strict-small-class config (hidden 384, 12 layers,
