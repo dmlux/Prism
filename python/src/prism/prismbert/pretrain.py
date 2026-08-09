@@ -144,6 +144,10 @@ def pretrain(args: argparse.Namespace) -> None:
         fp16=False,  # MPS AMP is unreliable; fp32 is safe and fits in 64 GB
         report_to=[],
         use_cpu=not torch.backends.mps.is_available(),
+        # Clean, greppable progress lines in the persisted log (no tqdm carriage
+        # returns); log the first step too so the starting loss is on record.
+        disable_tqdm=True,
+        logging_first_step=True,
     )
     # The vendored GPTBERTForMaskedLM returns a correct HF masked-LM loss, so
     # the standard Trainer handles loss and gradient-accumulation scaling.
@@ -157,7 +161,7 @@ def pretrain(args: argparse.Namespace) -> None:
     print(f"Starting {'SMOKE ' if args.smoke else ''}pretraining on "
           f"{'MPS' if torch.backends.mps.is_available() else 'CPU'} "
           f"(block={block}, bs={args.batch_size}x{args.grad_accum})…", flush=True)
-    trainer.train()
+    trainer.train(resume_from_checkpoint=args.resume or None)
     metrics = trainer.evaluate()
     loss = metrics.get("eval_loss")
     if loss is not None:
@@ -183,6 +187,11 @@ def main() -> None:
     parser.add_argument("--eval-steps", type=int, default=2_000)
     parser.add_argument("--eval-blocks", type=int, default=2_000)
     parser.add_argument("--smoke", action="store_true", help="Tiny run to de-risk the loop.")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from the last checkpoint in --output (survives interruptions).",
+    )
     pretrain(parser.parse_args())
 
 

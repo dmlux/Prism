@@ -376,6 +376,12 @@ placement, every pipeline stage from teacher to released artifact, and
 the language-profile mechanism — is
 [docs/TRAINING.md](docs/TRAINING.md).
 
+No suitable encoder for your language — or want a quant-friendly one that ships
+a fast int8 variant? You can pretrain your own **PrismBERT** backbone (one
+architecture, pretrained per language from openly-licensed text, sized to stay
+under 100 MB fp32): the step-by-step recipe is
+[docs/TRAIN_BACKBONE.md](docs/TRAIN_BACKBONE.md).
+
 ## Training data and licenses
 
 Prism source code is licensed under the
