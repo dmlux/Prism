@@ -2,7 +2,7 @@
 
 Prism publishes two independent release families from this one repository:
 
-- **Model artifacts** — tag `prism-<lang>-<semver>` (e.g. `prism-no-0.2.4`,
+- **Model artifacts** — tag `prism-<lang>-<semver>` (e.g. `prism-no-0.2.5`,
   `prism-en-0.1.0`). A GitHub release carrying the packaged model tarballs.
   The library code is not involved (§1).
 - **Library / bindings** — tag `v<semver>` (e.g. `v0.6.0`). Versions the
@@ -41,7 +41,7 @@ intend a Maven Central release — the free publishing quota resets monthly.
 
 > **Ordering constraint.** The library `release` workflow's Apple consumer
 > test downloads a released model (the `consumer_model` input, default
-> `prism-no-0.2.4`). That model release **must exist before** you run the
+> `prism-no-0.2.5`). That model release **must exist before** you run the
 > library release for a version that depends on it.
 
 ---

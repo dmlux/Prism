@@ -30,7 +30,7 @@ on:
       consumer_model:
         description: "Model release the Apple consumer test downloads"
         type: string
-        default: "prism-no-0.2.4"
+        default: "prism-no-0.2.5"
       latest:
         description: "Mark this as the repository's Latest release"
         type: boolean

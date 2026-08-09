@@ -18,22 +18,22 @@ struct EngineParityTests {
     }
 
     @Test(.enabled(if: FixtureParity.artifactExists(
-        EngineParityTests.modelsRoot.appendingPathComponent("prism-no-0.2.4")
+        EngineParityTests.modelsRoot.appendingPathComponent("prism-no-0.2.5")
     )))
     func executesNorwegianFixtureBatchWithRecordedParity() throws {
         try FixtureParity.expect(
-            artifactURL: Self.modelsRoot.appendingPathComponent("prism-no-0.2.4")
+            artifactURL: Self.modelsRoot.appendingPathComponent("prism-no-0.2.5")
         )
     }
 
     /// The fast artifact's fixtures record its quantized eager twin; parity
     /// against them validates the int8 program end to end.
     @Test(.enabled(if: FixtureParity.artifactExists(
-        EngineParityTests.modelsRoot.appendingPathComponent("prism-no-0.2.4-fast")
+        EngineParityTests.modelsRoot.appendingPathComponent("prism-no-0.2.5-fast")
     )))
     func executesFastArtifactFixturesWithRecordedParity() throws {
         try FixtureParity.expect(
-            artifactURL: Self.modelsRoot.appendingPathComponent("prism-no-0.2.4-fast")
+            artifactURL: Self.modelsRoot.appendingPathComponent("prism-no-0.2.5-fast")
         )
     }
 

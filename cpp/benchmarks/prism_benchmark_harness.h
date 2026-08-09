@@ -21,7 +21,7 @@ struct NamedText {
 };
 
 // One tagger artifact to measure: a label and its directory relative to the
-// repository root (for example "models/prism-no-0.2.4").
+// repository root (for example "models/prism-no-0.2.5").
 struct TaggerVariant {
     std::string label;
     std::string artifact_directory;

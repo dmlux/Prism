@@ -37,9 +37,9 @@ on:
   workflow_call:
     inputs:
       consumer_model:
-        description: "Model release tag the consumer test downloads (e.g. prism-no-0.2.4)"
+        description: "Model release tag the consumer test downloads (e.g. prism-no-0.2.5)"
         type: string
-        default: "prism-no-0.2.4"
+        default: "prism-no-0.2.5"
     outputs:
       xcframework_checksum:
         description: "SwiftPM checksum of the assembled PrismNative.xcframework.zip"
@@ -47,9 +47,9 @@ on:
   workflow_dispatch:
     inputs:
       consumer_model:
-        description: "Model release tag the consumer test downloads (e.g. prism-no-0.2.4)"
+        description: "Model release tag the consumer test downloads (e.g. prism-no-0.2.5)"
         type: string
-        default: "prism-no-0.2.4"
+        default: "prism-no-0.2.5"
 
 jobs:
   slice:

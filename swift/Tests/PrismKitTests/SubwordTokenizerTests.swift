@@ -28,7 +28,7 @@ struct SubwordTokenizerTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("models/prism-no-0.2.4/vocabulary.json")
+            .appendingPathComponent("models/prism-no-0.2.5/vocabulary.json")
     }
 
     static var vocabularyPresent: Bool {

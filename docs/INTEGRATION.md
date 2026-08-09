@@ -7,7 +7,7 @@ behind the pipeline, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## The model artifact
 
-An artifact directory (for example `prism-no-0.2.4`) is the complete,
+An artifact directory (for example `prism-no-0.2.5`) is the complete,
 versioned integration contract:
 
 - `model-xnnpack*.pte` — the lowered ExecuTorch programs, one per fixed

@@ -30,7 +30,7 @@ struct ChapterBenchmarkTests {
             $0.hasPrefix("/")
                 ? URL(fileURLWithPath: $0)
                 : root.appendingPathComponent($0)
-        } ?? root.appendingPathComponent("models/prism-no-0.2.4")
+        } ?? root.appendingPathComponent("models/prism-no-0.2.5")
     }
 
     static var fixturesPresent: Bool {

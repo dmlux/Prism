@@ -114,10 +114,13 @@ def lower_to_executorch_xnnpack(
     shapes. Weight quantization is deterministic (dynamic linears,
     weight-only embeddings), so every shape produces byte-identical
     weights and the shared data file stays valid across programs.
-    Dynamically quantized linears are delegated one op per partition (the
-    grouped partitioner trips over pass-through arguments on this graph),
-    and the embedding lookup is fused into ``embedding_byte``, which
-    requires the quantized kernel library at runtime.
+    Dynamically quantized linears and the surrounding fp32 ops are delegated
+    by a single grouped XNNPACK partitioner (both dynamic-quant and fp32
+    precisions), which produces few large delegate subgraphs instead of one
+    per op. The earlier per-op workaround (the grouped two-partitioner combo
+    tripped over pass-through arguments) is no longer needed and was ~5-16%
+    slower from micro-delegate overhead; the embedding lookup is fused into
+    ``embedding_byte``, which requires the quantized kernel library at runtime.
     """
 
     xnnpack_partitioner = _require_executorch_module(
@@ -167,14 +170,19 @@ def lower_to_executorch_xnnpack(
         quant_fusion = _require_executorch_module(
             "executorch.exir.passes.quant_fusion_pass"
         )
+        # A single grouped partitioner that owns both the dynamic-quant
+        # linears and the surrounding fp32 ops. Grouping (per_op_mode=False)
+        # yields few large delegate subgraphs; per-op fragmentation added
+        # ~5-16% XNNPACK call overhead (measured NorBERT4 + ModernBERT). Both
+        # precisions must live in ONE partitioner: a two-partitioner grouped
+        # combo trips the "output node already in inputs" lowering error.
         partitioners = [
             xnnpack_partitioner.XnnpackPartitioner(
-                config_precisions=xnnpack_config.ConfigPrecisionType.DYNAMIC_QUANT,
-                per_op_mode=True,
-            ),
-            xnnpack_partitioner.XnnpackPartitioner(
-                config_precisions=xnnpack_config.ConfigPrecisionType.FP32,
-                per_op_mode=True,
+                config_precisions=[
+                    xnnpack_config.ConfigPrecisionType.DYNAMIC_QUANT,
+                    xnnpack_config.ConfigPrecisionType.FP32,
+                ],
+                per_op_mode=False,
             ),
         ]
         backend_passes.append(quant_fusion.QuantFusionPass())

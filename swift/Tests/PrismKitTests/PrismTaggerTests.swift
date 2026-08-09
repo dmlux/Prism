@@ -15,11 +15,11 @@ struct PrismTaggerTests {
     }
 
     static var artifactURL: URL {
-        repositoryRoot.appendingPathComponent("models/prism-no-0.2.4")
+        repositoryRoot.appendingPathComponent("models/prism-no-0.2.5")
     }
 
     static var fastArtifactURL: URL {
-        repositoryRoot.appendingPathComponent("models/prism-no-0.2.4-fast")
+        repositoryRoot.appendingPathComponent("models/prism-no-0.2.5-fast")
     }
 
     private func loadTagger() throws -> PrismTagger {
@@ -122,7 +122,7 @@ struct PrismTaggerTests {
         let tagger = try loadTagger()
 
         #expect(tagger.artifactName == "prism-no")
-        #expect(tagger.artifactVersion == "0.2.4")
+        #expect(tagger.artifactVersion == "0.2.5")
         // Since 0.2.3 the manifest also declares the BCP 47 macrolanguage,
         // so plain-"no" documents match without host-side aliases.
         #expect(tagger.languageTags == ["nb", "nn", "no"])

@@ -7,7 +7,7 @@ prism-no (previously a one-off script; now a committed, reproducible gate).
 
     python -m prism.languages.norwegian.evaluate_int8_quality \\
         --checkpoint runs/<run>/best-development-task-accuracy.pt \\
-        --calibration models/prism-no-0.2.4/calibration.json
+        --calibration models/prism-no-0.2.5/calibration.json
 """
 
 from __future__ import annotations
