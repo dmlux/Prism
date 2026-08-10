@@ -74,7 +74,7 @@ PRISM_BERT_EN = PrismBertConfig(
 def build_gpt_bert_config(config: PrismBertConfig):
     """Return the vendored ``ModelConfig`` for the gpt_bert architecture."""
 
-    from prism.prismbert.configuration_gpt_bert import ModelConfig
+    from prism.bert.configuration_gpt_bert import ModelConfig
 
     return ModelConfig(
         hidden_size=config.hidden_size,

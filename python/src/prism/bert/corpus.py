@@ -21,7 +21,7 @@ redownload); a source that fails to load is recorded and skipped without
 aborting the others. Provenance is always written.
 
 Run (writes to data/pretraining/en/, gitignored):
-    PYTHONPATH=python/src .venv/bin/python -m prism.prismbert.corpus --language en
+    PYTHONPATH=python/src .venv/bin/python -m prism.bert.corpus --language en
 """
 
 from __future__ import annotations

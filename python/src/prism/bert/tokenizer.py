@@ -14,7 +14,7 @@ are interleaved so both registers (modern Wikipedia + literary Gutenberg) are
 represented rather than token-dense books dominating.
 
 Run:
-    PYTHONPATH=python/src .venv/bin/python -m prism.prismbert.tokenizer \
+    PYTHONPATH=python/src .venv/bin/python -m prism.bert.tokenizer \
         --corpus data/pretraining/en --output models/prism-bert-en/tokenizer \
         --vocab-size 16384 --sample-tokens 500000000
 """
@@ -26,7 +26,7 @@ import json
 from collections.abc import Iterator
 from pathlib import Path
 
-from prism.prismbert.config import SPECIAL_TOKENS
+from prism.bert.config import SPECIAL_TOKENS
 
 _SPECIAL_ORDER = ["unk", "cls", "sep", "pad", "mask"]  # -> ids 0,1,2,3,4
 SPECIAL_TOKEN_LIST = [SPECIAL_TOKENS[role][0] for role in _SPECIAL_ORDER]

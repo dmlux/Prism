@@ -3,7 +3,7 @@
 This package owns everything for pretraining a PrismBERT backbone from scratch,
 separate from the tagger pipeline that consumes it:
 
-* :mod:`prism.prismbert.corpus` — download a legally-clean, commercial-use-safe
+* :mod:`prism.bert.corpus` — download a legally-clean, commercial-use-safe
   raw-text corpus (openly licensed, share-alike-compatible with the CC BY-SA 4.0
   model-weight release) and write it as plain JSONL shards with pinned
   provenance;

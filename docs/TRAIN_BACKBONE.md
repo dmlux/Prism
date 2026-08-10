@@ -29,7 +29,7 @@ model outputs to `runs/`, and training logs to `logs/`.
 ## 1. Download a legally-clean corpus
 
 ```bash
-.venv/bin/python -m prism.prismbert.corpus --language en
+.venv/bin/python -m prism.bert.corpus --language en
 ```
 
 Streams openly-licensed sources to `data/pretraining/en/*.jsonl` and writes a
@@ -43,13 +43,13 @@ CommonCrawl-derived corpora (FineWeb / C4 / OSCAR) are deliberately excluded —
 their copyright status is unclear and incompatible with a commercial guarantee.
 
 **For a new language:** register its sources in `SOURCES_BY_LANGUAGE` in
-`python/src/prism/prismbert/corpus.py` (pick openly-licensed, share-alike- or
+`python/src/prism/bert/corpus.py` (pick openly-licensed, share-alike- or
 public-domain text), then run with `--language <tag>`.
 
 ## 2. Train the tokenizer
 
 ```bash
-.venv/bin/python -m prism.prismbert.tokenizer \
+.venv/bin/python -m prism.bert.tokenizer \
     --corpus data/pretraining/en --output models/prism-bert-en/tokenizer \
     --vocab-size 16384 --sample-tokens 500000000
 ```
@@ -63,7 +63,7 @@ fast-tokenizer directory (`tokenizer.json` + configs). Takes a few minutes.
 ## 3. Smoke-test the training loop (recommended)
 
 ```bash
-.venv/bin/python -m prism.prismbert.pretrain \
+.venv/bin/python -m prism.bert.pretrain \
     --corpus data/pretraining/en --tokenizer models/prism-bert-en/tokenizer \
     --output runs/prism-bert-en-smoke --smoke
 ```
@@ -78,7 +78,7 @@ multi-day run.
 mkdir -p logs/prism-bert-en
 # `-u` unbuffered + `tee -a` -> progress prints live to the terminal AND is
 # appended live to a persistent (gitignored) log file at the same time.
-.venv/bin/python -u -m prism.prismbert.pretrain \
+.venv/bin/python -u -m prism.bert.pretrain \
     --corpus data/pretraining/en --tokenizer models/prism-bert-en/tokenizer \
     --output runs/prism-bert-en --max-steps 100000 \
     2>&1 | tee -a "logs/prism-bert-en/pretrain-$(date +%Y%m%d-%H%M%S).log"
@@ -93,11 +93,22 @@ heads / FF 1024 / vocab 16384**, ~23.3 M backbone params, giving a ~99.6 MB fp32
 tagger (backbone + heads + character CNN, measured). Masked-LM (15 %) via the HF
 `Trainer` on MPS in fp32 (MPS has no reliable fp16/bf16).
 
-Progress is logged as clean lines (tqdm disabled) every 100 steps
-(`{'loss': …, 'learning_rate': …, 'epoch': …}`) and a held-out
-`{'eval_loss': …}` every 2000 steps; checkpoints land in `runs/prism-bert-en/`
-(`trainer_state.json` holds the full loss history for later plotting). Watch it
-with `tail -f logs/prism-bert-en/pretrain-*.log`.
+Progress is logged as aligned, table-like lines (tqdm disabled): labels spelled
+out, numbers blank-padded with fixed decimals, and the tokens consumed so far
+shown next to the step so you never have to back-compute it from the percentage.
+A `[train]` row every 100 steps and a held-out `[eval ]` row (with throughput)
+every 2000 steps:
+
+```text
+[train] step   2000/100000    tokens   131,072,000    loss           2.587000    gradient_norm      0.608800    learning_rate      0.000600    epoch                   0.020000
+[eval ] step   2000/100000    tokens   131,072,000    eval_loss      5.744000    perplexity       312.311160    eval_seconds       8.344000    samples_per_second    239.700000    steps_per_second     29.960000
+```
+
+Checkpoints land in `runs/prism-bert-en/` (`trainer_state.json` holds the full
+loss history for later plotting); the **best-eval checkpoint is kept** (protected
+from `save_total_limit` pruning) and **reloaded at the end**, so the saved model
+is the best one, not merely the last. Watch it with
+`tail -f logs/prism-bert-en/pretrain-*.log`.
 
 Throughput on the M4 Max: ~3.4 s/step (65 536 tokens/step) ≈ **19k tokens/s** →
 **100 000 steps ≈ ~4 days (~6.5 B tokens ≈ ~1 epoch over the ~6 B corpus)** —
@@ -108,7 +119,12 @@ pseudo-perplexity is the intrinsic quality signal; the real gate is downstream
 (step 5).
 
 Hyperparameters are CLI flags: `--max-steps`, `--batch-size` (64), `--grad-accum`
-(8), `--block-size` (128), `--learning-rate` (6e-4).
+(8), `--block-size` (128), `--learning-rate` (6e-4). Two knobs exist for
+portability to non-Apple hardware: `--precision {fp32,bf16,fp16}` (default fp32;
+bf16/fp16 speed up CUDA a lot but are unreliable on MPS) and `--num-workers`
+(default 0 = inline tokenization, best on MPS where training is GPU-bound; `>0`
+shards the corpus across dataloader workers, for when CPU tokenization is the
+bottleneck).
 
 **For a new language:** add a `PrismBertConfig` for it in `config.py` sized to
 the <100 MB budget (use the param-count approach in PRISMBERT.md), and point the

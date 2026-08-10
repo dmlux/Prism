@@ -104,10 +104,10 @@ and its int8 linears fully delegate to XNNPACK — Weg A validated. Proceed to
 Stage 2 (pretrain), resolving the `to_executorch` out-variant during real
 export wiring.
 
-## Stage 2 — pretrain the deployable PrismBERT-en (in `prism.prismbert`)
+## Stage 2 — pretrain the deployable PrismBERT-en (in `prism.bert`)
 
 Stage 1 held, so we pretrain our own backbone. Everything lives in the
-`prism/prismbert/` package.
+`prism/bert/` package.
 
 **Config (finalized, measured):** `PRISM_BERT_EN` = hidden 320, 12 layers, 5
 heads, FF 1024, vocab 16384. The FULL tagger (backbone + heads + character CNN +
@@ -117,7 +117,7 @@ capacity. Deeper/narrower chosen over wider/shallower (H384/8L, 95.7 MB) for
 morphology/syntax and alignment with the deep NorBERT4 family the Prism heads
 are tuned on; the wide variant is the fallback if UFeats disappoints.
 
-**Corpus (legally clean, commercial-safe):** `prism.prismbert.corpus` streams
+**Corpus (legally clean, commercial-safe):** `prism.bert.corpus` streams
 English Wikipedia (CC BY-SA 3.0/GFDL, ~3B tokens, modern register) + Project
 Gutenberg (`sedthh/gutenberg_english`, public domain, literary register — the
 primary Prism use case) to JSONL shards with pinned dataset revisions. No
@@ -125,10 +125,10 @@ CommonCrawl-derived text (unclear copyright). ~4–5B clean tokens — ample for
 ~24M model. Weights release under CC BY-SA 4.0; the SA chain is honored by the
 CC-BY-SA Wikipedia + public-domain Gutenberg provenance.
 
-**Tokenizer:** `prism.prismbert.tokenizer` — byte-level BPE, vocab 16384,
+**Tokenizer:** `prism.bert.tokenizer` — byte-level BPE, vocab 16384,
 special tokens fixed to the gpt_bert ids.
 
-**Pretraining:** `prism.prismbert.pretrain` — fresh gpt_bert masked-LM, 15% MLM
+**Pretraining:** `prism.bert.pretrain` — fresh gpt_bert masked-LM, 15% MLM
 via HF Trainer. **This machine is Apple M4 Max (40-core GPU, 64 GB), MPS only —
 no CUDA**, so training is fp32 on MPS, days-to-weeks (not the 48-GPU-h CUDA
 reference), run iteratively (start ~1–2B tokens → measure → extend). Track
