@@ -1,3 +1,4 @@
+import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -140,6 +141,26 @@ class MixedEpochMetrics:
         )
 
 
+TrainingStepCallback = Callable[["TrainingStepReport"], None]
+
+_DEFAULT_STEP_INTERVAL = 50
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TrainingStepReport:
+    """Running training statistics at a mid-epoch step, for progress logging."""
+
+    batch_index: int
+    total_batches: int
+    token_count: int
+    total_loss: float
+    upos_loss: float
+    morphology_loss: float
+    lemma_rule_loss: float
+    learning_rate: float
+    tokens_per_second: float
+
+
 @dataclass(slots=True, kw_only=True)
 class _EpochLossAccumulator:
     device: torch.device
@@ -261,6 +282,47 @@ class _EpochLossAccumulator:
         )
 
 
+def _report_training_step(
+    *,
+    on_step: TrainingStepCallback | None,
+    step_interval: int,
+    batch_index: int,
+    total_batches: int,
+    accumulator: "_EpochLossAccumulator",
+    learning_rate: Callable[[], float],
+    start_time: float,
+) -> None:
+    """Emit a running-statistics report every ``step_interval`` batches (and on
+    the final batch). The (GPU-syncing) snapshot via ``accumulator.finish`` is
+    only taken when a report actually fires, so the training loop stays
+    sync-free between reports."""
+    if on_step is None or accumulator.batch_count == 0:
+        return
+    if (
+        batch_index != 1
+        and batch_index % step_interval != 0
+        and batch_index != total_batches
+    ):
+        return
+    snapshot = accumulator.finish(empty_epoch_message="unreachable")
+    elapsed = time.perf_counter() - start_time
+    on_step(
+        TrainingStepReport(
+            batch_index=batch_index,
+            total_batches=total_batches,
+            token_count=snapshot.token_count,
+            total_loss=snapshot.total_loss,
+            upos_loss=snapshot.upos_loss,
+            morphology_loss=snapshot.morphology_loss,
+            lemma_rule_loss=snapshot.lemma_rule_loss,
+            learning_rate=learning_rate(),
+            tokens_per_second=(
+                snapshot.token_count / elapsed if elapsed > 0 else 0.0
+            ),
+        )
+    )
+
+
 def _run_supervised_token_task_epoch(
     *,
     model: nn.Module,
@@ -271,16 +333,30 @@ def _run_supervised_token_task_epoch(
         TokenTaskLosses,
     ],
     empty_epoch_message: str,
+    on_step: TrainingStepCallback | None = None,
+    step_interval: int = _DEFAULT_STEP_INTERVAL,
+    total_batches: int = 0,
+    learning_rate: Callable[[], float] | None = None,
 ) -> SupervisedEpochMetrics:
     model.to(device)
     accumulator = _EpochLossAccumulator(device=device)
 
-    for batch in batches:
+    start_time = time.perf_counter()
+    for batch_index, batch in enumerate(batches, start=1):
         device_batch = batch.to(device)
         losses = process_batch(device_batch)
         accumulator.add(
             batch=device_batch,
             losses=losses,
+        )
+        _report_training_step(
+            on_step=on_step,
+            step_interval=step_interval,
+            batch_index=batch_index,
+            total_batches=total_batches,
+            accumulator=accumulator,
+            learning_rate=learning_rate or (lambda: 0.0),
+            start_time=start_time,
         )
 
     return accumulator.finish(
@@ -299,6 +375,9 @@ def train_supervised_token_task_epoch(
     morphology_schema: MorphologySchema,
     loss_weights: TokenTaskLossWeights | None = None,
     morphology_bundle_loss_policy: MorphologyBundleLossPolicy | None = None,
+    on_step: TrainingStepCallback | None = None,
+    step_interval: int = _DEFAULT_STEP_INTERVAL,
+    total_batches: int = 0,
 ) -> SupervisedEpochMetrics:
     def process_batch(
         batch: SupervisedTokenTaskBatch,
@@ -321,6 +400,10 @@ def train_supervised_token_task_epoch(
         device=device,
         process_batch=process_batch,
         empty_epoch_message=("Training epoch must contain batches."),
+        on_step=on_step,
+        step_interval=step_interval,
+        total_batches=total_batches,
+        learning_rate=lambda: scheduler.get_last_lr()[0],
     )
 
 
@@ -337,6 +420,9 @@ def train_distilled_token_task_epoch(
     morphology_schema: MorphologySchema,
     loss_weights: TokenTaskLossWeights | None = None,
     morphology_bundle_loss_policy: MorphologyBundleLossPolicy | None = None,
+    on_step: TrainingStepCallback | None = None,
+    step_interval: int = _DEFAULT_STEP_INTERVAL,
+    total_batches: int = 0,
 ) -> DistilledEpochMetrics:
     student.to(device)
     teacher.to(device)
@@ -344,7 +430,8 @@ def train_distilled_token_task_epoch(
     supervised_accumulator = _EpochLossAccumulator(device=device)
     distillation_accumulator = _EpochLossAccumulator(device=device)
 
-    for batch in batches:
+    start_time = time.perf_counter()
+    for batch_index, batch in enumerate(batches, start=1):
         device_batch = batch.to(device)
 
         losses = train_distilled_token_task_step(
@@ -367,6 +454,15 @@ def train_distilled_token_task_epoch(
         distillation_accumulator.add(
             batch=device_batch,
             losses=losses.distillation_losses,
+        )
+        _report_training_step(
+            on_step=on_step,
+            step_interval=step_interval,
+            batch_index=batch_index,
+            total_batches=total_batches,
+            accumulator=supervised_accumulator,
+            learning_rate=lambda: scheduler.get_last_lr()[0],
+            start_time=start_time,
         )
 
     supervised_metrics = supervised_accumulator.finish(
@@ -410,6 +506,9 @@ def train_mixed_token_task_epoch(
     morphology_bundle_loss_policy: MorphologyBundleLossPolicy | None = None,
     relation_teacher: nn.Module | None = None,
     relation_policy: "RelationDistillationPolicy | None" = None,
+    on_step: TrainingStepCallback | None = None,
+    step_interval: int = _DEFAULT_STEP_INTERVAL,
+    total_batches: int = 0,
 ) -> MixedEpochMetrics:
     """Interleave gold and silver batches deterministically in one epoch.
 
@@ -469,7 +568,8 @@ def train_mixed_token_task_epoch(
     relation_loss_sum = torch.zeros((), device=device)
     relation_batch_count = 0
 
-    for kind in order.tolist():
+    start_time = time.perf_counter()
+    for batch_index, kind in enumerate(order.tolist(), start=1):
         if kind == 0:
             gold_batch = next(gold_iterator).to(device)
             if teacher is None:
@@ -539,6 +639,15 @@ def train_mixed_token_task_epoch(
                 silver_batch.model_inputs.token_mask.sum().item()
             )
         scheduler.step()
+        _report_training_step(
+            on_step=on_step,
+            step_interval=step_interval,
+            batch_index=batch_index,
+            total_batches=total_batches,
+            accumulator=supervised_accumulator,
+            learning_rate=lambda: scheduler.get_last_lr()[0],
+            start_time=start_time,
+        )
 
     supervised_metrics = supervised_accumulator.finish(
         empty_epoch_message="Mixed epoch must contain gold batches.",

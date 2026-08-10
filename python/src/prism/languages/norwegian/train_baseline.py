@@ -34,6 +34,7 @@ from prism.modeling import (
     build_pretrained_token_tagger,
     load_backbone_tokenizer,
 )
+from prism.progress import Column, ProgressLogger
 from prism.schema import (
     CharacterVocabularySchema,
     TokenTaskSchema,
@@ -59,6 +60,7 @@ from prism.training import (
     SupervisedTokenTaskBatch,
     SupervisedTrainingConfig,
     SupervisedTrainingEpochResult,
+    TrainingStepReport,
     MorphologyBundleLossPolicy,
     TokenTaskDistillationPolicy,
     build_linear_warmup_decay_scheduler,
@@ -639,6 +641,52 @@ def _report_progress(
         yield batch
 
 
+def _build_training_progress_logger() -> ProgressLogger:
+    """Per-step training progress table (see prism.progress)."""
+    return ProgressLogger(
+        columns=[
+            Column("tokens", "tokens", kind="count", width=13),
+            Column("total_loss", "total_loss"),
+            Column("upos", "upos"),
+            Column("morphology", "morphology"),
+            Column("lemma", "lemma"),
+            Column("learning_rate", "learning_rate"),
+            Column("tokens_per_second", "tokens_per_second"),
+        ],
+        row_kinds={
+            "train": [
+                "tokens",
+                "total_loss",
+                "upos",
+                "morphology",
+                "lemma",
+                "learning_rate",
+                "tokens_per_second",
+            ],
+        },
+    )
+
+
+def _build_silver_progress_logger() -> ProgressLogger:
+    """Per-epoch silver KD-loss summary table (see prism.progress)."""
+    return ProgressLogger(
+        columns=[
+            Column("silver_upos", "silver_upos"),
+            Column("silver_morphology", "silver_morphology"),
+            Column("silver_lemma", "silver_lemma"),
+            Column("relation", "relation"),
+        ],
+        row_kinds={
+            "silver": [
+                "silver_upos",
+                "silver_morphology",
+                "silver_lemma",
+                "relation",
+            ],
+        },
+    )
+
+
 def _load_distillation_teacher(
     *,
     checkpoint_path: Path | None,
@@ -1043,6 +1091,9 @@ def main() -> None:
         exist_ok=True,
     )
 
+    training_progress_logger = _build_training_progress_logger()
+    silver_progress_logger = _build_silver_progress_logger()
+
     def train_epoch(
         epoch_index: int,
     ) -> SupervisedEpochMetrics | DistilledEpochMetrics | MixedEpochMetrics:
@@ -1059,16 +1110,32 @@ def main() -> None:
             flush=True,
         )
 
-        batches = _report_progress(
-            iter_supervised_token_task_batches(
-                tokenizer=tokenizer,
-                sentence_batches=sentence_batches,
-                character_vocabulary=character_vocabulary,
-                maximum_character_count=CHARACTER_MAXIMUM_COUNT,
-            ),
-            label="Training",
-            total=len(sentence_batches),
+        # Per-step progress is emitted by the ProgressLogger (on_step below);
+        # pass the raw batch iterator through, no bare counter.
+        batches = iter_supervised_token_task_batches(
+            tokenizer=tokenizer,
+            sentence_batches=sentence_batches,
+            character_vocabulary=character_vocabulary,
+            maximum_character_count=CHARACTER_MAXIMUM_COUNT,
         )
+
+        def _on_training_step(report: TrainingStepReport) -> None:
+            training_progress_logger.log(
+                "train",
+                counters=[
+                    ("epoch", epoch_index + 1, config.epoch_count),
+                    ("batch", report.batch_index, report.total_batches),
+                ],
+                values={
+                    "tokens": report.token_count,
+                    "total_loss": report.total_loss,
+                    "upos": report.upos_loss,
+                    "morphology": report.morphology_loss,
+                    "lemma": report.lemma_rule_loss,
+                    "learning_rate": report.learning_rate,
+                    "tokens_per_second": report.tokens_per_second,
+                },
+            )
 
         if silver_sentences:
             silver_sentence_batches = build_silver_sentence_batches(
@@ -1077,15 +1144,11 @@ def main() -> None:
                 random_seed=config.random_seed,
                 epoch_index=epoch_index,
             )
-            silver_batches = _report_progress(
-                iter_silver_token_task_batches(
-                    tokenizer=tokenizer,
-                    sentence_batches=silver_sentence_batches,
-                    character_vocabulary=character_vocabulary,
-                    maximum_character_count=CHARACTER_MAXIMUM_COUNT,
-                ),
-                label="Silver",
-                total=len(silver_sentence_batches),
+            silver_batches = iter_silver_token_task_batches(
+                tokenizer=tokenizer,
+                sentence_batches=silver_sentence_batches,
+                character_vocabulary=character_vocabulary,
+                maximum_character_count=CHARACTER_MAXIMUM_COUNT,
             )
             mixed_metrics = train_mixed_token_task_epoch(
                 student=model,
@@ -1112,18 +1175,22 @@ def main() -> None:
                     if relation_teacher is None
                     else arguments.relation_distillation_policy
                 ),
+                on_step=_on_training_step,
+                step_interval=50,
+                total_batches=len(sentence_batches) + len(silver_sentence_batches),
             )
-            print(
-                "Silver KD losses:",
-                f"upos={mixed_metrics.silver_upos_loss:.6f},",
-                f"morphology={mixed_metrics.silver_morphology_loss:.6f},",
-                f"lemma={mixed_metrics.silver_lemma_rule_loss:.6f}",
-            )
+            silver_values = {
+                "silver_upos": mixed_metrics.silver_upos_loss,
+                "silver_morphology": mixed_metrics.silver_morphology_loss,
+                "silver_lemma": mixed_metrics.silver_lemma_rule_loss,
+            }
             if mixed_metrics.relation_loss is not None:
-                print(
-                    "Relation distillation loss:",
-                    f"{mixed_metrics.relation_loss:.6f}",
-                )
+                silver_values["relation"] = mixed_metrics.relation_loss
+            silver_progress_logger.log(
+                "silver",
+                counters=[("epoch", epoch_index + 1, config.epoch_count)],
+                values=silver_values,
+            )
             return mixed_metrics
 
         if teacher is None:
@@ -1137,6 +1204,9 @@ def main() -> None:
                 morphology_schema=schema.morphology,
                 loss_weights=loss_weights,
                 morphology_bundle_loss_policy=morphology_bundle_loss_policy,
+                on_step=_on_training_step,
+                step_interval=50,
+                total_batches=len(sentence_batches),
             )
 
         return train_distilled_token_task_epoch(
@@ -1151,6 +1221,9 @@ def main() -> None:
             morphology_schema=schema.morphology,
             loss_weights=loss_weights,
             morphology_bundle_loss_policy=morphology_bundle_loss_policy,
+            on_step=_on_training_step,
+            step_interval=50,
+            total_batches=len(sentence_batches),
         )
 
     def evaluate_epoch(
