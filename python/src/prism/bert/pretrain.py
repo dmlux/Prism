@@ -21,7 +21,11 @@ Full run: drop --smoke and set --max-steps / --batch-size to taste.
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
+import random
+import re
+from collections import OrderedDict
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -33,11 +37,19 @@ from prism.progress import Column, ProgressLogger
 
 
 class TokenBlockStream(IterableDataset):
-    """Streams corpus shards, tokenizes, and yields fixed-length id blocks.
+    """Streams the corpus, tokenizes per document, and yields fixed-length id
+    blocks with the SOURCES INTERLEAVED, so every source (register) is present
+    throughout training — including the LR anneal — instead of one source fully
+    and then the next (which biases the final, low-LR weights toward whichever
+    source is read last).
 
-    Per-document chunking (no cross-document concatenation): each document's
-    token ids are split into ``block_size`` blocks; the remainder is dropped.
-    ``skip_shards`` / ``only_shards`` carve a held-out split by file.
+    Sources are inferred from shard filenames (``<source>-<NNNNN>.jsonl``). The
+    ``"train"`` split interleaves the sources' block streams weighted by size;
+    the ``"eval"`` split holds out the first ``eval_blocks_per_source`` blocks of
+    EACH source (representative of every register, disjoint from train — the
+    train split skips exactly those blocks, so there is no leakage). Per-document
+    chunking (no cross-document concatenation); each document's remainder
+    (< ``block_size``) is dropped.
     """
 
     def __init__(
@@ -46,39 +58,44 @@ class TokenBlockStream(IterableDataset):
         corpus_dir: Path,
         tokenizer,
         block_size: int,
-        only_shards: list[Path] | None = None,
-        skip_shards: set[str] | None = None,
+        split: str = "train",
+        eval_blocks_per_source: int = 0,
         max_blocks: int | None = None,
+        interleave_seed: int = 1234,
     ) -> None:
+        if split not in ("train", "eval"):
+            raise ValueError(f"split must be 'train' or 'eval', got {split!r}.")
         self.corpus_dir = corpus_dir
         self.tokenizer = tokenizer
         self.block_size = block_size
-        self.only_shards = only_shards
-        self.skip_shards = skip_shards or set()
+        self.split = split
+        self.eval_blocks_per_source = eval_blocks_per_source
         self.max_blocks = max_blocks
+        self.interleave_seed = interleave_seed
 
-    def _shards(self) -> list[Path]:
-        if self.only_shards is not None:
-            shards = self.only_shards
-        else:
-            shards = [
-                s for s in sorted(self.corpus_dir.glob("*.jsonl"))
-                if s.name not in self.skip_shards
-            ]
-        # Worker-level sharding: with dataloader_num_workers > 0 each worker must
-        # read a DISJOINT subset of shards — otherwise every worker replays the
-        # same data (silent duplication). get_worker_info() is None in the main
-        # process (num_workers=0), so the single-process path is unchanged.
-        # (max_blocks is counted per worker; only the capped eval/smoke datasets
-        # use it, and those run single-shard / single-process, so it's exact.)
+    @staticmethod
+    def _source_of(shard: Path) -> str:
+        # "gutenberg-00007.jsonl" -> "gutenberg"; robust to un-numbered names.
+        return re.sub(r"(-\d+)?\.jsonl$", "", shard.name)
+
+    def _shards_by_source(self) -> "OrderedDict[str, list[Path]]":
+        by_source: OrderedDict[str, list[Path]] = OrderedDict()
+        for shard in sorted(self.corpus_dir.glob("*.jsonl")):
+            by_source.setdefault(self._source_of(shard), []).append(shard)
+        # Worker-level sharding (dataloader_num_workers > 0): split each source's
+        # shards across workers so each reads a DISJOINT subset. get_worker_info()
+        # is None in the main process (num_workers=0, the default), leaving the
+        # single-process stream unchanged.
         info = get_worker_info()
         if info is not None and info.num_workers > 1:
-            shards = shards[info.id :: info.num_workers]
-        return shards
+            by_source = OrderedDict(
+                (src, shards[info.id :: info.num_workers])
+                for src, shards in by_source.items()
+            )
+        return by_source
 
-    def __iter__(self) -> Iterator[dict]:
-        emitted = 0
-        for shard in self._shards():
+    def _blocks(self, shards: list[Path]) -> Iterator[dict]:
+        for shard in shards:
             with shard.open(encoding="utf-8") as handle:
                 for line in handle:
                     text = json.loads(line).get("text", "").strip()
@@ -87,9 +104,59 @@ class TokenBlockStream(IterableDataset):
                     ids = self.tokenizer(text, add_special_tokens=False)["input_ids"]
                     for start in range(0, len(ids) - self.block_size + 1, self.block_size):
                         yield {"input_ids": ids[start : start + self.block_size]}
-                        emitted += 1
-                        if self.max_blocks is not None and emitted >= self.max_blocks:
-                            return
+
+    def __iter__(self) -> Iterator[dict]:
+        by_source = self._shards_by_source()
+        if self.split == "eval":
+            yield from self._iter_eval(by_source)
+        else:
+            yield from self._iter_train(by_source)
+
+    def _iter_eval(self, by_source: "OrderedDict[str, list[Path]]") -> Iterator[dict]:
+        # First eval_blocks_per_source blocks of each source, concatenated.
+        emitted = 0
+        for shards in by_source.values():
+            held_out = itertools.islice(self._blocks(shards), self.eval_blocks_per_source)
+            for block in held_out:
+                yield block
+                emitted += 1
+                if self.max_blocks is not None and emitted >= self.max_blocks:
+                    return
+
+    def _iter_train(self, by_source: "OrderedDict[str, list[Path]]") -> Iterator[dict]:
+        # One block generator per source, each SKIPPING that source's held-out
+        # eval blocks; interleave them, picking a source per block weighted by
+        # its total shard byte-size, so every source stays present throughout.
+        generators = {
+            src: itertools.islice(self._blocks(shards), self.eval_blocks_per_source, None)
+            for src, shards in by_source.items()
+        }
+        weights = {
+            src: sum(shard.stat().st_size for shard in shards) or 1
+            for src, shards in by_source.items()
+        }
+        info = get_worker_info()
+        rng = random.Random(self.interleave_seed + (info.id if info is not None else 0))
+        active = list(generators)
+        emitted = 0
+        while active:
+            threshold = rng.random() * sum(weights[src] for src in active)
+            cumulative = 0.0
+            chosen = active[-1]
+            for src in active:
+                cumulative += weights[src]
+                if threshold <= cumulative:
+                    chosen = src
+                    break
+            try:
+                block = next(generators[chosen])
+            except StopIteration:
+                active.remove(chosen)
+                continue
+            yield block
+            emitted += 1
+            if self.max_blocks is not None and emitted >= self.max_blocks:
+                return
 
 
 def _build_progress_logger(tokens_width: int) -> ProgressLogger:
@@ -160,16 +227,19 @@ def pretrain(args: argparse.Namespace) -> None:
     all_shards = sorted(args.corpus.glob("*.jsonl"))
     if not all_shards:
         raise SystemExit(f"No .jsonl shards in {args.corpus}.")
-    eval_shard = all_shards[-1]  # hold out the last shard for perplexity
     block = args.block_size
+    # Held-out eval = the first N blocks of EACH source (representative of every
+    # register); training interleaves the rest, skipping exactly those blocks.
+    eval_blocks_per_source = 200 if args.smoke else args.eval_blocks
     train_ds = TokenBlockStream(
         corpus_dir=args.corpus, tokenizer=tokenizer, block_size=block,
-        skip_shards={eval_shard.name},
+        split="train", eval_blocks_per_source=eval_blocks_per_source,
         max_blocks=2000 if args.smoke else None,
     )
     eval_ds = TokenBlockStream(
         corpus_dir=args.corpus, tokenizer=tokenizer, block_size=block,
-        only_shards=[eval_shard], max_blocks=200 if args.smoke else args.eval_blocks,
+        split="eval", eval_blocks_per_source=eval_blocks_per_source,
+        max_blocks=200 if args.smoke else None,
     )
     collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer, mlm=True, mlm_probability=0.15

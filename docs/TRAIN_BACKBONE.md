@@ -116,7 +116,12 @@ the recommended full run, since we stay under one epoch (no data repetition)
 and the cosine LR schedule anneals over the whole budget (pick the target
 upfront; a short run cannot be cleanly extended afterwards). Held-out
 pseudo-perplexity is the intrinsic quality signal; the real gate is downstream
-(step 5).
+(step 5). The reader **interleaves the corpus sources** (weighted by size,
+deterministically — so `--resume` stays reproducible) instead of reading one
+source fully and then the next, keeping every register present throughout
+training and the LR anneal; the held-out eval reserves the first `--eval-blocks`
+blocks of **each** source, so the perplexity reflects all registers (not just
+whichever shard sorts last).
 
 Hyperparameters are CLI flags: `--max-steps`, `--batch-size` (64), `--grad-accum`
 (8), `--block-size` (128), `--learning-rate` (6e-4). Two knobs exist for
