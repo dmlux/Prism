@@ -263,6 +263,21 @@ def pretrain(args: argparse.Namespace) -> None:
         split="eval", eval_blocks_per_source=eval_blocks_per_source,
         max_blocks=200 if args.smoke else None,
     )
+    # Report the corpus interleave up front (it is otherwise silent): the train
+    # split interleaves the sources weighted by byte-size, deterministically
+    # (fixed seed -> resume-safe), so every register stays present throughout
+    # training and the LR anneal rather than one source fully then the next.
+    by_source = train_ds._shards_by_source()
+    if len(by_source) > 1:
+        weights = {src: sum(s.stat().st_size for s in shards) for src, shards in by_source.items()}
+        total_bytes = sum(weights.values()) or 1
+        summary = " | ".join(
+            f"{src} ({len(shards)} shards, {weights[src] / 1e9:.1f} GB, "
+            f"{100 * weights[src] / total_bytes:.0f}%)"
+            for src, shards in by_source.items()
+        )
+        print(f"Corpus interleave (train split, seed {train_ds.interleave_seed}): "
+              f"{summary}", flush=True)
     collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer, mlm=True, mlm_probability=0.15
     )
@@ -331,7 +346,11 @@ def pretrain(args: argparse.Namespace) -> None:
                         values[column_key] = float(logs[log_key])
                 progress_logger.log("eval", counters=counters, values=values)
             elif "loss" in logs:
-                values = {"tokens": tokens, "loss": float(logs["loss"])}
+                # transformers 5.x logs the train loss summed over the grad-accum
+                # micro-batches (~grad_accum x the per-token mean); divide it back
+                # so the [train] loss is directly comparable to eval_loss.
+                loss = float(logs["loss"]) / args.gradient_accumulation_steps
+                values = {"tokens": tokens, "loss": loss}
                 for column_key, log_key in (
                     ("gradient_norm", "grad_norm"),
                     ("learning_rate", "learning_rate"),
