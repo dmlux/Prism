@@ -32,7 +32,7 @@ from pathlib import Path
 import torch
 from torch.utils.data import IterableDataset, get_worker_info
 
-from prism.bert.config import PRISM_BERT_EN, build_gpt_bert_config
+from prism.bert.config import PRISM_BERT_EN, PRISM_BERT_EN_ROPE, build_gpt_bert_config
 from prism.progress import Column, ProgressLogger
 
 
@@ -200,8 +200,6 @@ def pretrain(args: argparse.Namespace) -> None:
     )
     from transformers.trainer_callback import PrinterCallback, TrainerCallback
 
-    from prism.bert.modeling_gpt_bert import GPTBERTForMaskedLM
-
     if not torch.backends.mps.is_available():
         print("WARNING: MPS not available; falling back to CPU (very slow).")
     if args.precision in ("bf16", "fp16") and torch.backends.mps.is_available():
@@ -212,15 +210,39 @@ def pretrain(args: argparse.Namespace) -> None:
         )
     tokenizer = PreTrainedTokenizerFast.from_pretrained(args.tokenizer)
 
-    config = PRISM_BERT_EN  # the resolved default; edit config.py to change dims
-    hf_config = build_gpt_bert_config(config)
-    hf_config.vocab_size = tokenizer.vocab_size
-    model = GPTBERTForMaskedLM(hf_config)
+    if args.arch == "gpt_bert_rope":
+        # PrismBERT's default backbone: LTG's GPT-BERT arch with RoPE (vendored),
+        # trained with our STANDARD bidirectional MLM objective (see
+        # prism.bert.gpt_bert_rope).
+        from prism.bert.gpt_bert_rope import (
+            GptBertRopeForMaskedLM,
+            build_gpt_bert_rope_config,
+        )
+
+        config = PRISM_BERT_EN_ROPE
+        hf_config = build_gpt_bert_rope_config(config, vocab_size=tokenizer.vocab_size)
+        model = GptBertRopeForMaskedLM(hf_config)
+        arch_label = "gpt_bert_rope"
+    else:
+        from prism.bert.modeling_gpt_bert import GPTBERTForMaskedLM
+
+        config = PRISM_BERT_EN  # legacy BabyLM gpt_bert dims
+        hf_config = build_gpt_bert_config(config)
+        hf_config.vocab_size = tokenizer.vocab_size
+        model = GPTBERTForMaskedLM(hf_config)
+        arch_label = "gpt_bert"
+
+    backbone_params = sum(
+        p.numel()
+        for name, p in model.named_parameters()
+        if not name.startswith(("classifier.", "lm_head.", "model.lm_head."))
+    )
     params = sum(p.numel() for p in model.parameters())
     print(
-        f"Fresh PrismBERT: H{config.hidden_size}/L{config.num_layers}/"
+        f"Fresh PrismBERT [{arch_label}]: H{config.hidden_size}/L{config.num_layers}/"
         f"FF{config.intermediate_size}/V{tokenizer.vocab_size} — "
-        f"{params/1e6:.1f}M params ({params*4/1e6:.0f} MB fp32 backbone).",
+        f"{params/1e6:.1f}M params, backbone {backbone_params/1e6:.1f}M "
+        f"({backbone_params*4/1e6:.0f} MB fp32).",
         flush=True,
     )
 
@@ -319,8 +341,9 @@ def pretrain(args: argparse.Namespace) -> None:
                         values[column_key] = float(logs[log_key])
                 progress_logger.log("train", counters=counters, values=values)
 
-    # The vendored GPTBERTForMaskedLM returns a correct HF masked-LM loss, so
-    # the standard Trainer handles loss and gradient-accumulation scaling.
+    # Both masked-LM heads (gpt_bert's GPTBERTForMaskedLM and gpt_bert_rope's
+    # GptBertRopeForMaskedLM) return a standard HF masked-LM loss, so the stock
+    # Trainer handles loss and gradient-accumulation scaling.
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -351,6 +374,15 @@ def main() -> None:
     parser.add_argument("--corpus", type=Path, required=True)
     parser.add_argument("--tokenizer", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--arch",
+        choices=["gpt_bert_rope", "gpt_bert"],
+        default="gpt_bert_rope",
+        help="Backbone architecture. 'gpt_bert_rope' (default) = LTG's GPT-BERT "
+        "arch with RoPE, vendored from NorBERT4 (PRISM_BERT_EN_ROPE). 'gpt_bert' "
+        "= the legacy BabyLM GPT-BERT arch (PRISM_BERT_EN). Both train with the "
+        "same standard MLM objective.",
+    )
     parser.add_argument("--block-size", type=int, default=128)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--grad-accum", type=int, default=8)

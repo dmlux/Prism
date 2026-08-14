@@ -71,6 +71,22 @@ PRISM_BERT_EN = PrismBertConfig(
 )
 
 
+# The default English PrismBERT dims, on the RoPE GPT-BERT backbone
+# (``prism.bert.gpt_bert_rope``; the vendored LTG architecture). Same width/heads
+# as the legacy BabyLM config (320/5) but two layers deeper at the arch's ~2.6x
+# GeGLU FF ratio (832) — the deepest config under the 100 MB tagger budget:
+# 22.2 M backbone -> ~95 MB fp32 tagger (measured). Consumed by ``pretrain.py``
+# (default ``--arch gpt_bert_rope``) through ``build_gpt_bert_rope_config``,
+# which fills the arch-specific fields (head size 64, RoPE, 4:1 local-global).
+PRISM_BERT_EN_ROPE = PrismBertConfig(
+    hidden_size=320,
+    num_layers=14,
+    num_attention_heads=5,
+    intermediate_size=832,
+    vocab_size=16384,
+)
+
+
 def build_gpt_bert_config(config: PrismBertConfig):
     """Return the vendored ``ModelConfig`` for the gpt_bert architecture."""
 
