@@ -18,7 +18,11 @@ spike, parity 2.7e-5 through the existing XNNPACK lowering path):
   wrapping, which must not run during export capture or MPS training.
 """
 
+from prism.bert.register import register_gpt_bert
 from prism.modeling.backbones import PretrainedBackboneSpec
+
+# make AutoModel recognize the local gpt_bert PrismBERT backbone
+register_gpt_bert()
 
 # Student (ships): 16.80M parameters, ≈ ltg/norbert4-xsmall (17M).
 ETTIN_ENCODER_17M_BACKBONE = PretrainedBackboneSpec(
@@ -37,4 +41,15 @@ ETTIN_ENCODER_400M_BACKBONE = PretrainedBackboneSpec(
     revision="7662476d60abb071a5bd319c9f3074f3072c062d",
     trust_remote_code=False,
     config_overrides=(("reference_compile", False),),
+)
+
+# Locally pretrained PrismBERT (GPT-BERT architecture) student backbone.
+# A directory checkpoint rather than a Hub repo, so it is pinned with the
+# "local" revision sentinel; it carries its own int8 discriminator (the
+# GPT-BERT/NorBERT4 embedding-dynamic path) instead of the profile's default.
+PRISM_BERT_EN_BACKBONE = PretrainedBackboneSpec(
+    model_id="runs/prism-bert-en",
+    revision="local",
+    trust_remote_code=False,
+    quantization="xnnpack-embedding-dynamic",
 )

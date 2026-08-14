@@ -92,6 +92,7 @@ class BaselineTrainingArguments:
     morphology_weight_cap: float | None
     language_tag: str
     model_role: ModelRole
+    student_backbone: str
     teacher_checkpoint_path: Path | None
     distillation_policy: TokenTaskDistillationPolicy
     relation_teacher_checkpoint_path: Path | None
@@ -137,6 +138,16 @@ def parse_training_arguments(
         "--model-role",
         choices=("student", "teacher"),
         default="student",
+    )
+    parser.add_argument(
+        "--student-backbone",
+        choices=["ettin-encoder-17m", "prism-bert-en"],
+        default="ettin-encoder-17m",
+        help=(
+            "Which student backbone to fine-tune/distil onto (default: the "
+            "Ettin-17m encoder; 'prism-bert-en' uses the locally pretrained "
+            "PrismBERT at runs/prism-bert-en)."
+        ),
     )
     parser.add_argument(
         "--checkpoint",
@@ -535,6 +546,7 @@ def parse_training_arguments(
             ModelRole,
             parsed_arguments.model_role,
         ),
+        student_backbone=parsed_arguments.student_backbone,
         teacher_checkpoint_path=parsed_arguments.teacher_checkpoint_path,
         distillation_policy=TokenTaskDistillationPolicy(
             upos_temperature=resolved_temperatures["upos"],
@@ -909,7 +921,16 @@ def main() -> None:
     if loss_weights is not None:
         loss_weights = loss_weights.to(device)
 
-    backbone_spec = training_profiles[0].backbone_for_role(arguments.model_role)
+    if arguments.model_role == "student":
+        student_model_id = {
+            "ettin-encoder-17m": "jhu-clsp/ettin-encoder-17m",
+            "prism-bert-en": "runs/prism-bert-en",
+        }[arguments.student_backbone]
+        backbone_spec = training_profiles[0].backbone_for_model_id(
+            student_model_id, role="student"
+        )
+    else:
+        backbone_spec = training_profiles[0].backbone_for_role(arguments.model_role)
     tokenizer = load_backbone_tokenizer(backbone_spec)
     model = build_pretrained_token_tagger(
         backbone_spec=backbone_spec,

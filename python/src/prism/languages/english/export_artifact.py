@@ -567,20 +567,28 @@ def main() -> None:
         arguments.language_tag,
         treebank_release=arguments.treebank_release,
     )
-    quantization_strategy = resolve_int8_quantization_strategy(
-        profiles[0].quantization
-    )
-    if arguments.precision == "int8" and not quantization_strategy.supports_int8():
-        raise SystemExit(
-            "int8 quantization is not supported for this profile's backbone "
-            f"({profiles[0].student_backbone.model_id}); export with "
-            "--precision fp32."
-        )
     tagger = load_english_token_tagger(
         checkpoint_path=arguments.checkpoint_path,
         required_language_tags=tuple(profile.language_tag for profile in profiles),
         treebank_release=arguments.treebank_release,
     )
+    # The int8 discriminator is backbone-specific: prefer the checkpoint's
+    # backbone spec's quantization when set (e.g. the locally pretrained
+    # PrismBERT uses the GPT-BERT embedding-dynamic path), else the profile's
+    # default (Ettin/ModernBERT). The checkpoint's backbone identity is read
+    # the same way checkpoint_loading resolves it (checkpoint["backbone_model_id"]).
+    checkpoint_backbone_spec = profiles[0].backbone_for_model_id(
+        str(tagger.checkpoint["backbone_model_id"]),
+        role="student",
+    )
+    quantization = checkpoint_backbone_spec.quantization or profiles[0].quantization
+    quantization_strategy = resolve_int8_quantization_strategy(quantization)
+    if arguments.precision == "int8" and not quantization_strategy.supports_int8():
+        raise SystemExit(
+            "int8 quantization is not supported for this checkpoint's backbone "
+            f"({checkpoint_backbone_spec.model_id}); export with "
+            "--precision fp32."
+        )
     shapes = FixedExportShapes(
         batch_size=arguments.batch_size,
         subword_count=arguments.subword_count,

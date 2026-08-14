@@ -16,6 +16,7 @@ class LanguageProfileSpec:
     student_backbone: PretrainedBackboneSpec
     gold_treebank: UniversalDependenciesTreebankSpec
     alternate_teacher_backbones: tuple[PretrainedBackboneSpec, ...] = ()
+    alternate_student_backbones: tuple[PretrainedBackboneSpec, ...] = ()
     # int8 export quantization strategy discriminator, resolved to a concrete
     # Int8QuantizationStrategy at export time (prism.exporting.quantization).
     # The default is the GPT-BERT/NorBERT4 path; ModernBERT profiles override
@@ -52,7 +53,7 @@ class LanguageProfileSpec:
         """Return the role's default backbone plus any alternate variants."""
 
         if role == "student":
-            return (self.student_backbone,)
+            return (self.student_backbone, *self.alternate_student_backbones)
         if role == "teacher":
             return (self.teacher_backbone, *self.alternate_teacher_backbones)
 
