@@ -1,147 +1,163 @@
 # PrismBERT — a quant-friendly per-language backbone
 
-Working document for the `model/prism-bert-backbone` branch. Goal: fix ONE
-modern, int8-quantization-friendly encoder architecture and pretrain it
-**separately per language** (PrismBERT-en, PrismBERT-no, …) as the Prism
-tagger backbone. Not multilingual — consistency lives in the architecture,
-not shared weights. Priority: on-device (ExecuTorch/XNNPACK CPU) int8 **speed**
-over quality, but quality must beat **UDPipe 2.17** per language. Size budget:
-**< 100 MB fp32** per language (int8 `-fast` then ≈ ¼).
+PrismBERT is Prism's own encoder backbone: **one architecture**, pretrained
+**separately per language** (`prismbert-en`, `prismbert-de`, …) as the Prism
+tagger's backbone. Not multilingual — consistency lives in the architecture and
+tooling, not in shared weights. Priority: on-device (ExecuTorch/XNNPACK CPU)
+int8 **speed**, but quality must beat **UDPipe 2.17** per language. Size budget:
+**< 100 MB fp32** per language (the int8 `-fast` variant is then ≈ ¼).
 
-## Why a new backbone
+> **PrismBERT is the product name, not the architecture.** The architecture is
+> LTG's *GPT-BERT with RoPE* — in this repo the `gpt_bert_rope` backbone.
 
-Measured on the shipped models with the identical export/int8 tooling:
+UDPipe-2.17 English-EWT dev floor (gold-tokenised): **UPOS 97.56 / UFeats 97.86
+/ Lemma 97.92**.
+
+## Architecture: LTG GPT-BERT with RoPE (`gpt_bert_rope`)
+
+The backbone is LTG's GPT-BERT design in its NorBERT4 generation: **RoPE**
+positions, **local-global (sliding-window) attention**, **GeGLU** feed-forward,
+a value-residual layer design, and parameter-free pre-LayerNorm. It is vendored
+from `ltg/norbert4-base` (Apache-2.0) and adapted for Prism.
+
+Code map (in `python/src/prism/bert/`):
+
+| File | Origin | Role |
+|------|--------|------|
+| `modeling_gpt_bert_rope.py` | vendored (`ltg/norbert4-base`, modified) | the architecture |
+| `configuration_gpt_bert_rope.py` | vendored (`ltg/norbert4-base`, modified) | the HF config |
+| `gpt_bert_rope.py` | Prism-authored | budget-sized config, standard-MLM head, encoder, `AutoModel` registration |
+
+The Prism adapter exposes `GptBertRopeConfig` (model_type `gpt-bert-rope`),
+`GptBertRopeEncoder` (what the tagger loads via `AutoModel`),
+`GptBertRopeForMaskedLM` (the pretraining head), `build_gpt_bert_rope_config`,
+and `register_gpt_bert_rope`. It is covered by `python/tests/test_gpt_bert_rope.py`.
+
+NorBERT4 is only where this architecture is *published*; the vendored file
+headers carry the attribution. The Norwegian tagger separately uses the actual
+`ltg/norbert4-*` checkpoints — that is a different, orthogonal choice.
+
+## Why this architecture
+
+Measured on the shipped models with identical export/int8 tooling:
 
 - **ModernBERT/Ettin (English)** is hostile to low precision on the XNNPACK CPU
   path: int8 ends up **slower** than fp32 (≈ +6 % even with the grouped
-  partitioner) and −1.7 pp; fp16 collapses −17 pp. Cause: RoPE +
-  sliding-window / alternating global-local attention.
-- **NorBERT4 (Norwegian, LTG/GPT-BERT family)** with the SAME tooling is int8
-  **≈ 1.9× faster** than fp32 and near-lossless (prism-no-0.2.5-fast).
+  partitioner) and −1.7 pp; fp16 collapses −17 pp.
+- **NorBERT4 (Norwegian, LTG GPT-BERT family)** with the SAME tooling is int8
+  **≈ 1.9× faster** than fp32 and near-lossless (`prism-no-…-fast`), and with our
+  Norwegian data it **beat UDPipe 2.17 in 4 of 6** metrics.
 
-So the backbone architecture is the lever. **Blueprint: LTG GPT-BERT**
-(Charpentier & Samuel 2024, BabyLM winner; same group as NorBERT4). Quant-
-friendly by construction: DeBERTa-style disentangled **relative** positions
-(`position_bucket_size` bucketing — NOT RoPE, NOT learned-absolute), full
-bidirectional attention (no sliding-window / global-local), GeGLU,
-parameter-free pre-LayerNorm. Repo: <https://github.com/ltgoslo/gpt-bert>,
-paper arXiv:2410.24159.
+The earlier working hypothesis — "avoid RoPE and sliding-window, they are
+int8-hostile" — was **wrong** and is corrected here: NorBERT4 *has* RoPE and
+local-global attention and is still int8-fast and near-lossless. The real lever
+is a **clean implementation** (no in-place custom-autograd tricks, no
+export-hostile ops), not the positional scheme. Ettin's int8 problems were its
+specific implementation, not RoPE per se.
 
-## Stage 1 — validate the architecture without pretraining (Weg A)
+So we rebuilt PrismBERT on NorBERT4's architecture: it has a **proven int8
+`.pte` deployment** and **fp32 quality that beats UDPipe** on real data. We
+pretrain **our own weights per language on our own clean corpus** — only the
+architecture template changed; the per-language, quant-friendly thesis is
+unchanged.
 
-Distill/train an existing English GPT-BERT through the current Prism pipeline,
-export int8, and check (a) the int8 speed win and (b) whether it clears the
-UDPipe-2.17-en floor. Validation only — the base checkpoint is over the size
-budget; it proves the arch + integration + quality-reachability before we
-invest in pretraining.
+## Training objective: standard bidirectional MLM
 
-**Chosen vehicle: `BabyLM-community/babylm-baseline-100m-gpt-bert-mixed`**
-(rev `09629ffe557c4143aa7b857f92004f3e45689eff`, 118.8 M, hidden 768 / 12 layers
-/ vocab 16384 / `position_bucket_size` 32). It ships the **canonical
-`modeling_gpt_bert.py`** — the exact code path we will reuse when we pretrain
-our own PrismBERT in Stage 2 — so validating it also validates that path.
+PrismBERT is pretrained with **standard bidirectional masked-LM** (15 % masking),
+not GPT-BERT's mixed shifted causal/MLM objective. Reason: the tagger consumes
+the backbone **bidirectionally** (each token attends left and right), which is
+exactly what MLM trains; the causal half of the GPT-BERT recipe mainly helps
+*generation*, which we do not use. Our first PrismBERT (on the legacy arch) was
+already MLM-trained and reached ~parity with the silver-trained Ettin student,
+so we keep the proven recipe and change only the architecture.
 
-Smoke test (2026-08-09) confirmed integration in this repo's env
-(transformers 5.13.1):
+The vendored `GptBertForMaskedLM` (the shifted causal/MLM head, with
+`30·sigmoid` logit-bounding and a BOS-prepend) is kept untouched for reference;
+Prism uses `GptBertRopeForMaskedLM` instead — a plain, non-shifted MLM head with
+tied input/output embeddings.
 
-- Loads via `AutoModel.from_pretrained(..., trust_remote_code=True)` +
-  **`reinitialize_non_persistent_buffers=True`** (same as NorBERT4 — the
-  non-persistent `position_indices` buffer must be rebuilt, else the forward
-  raises `IndexError` in the relative-position embedding lookup).
-- Needs a one-line transformers-5.x shim: `PreTrainedModel.all_tied_weights_keys
-  = {}` (the canonical code predates that attribute). NorBERT4's newer
-  `modeling_gptbert.py` does not need it.
-- Forward returns `last_hidden_state` + 13 `hidden_states` → tagger-compatible.
-- Modules are plain `nn.Linear` / `GeGLU` / `Attention` — **no scale-
-  parametrized linears**, so the int8 fold is a no-op and the standard
-  `xnnpack-embedding-dynamic` strategy applies directly (no ModernBERT mask
-  surgery).
+## Sizing — the < 100 MB budget
 
-**Avoid** `ltg/gpt-bert-babylm-base` and `ltg/gpt-bert-babylm-small`: both ship
-the older `modeling_ltgbert.py`, whose forward is incompatible with
-transformers 5.13 (`config.is_decoder` etc.). The small one (hidden 384, ~30 M)
-is budget-sized but we will pretrain our own with canonical code anyway.
+`PRISM_BERT_EN_ROPE` (in `prism/bert/config.py`): **hidden 320 / 14 layers / 5
+heads / head-size 64 / FF 832 / vocab 16384** → **22.2 M backbone (88.8 MB
+fp32)**, and a **~95 MB fp32** full tagger (backbone + task heads + character
+CNN). This is the deepest configuration that stays under the 100 MB budget: same
+width/heads as the legacy config, two layers deeper at the arch's ~2.6× GeGLU FF
+ratio. The size is pinned by a test so it cannot drift up silently.
 
-### Stage-1 steps
+For a new language, add a `PrismBertConfig` sized to the budget and point the
+pretraining at that language's corpus + tokenizer.
 
-1. Wire a `PretrainedBackboneSpec` for the vehicle (trust_remote_code,
-   reinitialize_non_persistent_buffers) + the `all_tied_weights_keys` shim in
-   the backbone loader; add an English GPT-BERT profile using
-   `quantization="xnnpack-embedding-dynamic"`.
-2. int8-delegation probe on a (randomly-initialised-head) adapter → confirm the
-   linears fully delegate to XNNPACK (expected, like NorBERT4).
-3. Distill/train through the existing English pipeline (**user runs** this —
-   expensive) → student checkpoint.
-4. Export int8 + fp32 → measure C++ speed (expect int8 > fp32) and UD dev
-   quality vs the UDPipe-2.17-en floor (**UPOS 97.56 / UFeats 97.86 /
-   Lemma 97.92**).
+## Pretraining
 
-### Stage-1 smoke-test result (2026-08-09) — plumbing + int8 delegation ✅
+Everything lives in the `prism/bert/` package; the reproducible recipe and exact
+commands are in [TRAIN_BACKBONE.md](TRAIN_BACKBONE.md). In brief:
 
-Built a fresh, untrained Prism tagger (LINEAR heads, random) on the BabyLM
-backbone and ran it through the production int8 lowering
-(`scratchpad/babylm_int8_probe.py`):
+- **Corpus** (`prism.bert.corpus`): legally-clean, commercial-safe — English
+  Wikipedia (CC BY-SA 3.0/GFDL) + Project Gutenberg (public domain). No
+  CommonCrawl-derived text. The reader **interleaves the sources** (deterministic,
+  resume-safe) so every register is present throughout training and the LR
+  anneal.
+- **Tokenizer** (`prism.bert.tokenizer`): byte-level BPE, vocab 16384, special
+  tokens fixed at `<unk>`=0/`<s>`=1/`</s>`=2/`<pad>`=3/`<mask>`=4.
+- **Pretraining** (`prism.bert.pretrain --arch gpt_bert_rope`, the default):
+  fresh masked-LM via the HF `Trainer`. On this machine (Apple M4 Max, MPS, no
+  CUDA) training is fp32 at **~2.75 s/step** (65 536 tokens/step) → **100 000
+  steps ≈ 3.5–4 days ≈ 6.6 B tokens ≈ ~1 epoch**. Resume-safe (`--resume`);
+  best-eval checkpoint kept + reloaded; progress logged via the shared
+  `prism.progress` logger. A `--smoke` run de-risks the loop first.
+- **Teacher (no own large model):** reuse **Ettin-encoder-400m (MIT)** as the
+  distillation teacher — a permissive large model keeps the student commercially
+  safe. Same pattern per language: pick a strong permissive teacher, don't
+  pretrain one.
 
-- **Plumbing works end-to-end:** `build_pretrained_token_tagger(backbone_spec=
-  babylm, schema=en-2.17, …)` builds (83 `nn.Linear`), the backbone tokenizer
-  loads, and the eager forward runs — with only the two documented handles
-  (`reinitialize_non_persistent_buffers=True` + the `all_tied_weights_keys`
-  shim). Fold is a no-op (0 scale-parametrized linears).
-- **int8 delegation:** in the lowered edge graph, `aten_linear_default` is
-  **95 delegated / 0 non-delegated** — every linear goes to XNNPACK, no
-  portable compute fallback. Same int8-friendly profile as NorBERT4 (whose
-  int8 we measured at 1.9× fp32). 149 grouped subgraphs.
-- **Open follow-up (not a delegation issue):** `to_executorch` currently fails
-  with `Missing out variants: quantized_decomposed::quantize_per_channel` — a
-  non-delegated per-channel quantize (likely on the embedding path) whose
-  portable out-variant is unregistered in this ET build. NorBERT4 completes
-  `to_executorch` (it fuses this into `embedding_byte`), so it is a solvable
-  export-config/pass detail to resolve when wiring the real PrismBERT export,
-  not a blocker. Reference: the NorBERT4 int8 export path.
+The legacy BabyLM GPT-BERT arch (DeBERTa-style disentangled relative positions,
+no RoPE) is still available as `--arch gpt_bert` (config `PRISM_BERT_EN`), kept
+for comparison; it is no longer the default.
 
-**Conclusion:** the GPT-BERT-en architecture integrates into the Prism pipeline
-and its int8 linears fully delegate to XNNPACK — Weg A validated. Proceed to
-Stage 2 (pretrain), resolving the `to_executorch` out-variant during real
-export wiring.
+## Implementation notes / gotchas
 
-## Stage 2 — pretrain the deployable PrismBERT-en (in `prism.bert`)
+- **RoPE buffers are persistent.** Upstream registers the RoPE cos/sin tables as
+  `persistent=False` and recomputes them per load. transformers 5.x
+  `from_pretrained` builds on the *meta* device and does **not** recompute
+  `__init__`-time non-persistent buffers, leaving them as uninitialised memory
+  (NaN) on any fresh load (the tagger, or any `AutoModel.from_pretrained`).
+  PrismBERT makes them **`persistent=True`** (a marked vendored modification; a
+  regression test guards it). Pretraining/`--resume` were never affected (the
+  model is built materialised there).
+- **FlashAttention is optional.** The vendored modeling uses FlashAttention only
+  if available (CUDA); otherwise it runs a portable eager path (the one we use on
+  MPS/CPU and for ExecuTorch export). No `flash-attn` dependency.
+- **Windows widened to full attention.** `local_window_length` and
+  `global_window_length` are set to `max_position_embeddings`, so the vendored
+  local-global code path runs unchanged but is full bidirectional attention at
+  our short tagging/pretraining sequence lengths — the long-context windowing is
+  not needed here.
 
-Stage 1 held, so we pretrain our own backbone. Everything lives in the
-`prism/bert/` package.
+## int8 + release
 
-**Config (finalized, measured):** `PRISM_BERT_EN` = hidden 320, 12 layers, 5
-heads, FF 1024, vocab 16384. The FULL tagger (backbone + heads + character CNN +
-structured morphology + lemma head) is **~99.6 MB fp32** — under the 100 MB
-budget and well above today's Ettin-17m (68.6 MB), using the headroom for
-capacity. Deeper/narrower chosen over wider/shallower (H384/8L, 95.7 MB) for
-morphology/syntax and alignment with the deep NorBERT4 family the Prism heads
-are tuned on; the wide variant is the fallback if UFeats disappoints.
+Near-lossless post-training int8 is expected (NorBERT4 family); QAT
+(`torchao prepare_qat_pt2e` → ExecuTorch XNNPACK) stays a fallback only if the
+int8 gate regresses. One export follow-up remains: `to_executorch` needs the
+`quantized_decomposed::quantize_per_channel` out-variant registered in this ET
+build (NorBERT4 completes it by fusing into `embedding_byte`) — resolve during
+export wiring; it blocks the deployable `.pte`, not the eager int8 quality.
 
-**Corpus (legally clean, commercial-safe):** `prism.bert.corpus` streams
-English Wikipedia (CC BY-SA 3.0/GFDL, ~3B tokens, modern register) + Project
-Gutenberg (`sedthh/gutenberg_english`, public domain, literary register — the
-primary Prism use case) to JSONL shards with pinned dataset revisions. No
-CommonCrawl-derived text (unclear copyright). ~4–5B clean tokens — ample for a
-~24M model. Weights release under CC BY-SA 4.0; the SA chain is honored by the
-CC-BY-SA Wikipedia + public-domain Gutenberg provenance.
+Ship the tagger fp32 + int8 (`-fast`) **from `main`** after the UD gate vs
+UDPipe 2.17; publish the raw PrismBERT backbone separately on HF (not bundled in
+the tagger tarball). Weights release under **CC BY-SA 4.0** (the SA chain is
+honoured by CC-BY-SA Wikipedia + public-domain Gutenberg); code under Apache-2.0.
 
-**Tokenizer:** `prism.bert.tokenizer` — byte-level BPE, vocab 16384,
-special tokens fixed to the gpt_bert ids.
+## History
 
-**Pretraining:** `prism.bert.pretrain` — fresh gpt_bert masked-LM, 15% MLM
-via HF Trainer. **This machine is Apple M4 Max (40-core GPU, 64 GB), MPS only —
-no CUDA**, so training is fp32 on MPS, days-to-weeks (not the 48-GPU-h CUDA
-reference), run iteratively (start ~1–2B tokens → measure → extend). Track
-held-out pseudo-perplexity; a `--smoke` run de-risks the loop first.
-
-**Teacher (no own large model):** reuse the existing **Ettin-encoder-400m (MIT)**
-as the distillation teacher — permissive license keeps the student commercially
-safe; cross-architecture logit + silver distillation is fine. Same pattern for
-other languages: pick a strong permissive large model, don't pretrain a teacher.
-
-**int8 + ship:** near-lossless post-training int8 expected (NorBERT4 family);
-QAT (`torchao prepare_qat_pt2e` → ExecuTorch XNNPACK) only as a fallback if the
-int8 gate regresses. Resolve the Stage-1 `to_executorch` out-variant during
-export wiring. Distil the tagger (existing pipeline, student backbone swapped)
-on gold + silver, then release fp32 + int8(`-fast`) **from `main`**; publish the
-raw PrismBERT-en backbone separately on HF (not bundled in the tagger tarball).
+- **Stage-1 (2026-08-09):** validated the GPT-BERT integration + int8 delegation
+  on a BabyLM checkpoint through the Prism pipeline (linears fully delegate to
+  XNNPACK) — arch + plumbing proven before investing in pretraining.
+- **Legacy PrismBERT-en** (BabyLM gpt-bert, `PRISM_BERT_EN` = H320/L12/FF1024,
+  23.3 M): MLM-pretrained, distilled → UD dev UPOS 97.08, ~parity with the
+  silver Ettin-17m student. Its int8 collapse (−53 pp) traced to the DenseFormer
+  DWA's in-place custom-autograd and was fixed by a functional rewrite
+  (fp32 bit-identical, int8 near-lossless).
+- **2026-08-14:** rebuilt PrismBERT on NorBERT4's architecture (`gpt_bert_rope`),
+  the current default, for its proven int8 `.pte` deploy + UDPipe-beating fp32
+  quality.

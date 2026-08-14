@@ -1,11 +1,12 @@
 # Training a PrismBERT backbone for your own language
 
-PrismBERT is Prism's own quant-friendly encoder backbone: one architecture (the
-LTG GPT-BERT design — DeBERTa-style relative attention, GeGLU, no RoPE, no
-sliding window), **pretrained separately per language**, sized so the finished
-tagger fits under **100 MB in fp32** and quantizes to a fast int8 `-fast`
-variant on the ExecuTorch/XNNPACK CPU runtime. The design rationale and the
-measurements behind it are in [PRISMBERT.md](PRISMBERT.md).
+PrismBERT is Prism's own quant-friendly encoder backbone: one architecture
+(LTG's GPT-BERT design with **RoPE**, local-global (sliding-window) attention and
+GeGLU — the `gpt_bert_rope` backbone, vendored from `ltg/norbert4-base`),
+**pretrained separately per language**, sized so the finished tagger fits under
+**100 MB in fp32** and quantizes to a fast int8 `-fast` variant on the
+ExecuTorch/XNNPACK CPU runtime. The design rationale and the measurements behind
+it are in [PRISMBERT.md](PRISMBERT.md).
 
 This guide is the reproducible, end-to-end recipe. Every command below was run
 to produce the English backbone; the numbers are from an Apple M4 Max (40-core
@@ -63,7 +64,7 @@ fast-tokenizer directory (`tokenizer.json` + configs). Takes a few minutes.
 ## 3. Smoke-test the training loop (recommended)
 
 ```bash
-.venv/bin/python -m prism.bert.pretrain \
+.venv/bin/python -m prism.bert.pretrain --arch gpt_bert_rope \
     --corpus data/pretraining/en --tokenizer models/prism-bert-en/tokenizer \
     --output runs/prism-bert-en-smoke --smoke
 ```
@@ -78,7 +79,7 @@ multi-day run.
 mkdir -p logs/prism-bert-en
 # `-u` unbuffered + `tee -a` -> progress prints live to the terminal AND is
 # appended live to a persistent (gitignored) log file at the same time.
-.venv/bin/python -u -m prism.bert.pretrain \
+.venv/bin/python -u -m prism.bert.pretrain --arch gpt_bert_rope \
     --corpus data/pretraining/en --tokenizer models/prism-bert-en/tokenizer \
     --output runs/prism-bert-en --max-steps 100000 \
     2>&1 | tee -a "logs/prism-bert-en/pretrain-$(date +%Y%m%d-%H%M%S).log"
@@ -88,10 +89,13 @@ To let it run detached instead, wrap it in `nohup … &` and follow the log with
 `tail -f logs/prism-bert-en/pretrain-*.log`. If it is interrupted, re-run the
 same command with `--resume` to continue from the last checkpoint.
 
-The default config is `PRISM_BERT_EN` in `config.py` — **H320 / 12 layers / 5
-heads / FF 1024 / vocab 16384**, ~23.3 M backbone params, giving a ~99.6 MB fp32
-tagger (backbone + heads + character CNN, measured). Masked-LM (15 %) via the HF
-`Trainer` on MPS in fp32 (MPS has no reliable fp16/bf16).
+The default architecture is `gpt_bert_rope` (LTG's GPT-BERT with RoPE); its
+config is `PRISM_BERT_EN_ROPE` in `config.py` — **H320 / 14 layers / 5 heads /
+FF 832 / vocab 16384**, ~22.2 M backbone params, giving a ~95 MB fp32 tagger
+(backbone + heads + character CNN, measured). Standard bidirectional masked-LM
+(15 %) via the HF `Trainer` on MPS in fp32 (MPS has no reliable fp16/bf16). Pass
+`--arch gpt_bert` to train the legacy BabyLM GPT-BERT instead (DeBERTa-style
+relative positions, config `PRISM_BERT_EN`).
 
 Progress is logged as aligned, table-like lines (tqdm disabled): labels spelled
 out, numbers blank-padded with fixed decimals, and the tokens consumed so far
@@ -110,8 +114,8 @@ from `save_total_limit` pruning) and **reloaded at the end**, so the saved model
 is the best one, not merely the last. Watch it with
 `tail -f logs/prism-bert-en/pretrain-*.log`.
 
-Throughput on the M4 Max: ~3.4 s/step (65 536 tokens/step) ≈ **19k tokens/s** →
-**100 000 steps ≈ ~4 days (~6.5 B tokens ≈ ~1 epoch over the ~6 B corpus)** —
+Throughput on the M4 Max: ~2.75 s/step (65 536 tokens/step) ≈ **24k tokens/s** →
+**100 000 steps ≈ ~3.5–4 days (~6.6 B tokens ≈ ~1 epoch over the ~6 B corpus)** —
 the recommended full run, since we stay under one epoch (no data repetition)
 and the cosine LR schedule anneals over the whole budget (pick the target
 upfront; a short run cannot be cleanly extended afterwards). Held-out
@@ -123,9 +127,11 @@ training and the LR anneal; the held-out eval reserves the first `--eval-blocks`
 blocks of **each** source, so the perplexity reflects all registers (not just
 whichever shard sorts last).
 
-Hyperparameters are CLI flags: `--max-steps`, `--batch-size` (64), `--grad-accum`
-(8), `--block-size` (128), `--learning-rate` (6e-4). Two knobs exist for
-portability to non-Apple hardware: `--precision {fp32,bf16,fp16}` (default fp32;
+The architecture is selected with `--arch {gpt_bert_rope (default), gpt_bert}`
+(`gpt_bert` = the legacy BabyLM DeBERTa-relative backbone). Hyperparameters are
+CLI flags: `--max-steps`, `--batch-size` (64), `--grad-accum` (8), `--block-size`
+(128), `--learning-rate` (6e-4). Two knobs exist for portability to non-Apple
+hardware: `--precision {fp32,bf16,fp16}` (default fp32;
 bf16/fp16 speed up CUDA a lot but are unreliable on MPS) and `--num-workers`
 (default 0 = inline tokenization, best on MPS where training is GPU-bound; `>0`
 shards the corpus across dataloader workers, for when CPU tokenization is the
