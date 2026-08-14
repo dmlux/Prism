@@ -30,36 +30,19 @@ from transformers.modeling_outputs import (
 from typing import Optional, Union
 
 
-# From https://github.com/epfml/DenseFormer
-class InPlaceSetSlice(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, full_tensor, last_slice, x_idx, x_val):
-        full_tensor[x_idx] = x_val
-        ctx.x_idx = x_idx
-        ret = torch.Tensor().to(full_tensor.device)
-        ret.set_(full_tensor[:x_idx + 1])
-        return ret
-
-    @staticmethod
-    def backward(ctx, grad_out):
-        if ctx.x_idx == 0:
-            return None, None, None, grad_out[ctx.x_idx]
-        else:
-            return None, grad_out[:ctx.x_idx], None, grad_out[ctx.x_idx]
-
-
-def apply_inplace_set(x_acc, x_idx, x_val):
-    full_tensor, last_slice = x_acc
-    new_slice = InPlaceSetSlice.apply(full_tensor, last_slice, x_idx, x_val)
-    return full_tensor, new_slice
-
-
+# From https://github.com/epfml/DenseFormer — VENDORED and MODIFIED. The upstream
+# DenseFormer accumulator uses a custom ``torch.autograd.Function`` with in-place
+# tensor mutation and ``Tensor.set_()`` storage aliasing, plus module state
+# mutated inside ``forward``. Those side effects break the int8 export tracer
+# (torch.export / PT2E), collapsing int8 quality by ~53 pp. Reimplemented here as
+# a plain, functional weighted sum: same math and the same learned ``alphas`` (so
+# pretrained weights load unchanged and fp32 outputs are identical), but with no
+# module-state side effects, so the graph is traceable for quantization.
 class DWAModules(torch.nn.Module):
     def __init__(self, hidden_size, n_blocks):
         super().__init__()
         self.n_blocks = n_blocks
         self.alphas = nn.ParameterList([nn.Parameter(torch.zeros(i + 2)) for i in range(n_blocks)])
-        self.accumulator = None
         self._init_weights()
 
     def _init_weights(self):
@@ -67,19 +50,13 @@ class DWAModules(torch.nn.Module):
             module.data.zero_()
             module.data[-1] = 1.0
 
-    def init_accumulator(self, x):
-        self.accumulator = (torch.zeros((self.n_blocks + 1, *x.shape), device=x.device, dtype=x.dtype), None)
-        self.accumulator = apply_inplace_set(self.accumulator, 0, x)
-
-    def forward(self, x, block_idx):
-        assert self.accumulator is not None, "`init_accumulator(x)` needs to be called first"
-        self.accumulator = apply_inplace_set(
-            self.accumulator,
-            block_idx + 1,
-            x
-        )
-        x = torch.tensordot(self.alphas[block_idx], self.accumulator[1], dims=1)
-        return x
+    def forward(self, accumulated: torch.Tensor, block_idx: int) -> torch.Tensor:
+        # ``accumulated``: a stack of shape ``(block_idx + 2, *hidden)`` — the
+        # static embedding plus every sublayer output up to and including this
+        # block. The DenseFormer output is their ``alphas``-weighted sum, exactly
+        # as upstream (``tensordot`` over the accumulated slice), just built
+        # functionally instead of via the in-place accumulator.
+        return torch.tensordot(self.alphas[block_idx], accumulated, dims=1)
 
 
 class Layer(nn.Module):
@@ -398,13 +375,20 @@ class GPTBERT(GPTBERTPreTrainedModel):
         static_embeddings, relative_embeddings = self.embedding(input_ids.t())
         contextualized_embeddings = [static_embeddings]
         attention_probs = []
-        self.dwa_modules.init_accumulator(static_embeddings)
+        # Functional DenseFormer accumulation (no module-state side effects, so
+        # the graph is int8-traceable): the running list holds the static
+        # embedding plus every sublayer output; each DWA call takes their stack
+        # and returns the alphas-weighted sum — identical math to the upstream
+        # in-place accumulator.
+        dwa_accumulator = [static_embeddings]
         for i, (attention_layer, mlp_layer) in enumerate(zip(self.attention_layers, self.mlp_layers)):
             attention, layer_attention_probs = attention_layer(contextualized_embeddings[-1], attention_mask, relative_embeddings)
             layer_embeddings = contextualized_embeddings[-1] + attention
-            layer_embeddings = self.dwa_modules(layer_embeddings, block_idx=i * 2)
+            dwa_accumulator.append(layer_embeddings)
+            layer_embeddings = self.dwa_modules(torch.stack(dwa_accumulator, dim=0), block_idx=i * 2)
             layer_embeddings = layer_embeddings + mlp_layer(layer_embeddings)
-            layer_embeddings = self.dwa_modules(layer_embeddings, block_idx=i * 2 + 1)
+            dwa_accumulator.append(layer_embeddings)
+            layer_embeddings = self.dwa_modules(torch.stack(dwa_accumulator, dim=0), block_idx=i * 2 + 1)
             contextualized_embeddings.append(layer_embeddings)
             attention_probs.append(layer_attention_probs)
         contextualized_embeddings = [emb.transpose(0, 1) for emb in contextualized_embeddings]
