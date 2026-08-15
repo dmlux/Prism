@@ -1468,6 +1468,9 @@ def main() -> None:
             )
         ),
     )
+    # Frame the last progress tables (bottom border) now that training is done.
+    training_progress_logger.close()
+    silver_progress_logger.close()
 
     print()
     print(

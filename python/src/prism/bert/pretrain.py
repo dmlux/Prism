@@ -378,6 +378,7 @@ def pretrain(args: argparse.Namespace) -> None:
           f"(block={block}, bs={args.batch_size}x{args.grad_accum})…", flush=True)
     trainer.train(resume_from_checkpoint=args.resume or None)
     metrics = trainer.evaluate()
+    progress_logger.close()  # frame the last table (bottom border) before the summary
     loss = metrics.get("eval_loss")
     if loss is not None:
         import math
