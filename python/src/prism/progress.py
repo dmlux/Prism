@@ -5,15 +5,18 @@ Both the PrismBERT backbone pretraining (:mod:`prism.bert.pretrain`) and the
 per-language tagger training (:mod:`prism.languages`) feed structured values to a
 :class:`ProgressLogger` instead of hand-formatting their own lines, so the
 on-disk logs never drift apart in style. Each component declares its own columns
-(the metrics differ); the *style* — a box-drawn table with a repeated header row,
-values right-aligned directly under their column header, fixed-decimal floats and
+(the metrics differ); the *style* — a box-drawn table with a header row, values
+right-aligned directly under their column header, fixed-decimal floats and
 thousands-separated counts — lives here, once.
 
-Rows are grouped by *kind* (e.g. ``"train"`` / ``"eval"``); each kind renders its
-own table. A header block (top border, column headers, separator) is re-emitted
-whenever the kind changes or every ``header_every`` rows, so a value row in a long
-scrolling log always has its column headers within view — you never have to guess
-which value belongs to which label.
+Table framing is explicit and predictable: the first :meth:`log` (or the first
+after a :meth:`close`, or a change of row *kind*) opens a fresh table with a top
+border + header; every following row of the same kind is appended without
+repeating the header; :meth:`close` draws the bottom border. A training loop
+therefore frames each block (an epoch's training rows, a development summary, …)
+by calling :meth:`close` at its boundary, so blocks never bleed into one another
+and no header ever appears mid-table. When more than one kind is configured a
+leading ``phase`` column names the kind on each row.
 
 Dependency-light on purpose (standard library only, no torch), so any module can
 import it cheaply.
@@ -24,16 +27,18 @@ Example::
         columns=[
             Column("tokens", "tokens", kind="count", width=13),
             Column("loss", "loss"),
-            Column("eval_loss", "eval_loss"),
-            Column("perplexity", "perplexity"),
         ],
-        row_kinds={"train": ["tokens", "loss"], "eval": ["tokens", "eval_loss", "perplexity"]},
+        row_kinds={"train": ["tokens", "loss"]},
     )
-    logger.log("train", counters=[("step", 2000, 100000)], values={"tokens": 131072000, "loss": 2.587})
-    # ┌───────┬─────────────┬───────────────┬──────────┐
-    # │ phase │        step │        tokens │     loss │
-    # ├───────┼─────────────┼───────────────┼──────────┤
-    # │ train │ 2000/100000 │   131,072,000 │ 2.587000 │
+    logger.log("train", counters=[("step", 1, 100)], values={"tokens": 65536, "loss": 2.58})
+    logger.log("train", counters=[("step", 2, 100)], values={"tokens": 131072, "loss": 2.41})
+    logger.close()
+    # ┌───────┬────────┬──────────┐
+    # │  step │ tokens │     loss │
+    # ├───────┼────────┼──────────┤
+    # │ 1/100 │ 65,536 │ 2.580000 │
+    # │ 2/100 │131,072 │ 2.410000 │
+    # └───────┴────────┴──────────┘
 """
 
 from __future__ import annotations
@@ -81,18 +86,17 @@ class ProgressLogger:
     """Formats and prints bordered progress tables in one shared style.
 
     Configure once with the full column set and, per *row kind* (e.g. ``"train"``
-    and ``"eval"``), the ordered column keys that kind uses. Each ``log`` call
-    prints a value row; a header block is (re-)printed whenever the kind changes
-    or every ``header_every`` rows so the headers stay in view. When more than one
-    kind is configured, a leading ``phase`` column names the kind on each row.
+    and ``"eval"``), the ordered column keys that kind uses. A table opens (top
+    border + header) on the first :meth:`log`, on the first log after
+    :meth:`close`, or when the row kind changes; :meth:`close` draws the bottom
+    border. When more than one kind is configured, a leading ``phase`` column
+    names the kind on each row.
     """
 
     def __init__(
         self,
         columns: Sequence[Column],
         row_kinds: Mapping[str, Sequence[str]],
-        *,
-        header_every: int = 20,
     ) -> None:
         self._columns = {column.key: column for column in columns}
         if len(self._columns) != len(columns):
@@ -104,14 +108,12 @@ class ProgressLogger:
                 raise ValueError(f"Row kind {kind!r} references unknown columns {missing}.")
         if not self._row_kinds:
             raise ValueError("At least one row kind is required.")
-        self._header_every = max(1, header_every)
         self._multi_kind = len(self._row_kinds) > 1
         self._phase_width = max((len(kind) for kind in self._row_kinds), default=0)
-        self._counts: dict[str, int] = {kind: 0 for kind in self._row_kinds}
-        self._last_kind: str | None = None
         # Column widths of the table section currently left open (awaiting its
         # bottom border); None when no section is open.
         self._open_widths: list[int] | None = None
+        self._last_kind: str | None = None
 
     def _cells(
         self,
@@ -122,7 +124,7 @@ class ProgressLogger:
     ) -> tuple[list[str], list[str], list[int]]:
         """Return parallel (headers, rendered values, column widths). Widths are
         value-independent (max of header and the column's field width), so header
-        and value rows always align and rows between two headers stay in grid."""
+        and value rows always align and rows in one table stay in grid."""
         headers: list[str] = []
         cells: list[str] = []
         widths: list[int] = []
@@ -195,30 +197,25 @@ class ProgressLogger:
         if kind not in self._row_kinds:
             raise ValueError(f"Unknown row kind {kind!r}.")
         headers, cells, widths = self._cells(kind, tag, counters, values)
-        if kind != self._last_kind:
-            # Start a new table section: close the previous kind's table with a
-            # bottom border (if one is open), then open this one.
+        # Open a fresh table (top border + header) on the first row, the first
+        # after close(), or a change of kind. Close the previous still-open
+        # section first so tables never run together.
+        if kind != self._last_kind or self._open_widths is None:
             if self._open_widths is not None:
                 print(self._rule(self._open_widths, _BOT_L, _BOT_M, _BOT_R), flush=True)
             print(self._rule(widths, _TOP_L, _TOP_M, _TOP_R), flush=True)
             print(self._line(headers, widths), flush=True)
             print(self._rule(widths, _MID_L, _MID_M, _MID_R), flush=True)
             self._open_widths = widths
-        elif self._counts[kind] % self._header_every == 0:
-            # Repeat the header inside the open section (a single mid rule, no
-            # bottom border — the section stays open).
-            print(self._rule(widths, _MID_L, _MID_M, _MID_R), flush=True)
-            print(self._line(headers, widths), flush=True)
-            print(self._rule(widths, _MID_L, _MID_M, _MID_R), flush=True)
         print(self._line(cells, widths), flush=True)
-        self._counts[kind] += 1
         self._last_kind = kind
 
     def close(self) -> None:
-        """Write the bottom border of the still-open table section — call once
-        when the training loop ends so the last table is framed. Idempotent; the
-        logger may be reused afterwards (the next :meth:`log` opens a fresh
-        section)."""
+        """Draw the bottom border of the still-open table section, if any. Call
+        it at every block boundary (end of an epoch's training rows, after a
+        development summary, at the end of the run) so each block is framed and
+        the next :meth:`log` starts a fresh table. Idempotent; the logger may be
+        reused afterwards."""
         if self._open_widths is not None:
             print(self._rule(self._open_widths, _BOT_L, _BOT_M, _BOT_R), flush=True)
             self._open_widths = None

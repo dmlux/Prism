@@ -5,7 +5,7 @@ from __future__ import annotations
 from prism.progress import Column, ProgressLogger
 
 
-def _logger(**kwargs) -> ProgressLogger:
+def _logger() -> ProgressLogger:
     return ProgressLogger(
         columns=[
             Column("tokens", "tokens", kind="count", width=13),
@@ -14,7 +14,6 @@ def _logger(**kwargs) -> ProgressLogger:
             Column("perplexity", "perplexity"),
         ],
         row_kinds={"train": ["tokens", "loss"], "eval": ["tokens", "eval_loss", "perplexity"]},
-        **kwargs,
     )
 
 
@@ -59,21 +58,36 @@ def test_single_kind_has_no_phase_column() -> None:
     assert log.format_row("train", values={"acc": 0.5}).count("│") == 2  # one column, two borders
 
 
-def test_sections_border_on_switch_and_close(capsys) -> None:
-    log = _logger(header_every=3)
-    for step in range(1, 5):  # 4 train rows; header at the 1st, mid-rule re-header at the 4th
+def test_one_header_per_table_no_midtable_headers(capsys) -> None:
+    """A block of same-kind rows gets exactly one header (at the top), never a
+    mid-table repeat; close() frames it, and the next block opens a fresh one."""
+    log = _logger()
+    for step in range(1, 6):  # 5 train rows -> one table
         log.log("train", counters=[("step", step, 10)], values={"tokens": step * 100, "loss": 1.0 / step})
-    log.log("eval", counters=[("step", 4, 10)], values={"tokens": 400, "eval_loss": 0.5, "perplexity": 1.6})
-    log.log("train", counters=[("step", 5, 10)], values={"tokens": 500, "loss": 0.2})  # switch back
+    log.close()
+    for step in range(6, 9):  # a fresh 3-row train table
+        log.log("train", counters=[("step", step, 10)], values={"tokens": step * 100, "loss": 1.0 / step})
     log.close()
 
     out = capsys.readouterr().out
-    # Three sections opened (train, eval, train) -> three top borders...
-    assert out.count("┌") == 3
-    # ...and each is closed: two on the kind switches + one by close().
-    assert out.count("└") == 3
-    value_rows = [line for line in out.splitlines() if line.startswith("│") and "phase" not in line]
-    assert len(value_rows) == 6
+    assert out.count("┌") == 2 and out.count("┐") == 2   # two tables opened
+    assert out.count("└") == 2 and out.count("┘") == 2   # both closed
+    header_lines = [l for l in out.splitlines() if "tokens" in l and "loss" in l]
+    assert len(header_lines) == 2                          # exactly one header per table
+    value_rows = [l for l in out.splitlines() if l.startswith("│") and "tokens" not in l]
+    assert len(value_rows) == 8
+
+
+def test_kind_switch_closes_previous_and_opens_new(capsys) -> None:
+    log = _logger()
+    log.log("train", counters=[("step", 1, 10)], values={"tokens": 100, "loss": 1.0})
+    log.log("eval", counters=[("step", 1, 10)], values={"tokens": 100, "eval_loss": 0.5, "perplexity": 1.6})
+    log.close()
+
+    out = capsys.readouterr().out
+    # train table opened+closed (on the switch), eval table opened+closed (on close).
+    assert out.count("┌") == 2
+    assert out.count("└") == 2
 
 
 def test_close_writes_bottom_border_and_is_idempotent(capsys) -> None:

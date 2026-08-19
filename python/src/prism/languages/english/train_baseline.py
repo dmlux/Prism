@@ -681,6 +681,27 @@ def _build_silver_progress_logger() -> ProgressLogger:
     )
 
 
+def _build_development_progress_logger() -> ProgressLogger:
+    """Per-epoch development summary table, matching the training table's style
+    (see prism.progress). One row per epoch (the epoch is printed above it)."""
+    return ProgressLogger(
+        columns=[
+            Column("total_loss", "total_loss"),
+            Column("upos_accuracy", "upos_acc"),
+            Column("lemma_rule_accuracy", "lemma_acc"),
+            Column("bundle_exact_accuracy", "bundle_acc"),
+        ],
+        row_kinds={
+            "development": [
+                "total_loss",
+                "upos_accuracy",
+                "lemma_rule_accuracy",
+                "bundle_exact_accuracy",
+            ],
+        },
+    )
+
+
 def _load_distillation_teacher(
     *,
     checkpoint_path: Path | None,
@@ -1078,6 +1099,7 @@ def main() -> None:
 
     training_progress_logger = _build_training_progress_logger()
     silver_progress_logger = _build_silver_progress_logger()
+    development_progress_logger = _build_development_progress_logger()
 
     def train_epoch(
         epoch_index: int,
@@ -1105,12 +1127,11 @@ def main() -> None:
         )
 
         def _on_training_step(report: TrainingStepReport) -> None:
+            # The epoch is printed above the table ("Epoch N/M: training"), so it
+            # is not repeated as a column.
             training_progress_logger.log(
                 "train",
-                counters=[
-                    ("epoch", epoch_index + 1, config.epoch_count),
-                    ("batch", report.batch_index, report.total_batches),
-                ],
+                counters=[("batch", report.batch_index, report.total_batches)],
                 values={
                     "tokens": report.token_count,
                     "total_loss": report.total_loss,
@@ -1164,6 +1185,7 @@ def main() -> None:
                 step_interval=50,
                 total_batches=len(sentence_batches) + len(silver_sentence_batches),
             )
+            training_progress_logger.close()  # frame this epoch's training table
             silver_values = {
                 "silver_upos": mixed_metrics.silver_upos_loss,
                 "silver_morphology": mixed_metrics.silver_morphology_loss,
@@ -1171,15 +1193,12 @@ def main() -> None:
             }
             if mixed_metrics.relation_loss is not None:
                 silver_values["relation"] = mixed_metrics.relation_loss
-            silver_progress_logger.log(
-                "silver",
-                counters=[("epoch", epoch_index + 1, config.epoch_count)],
-                values=silver_values,
-            )
+            silver_progress_logger.log("silver", values=silver_values)
+            silver_progress_logger.close()
             return mixed_metrics
 
         if teacher is None:
-            return train_supervised_token_task_epoch(
+            metrics = train_supervised_token_task_epoch(
                 model=model,
                 batches=batches,
                 optimizer=optimizer,
@@ -1193,23 +1212,25 @@ def main() -> None:
                 step_interval=50,
                 total_batches=len(sentence_batches),
             )
-
-        return train_distilled_token_task_epoch(
-            student=model,
-            teacher=teacher,
-            batches=batches,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            device=device,
-            max_gradient_norm=config.max_gradient_norm,
-            distillation_policy=arguments.distillation_policy,
-            morphology_schema=schema.morphology,
-            loss_weights=loss_weights,
-            morphology_bundle_loss_policy=morphology_bundle_loss_policy,
-            on_step=_on_training_step,
-            step_interval=50,
-            total_batches=len(sentence_batches),
-        )
+        else:
+            metrics = train_distilled_token_task_epoch(
+                student=model,
+                teacher=teacher,
+                batches=batches,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                device=device,
+                max_gradient_norm=config.max_gradient_norm,
+                distillation_policy=arguments.distillation_policy,
+                morphology_schema=schema.morphology,
+                loss_weights=loss_weights,
+                morphology_bundle_loss_policy=morphology_bundle_loss_policy,
+                on_step=_on_training_step,
+                step_interval=50,
+                total_batches=len(sentence_batches),
+            )
+        training_progress_logger.close()  # frame this epoch's training table
+        return metrics
 
     def evaluate_epoch(
         epoch_index: int,
@@ -1236,37 +1257,32 @@ def main() -> None:
             morphology_bundle_loss_policy=morphology_bundle_loss_policy,
         )
 
-        scalar_metric_names = [
-            "Development total loss",
-            "Development UPOS accuracy",
-            "Development lemma-rule accuracy",
-            "Development bundle exact accuracy",
-        ]
-        scalar_metric_values = [
-            metrics.losses.total_loss,
-            metrics.upos_accuracy,
-            metrics.lemma_rule_accuracy,
-            metrics.morphology_bundle_exact_accuracy,
-        ]
+        # Development summary as a bordered table matching the training table's
+        # style (the epoch is printed above it). Rare bundle metrics, when
+        # present, stay as plain detail rows below.
+        development_progress_logger.log(
+            "development",
+            values={
+                "total_loss": metrics.losses.total_loss,
+                "upos_accuracy": metrics.upos_accuracy,
+                "lemma_rule_accuracy": metrics.lemma_rule_accuracy,
+                "bundle_exact_accuracy": metrics.morphology_bundle_exact_accuracy,
+            },
+        )
+        development_progress_logger.close()
+
         if metrics.losses.morphology_bundle_coverage is not None:
-            scalar_metric_names.extend(
-                (
+            for row in format_scalar_metric_rows(
+                metric_names=(
                     "Development bundle loss",
                     "Development bundle candidate coverage",
-                )
-            )
-            scalar_metric_values.extend(
-                (
+                ),
+                values=(
                     metrics.losses.morphology_bundle_loss,
                     metrics.losses.morphology_bundle_coverage,
-                )
-            )
-
-        for row in format_scalar_metric_rows(
-            metric_names=tuple(scalar_metric_names),
-            values=tuple(scalar_metric_values),
-        ):
-            print(row)
+                ),
+            ):
+                print(row)
 
         for row in format_morphology_accuracy_rows(
             feature_names=tuple(feature.name for feature in schema.morphology.features),
@@ -1450,9 +1466,11 @@ def main() -> None:
             )
         ),
     )
-    # Frame the last progress tables (bottom border) now that training is done.
+    # Frame any still-open progress tables now that training is done (per-epoch
+    # close() already frames each block; this is idempotent safety).
     training_progress_logger.close()
     silver_progress_logger.close()
+    development_progress_logger.close()
 
     print()
     print(
