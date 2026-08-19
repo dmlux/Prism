@@ -141,11 +141,12 @@ def parse_training_arguments(
     )
     parser.add_argument(
         "--student-backbone",
-        choices=["ettin-encoder-17m", "prism-bert-en"],
+        choices=["ettin-encoder-17m", "prism-bert-en", "prismbert-en"],
         default="ettin-encoder-17m",
         help=(
             "Which student backbone to fine-tune/distil onto (default: the "
-            "Ettin-17m encoder; 'prism-bert-en' uses the locally pretrained "
+            "Ettin-17m encoder; 'prismbert-en' uses the current RoPE GPT-BERT "
+            "PrismBERT at runs/prismbert-en; 'prism-bert-en' the legacy BabyLM "
             "PrismBERT at runs/prism-bert-en)."
         ),
     )
@@ -925,6 +926,7 @@ def main() -> None:
         student_model_id = {
             "ettin-encoder-17m": "jhu-clsp/ettin-encoder-17m",
             "prism-bert-en": "runs/prism-bert-en",
+            "prismbert-en": "runs/prismbert-en",
         }[arguments.student_backbone]
         backbone_spec = training_profiles[0].backbone_for_model_id(
             student_model_id, role="student"

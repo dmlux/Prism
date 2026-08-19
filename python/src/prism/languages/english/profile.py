@@ -6,6 +6,7 @@ from prism.languages.english.backbones import (
     ETTIN_ENCODER_17M_BACKBONE,
     ETTIN_ENCODER_400M_BACKBONE,
     PRISM_BERT_EN_BACKBONE,
+    PRISM_BERT_EN_ROPE_BACKBONE,
 )
 from prism.languages.profile import LanguageProfileSpec
 
@@ -34,7 +35,7 @@ ENGLISH_PROFILE = LanguageProfileSpec(
     language_tag="en",
     display_name="English",
     student_backbone=ETTIN_ENCODER_17M_BACKBONE,
-    alternate_student_backbones=(PRISM_BERT_EN_BACKBONE,),
+    alternate_student_backbones=(PRISM_BERT_EN_BACKBONE, PRISM_BERT_EN_ROPE_BACKBONE),
     teacher_backbone=ETTIN_ENCODER_400M_BACKBONE,
     gold_treebank=ENGLISH_EWT_TREEBANK,
     # Ettin is ModernBERT; its int8 PT2E path differs from GPT-BERT/NorBERT4.
