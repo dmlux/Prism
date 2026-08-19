@@ -88,3 +88,26 @@ def test_maximum_absolute_difference_requires_matching_outputs() -> None:
         maximum_absolute_difference((torch.zeros(2),), ())
     with pytest.raises(ValueError, match="matching output shapes"):
         maximum_absolute_difference((torch.zeros(2),), (torch.zeros(3),))
+
+
+def test_portable_quant_out_variants_resolve_for_the_aot_pass() -> None:
+    """The AOT to_out_var pass must be able to resolve the per-channel quant
+    out-variants, else lowering a graph that leaves an un-delegated per-channel
+    quantize (the BabyLM GPT-BERT relative-position path) fails with
+    "Missing out variants: quantized_decomposed::quantize_per_channel"."""
+    pytest.importorskip("executorch")
+    import torch.ao.quantization.fx._decomposed  # noqa: F401
+    from executorch.exir.operator.convert import to_out_variant
+
+    from prism.exporting.lowering import _ensure_portable_quant_out_variants
+
+    _ensure_portable_quant_out_variants()
+    _ensure_portable_quant_out_variants()  # idempotent — must not raise
+
+    for op in (
+        torch.ops.quantized_decomposed.quantize_per_channel.default,
+        torch.ops.quantized_decomposed.dequantize_per_channel.default,
+    ):
+        out_variant, out_args = to_out_variant(op)
+        assert out_variant._schema.overload_name == "out"
+        assert out_args

@@ -67,6 +67,92 @@ def fold_scaled_linear_parametrizations(root: nn.Module) -> int:
     return replaced
 
 
+_PORTABLE_QUANT_OUT_VARIANTS_REGISTERED = False
+_PORTABLE_QUANT_OUT_VARIANTS_LIB = None
+
+
+def _ensure_portable_quant_out_variants() -> None:
+    """Register Python ``.out`` overloads for the per-channel quant ops.
+
+    ExecuTorch ships portable out-variant kernels for
+    ``quantized_decomposed::{quantize,dequantize}_per_channel`` (see
+    ``executorch/kernels/quantized/quantized.yaml``) for its C++ runtime, but
+    does NOT register them as Python torch ops, so the AOT ``to_out_var`` pass
+    cannot resolve them: ``to_executorch`` then fails with "Missing out variants:
+    quantized_decomposed::quantize_per_channel" whenever a per-channel quantize
+    is left un-delegated. The RoPE backbone never triggers this (its embedding
+    fuses into ``embedding_byte`` and every linear delegates to XNNPACK), but the
+    BabyLM GPT-BERT backbone does: its DeBERTa-style disentangled relative
+    attention applies a linear to the constant ``relative_embedding``, which the
+    XNNPACK dynamic-quant partitioner does not claim, leaving a per-channel
+    weight quantize in the graph.
+
+    Registering the ``.out`` overloads here (matching the shipped yaml schema, and
+    forwarding to the functional op) lets the pass complete; the op executes on
+    the portable backend at runtime using the same kernel the yaml declares. It
+    is a no-op for graphs that leave no un-delegated per-channel quantize.
+    Idempotent; the Library is held alive at module scope.
+    """
+    global _PORTABLE_QUANT_OUT_VARIANTS_REGISTERED, _PORTABLE_QUANT_OUT_VARIANTS_LIB
+    if _PORTABLE_QUANT_OUT_VARIANTS_REGISTERED:
+        return
+    import torch.ao.quantization.fx._decomposed  # noqa: F401 (registers functional ops)
+
+    quantized_decomposed = torch.ops.quantized_decomposed
+    library = torch.library.Library("quantized_decomposed", "FRAGMENT")
+
+    if "out" not in quantized_decomposed.quantize_per_channel.overloads():
+        library.define(
+            "quantize_per_channel.out(Tensor input, Tensor scales, "
+            "Tensor zero_points, int axis, int quant_min, int quant_max, "
+            "ScalarType dtype, *, Tensor(a!) out) -> Tensor(a!)"
+        )
+
+        def _quantize_per_channel_out(
+            input, scales, zero_points, axis, quant_min, quant_max, dtype, *, out
+        ):
+            out.copy_(
+                quantized_decomposed.quantize_per_channel.default(
+                    input, scales, zero_points, axis, quant_min, quant_max, dtype
+                )
+            )
+            return out
+
+        library.impl(
+            "quantize_per_channel.out",
+            _quantize_per_channel_out,
+            "CompositeExplicitAutograd",
+        )
+
+    if "out" not in quantized_decomposed.dequantize_per_channel.overloads():
+        library.define(
+            "dequantize_per_channel.out(Tensor input, Tensor scales, "
+            "Tensor? zero_points, int axis, int quant_min, int quant_max, "
+            "ScalarType dtype, *, ScalarType? out_dtype=None, Tensor(a!) out) "
+            "-> Tensor(a!)"
+        )
+
+        def _dequantize_per_channel_out(
+            input, scales, zero_points, axis, quant_min, quant_max, dtype,
+            *, out_dtype=None, out,
+        ):
+            out.copy_(
+                quantized_decomposed.dequantize_per_channel.default(
+                    input, scales, zero_points, axis, quant_min, quant_max, dtype
+                )
+            )
+            return out
+
+        library.impl(
+            "dequantize_per_channel.out",
+            _dequantize_per_channel_out,
+            "CompositeExplicitAutograd",
+        )
+
+    _PORTABLE_QUANT_OUT_VARIANTS_LIB = library
+    _PORTABLE_QUANT_OUT_VARIANTS_REGISTERED = True
+
+
 def quantize_adapter_int8(
     *,
     adapter: nn.Module,
@@ -164,6 +250,11 @@ def lower_to_executorch_xnnpack(
         external_constants = lambda _node: external_data_name  # noqa: E731
 
     if quantized:
+        # Make the portable per-channel quant out-variants resolvable by the AOT
+        # to_out_var pass, so backbones that leave an un-delegated per-channel
+        # quantize (BabyLM GPT-BERT's relative-position path) still lower; no-op
+        # for fully-delegated graphs (RoPE).
+        _ensure_portable_quant_out_variants()
         xnnpack_config = _require_executorch_module(
             "executorch.backends.xnnpack.partition.config.xnnpack_config"
         )
