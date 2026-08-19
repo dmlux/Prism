@@ -18,7 +18,15 @@ int main(int argc, char** argv)
             {"english", "harbor-english.txt"},
         },
         {
-            {"en-fp32", "models/prism-en-0.1.0"},
+            // Shipped Ettin/ModernBERT reference (fp32).
+            {"en-ettin-fp32", "models/prism-en-0.1.0"},
+            // PrismBERT A/B: BabyLM GPT-BERT vs RoPE GPT-BERT, fp32 vs int8.
+            // Missing artifacts are skipped, so export the ones you want first
+            // (see docs/PRISMBERT.md / the export commands).
+            {"en-babylm-fp32", "models/prism-en-babylm-fp32"},
+            {"en-babylm-int8", "models/prism-en-babylm-int8"},
+            {"en-rope-fp32", "models/prism-en-rope-fp32"},
+            {"en-rope-int8", "models/prism-en-rope-int8"},
         },
         "english",
     };
