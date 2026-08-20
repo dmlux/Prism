@@ -32,6 +32,7 @@ from prism.modeling import (
     TokenTaskHeadArchitecture,
     build_pretrained_token_tagger,
     load_backbone_tokenizer,
+    prepare_pretokenized_words,
 )
 from prism.progress import Column, ProgressLogger
 from prism.schema import (
@@ -1059,6 +1060,41 @@ def main() -> None:
                 f"morphology={load_report.morphology_masked_ratio * 100:.2f}% "
                 f"lemma={load_report.lemma_masked_ratio * 100:.2f}%",
             )
+        # PrismBERT's RoPE backbone is capped at max_position_embeddings subwords
+        # (its cos/sin tables are that long); long silver sentences (Gutenberg /
+        # Wikipedia) can exceed it and would crash the forward. Truncating would
+        # misalign the per-token teacher labels, so drop over-length sentences
+        # (a small tail). Gold/EWT stays untouched (its sentences fit).
+        max_subword_length = model.backbone.config.max_position_embeddings
+        retained_silver: list = []
+        dropped_silver = 0
+        for start in range(0, len(silver_sentences), config.batch_size):
+            chunk = silver_sentences[start : start + config.batch_size]
+            encoded = tokenizer(
+                [
+                    list(
+                        prepare_pretokenized_words(
+                            tokens=sentence.model_input.tokens,
+                            has_space_before=sentence.model_input.has_space_before,
+                        )
+                    )
+                    for sentence in chunk
+                ],
+                is_split_into_words=True,
+                padding=False,
+                truncation=False,
+            )
+            for sentence, ids in zip(chunk, encoded["input_ids"], strict=True):
+                if len(ids) <= max_subword_length:
+                    retained_silver.append(sentence)
+                else:
+                    dropped_silver += 1
+        if dropped_silver:
+            print(
+                f"Silver: dropped {dropped_silver}/{len(silver_sentences)} sentences "
+                f"over the {max_subword_length}-subword backbone limit."
+            )
+        silver_sentences = retained_silver
         print("Silver loss weight:", arguments.silver_loss_weight)
 
     silver_batch_count = (
