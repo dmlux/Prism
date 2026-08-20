@@ -667,23 +667,16 @@ def _build_training_progress_logger() -> ProgressLogger:
     )
 
 
-def _build_silver_progress_logger() -> ProgressLogger:
-    """Per-epoch silver KD-loss summary table (see prism.progress)."""
+def _build_silver_progress_logger(*, include_relation: bool) -> ProgressLogger:
+    """Per-epoch silver KD-loss summary table (see prism.progress). The relation
+    column is included only when relation distillation is active; otherwise the
+    bordered table would show it as an always-empty column."""
+    keys = ["silver_upos", "silver_morphology", "silver_lemma"]
+    if include_relation:
+        keys.append("relation")
     return ProgressLogger(
-        columns=[
-            Column("silver_upos", "silver_upos"),
-            Column("silver_morphology", "silver_morphology"),
-            Column("silver_lemma", "silver_lemma"),
-            Column("relation", "relation"),
-        ],
-        row_kinds={
-            "silver": [
-                "silver_upos",
-                "silver_morphology",
-                "silver_lemma",
-                "relation",
-            ],
-        },
+        columns=[Column(key, key) for key in keys],
+        row_kinds={"silver": keys},
     )
 
 
@@ -1113,7 +1106,9 @@ def main() -> None:
     )
 
     training_progress_logger = _build_training_progress_logger()
-    silver_progress_logger = _build_silver_progress_logger()
+    silver_progress_logger = _build_silver_progress_logger(
+        include_relation=relation_teacher is not None
+    )
     development_progress_logger = _build_development_progress_logger()
 
     def train_epoch(
