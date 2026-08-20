@@ -1,6 +1,6 @@
 import argparse
 import math
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import cast
@@ -57,7 +57,6 @@ from prism.training import (
     train_mixed_token_task_epoch,
     SupervisedEpochMetrics,
     SupervisedEvaluationMetrics,
-    SupervisedTokenTaskBatch,
     SupervisedTrainingConfig,
     SupervisedTrainingEpochResult,
     TrainingStepReport,
@@ -620,22 +619,6 @@ def parse_training_arguments(
     )
 
 
-def _report_progress(
-    batches: Iterable[SupervisedTokenTaskBatch],
-    *,
-    label: str,
-    total: int,
-) -> Iterator[SupervisedTokenTaskBatch]:
-    for index, batch in enumerate(batches, start=1):
-        if index == 1 or index % 100 == 0 or index == total:
-            print(
-                f"{label}: Batch {index}/{total}",
-                flush=True,
-            )
-
-        yield batch
-
-
 def _build_training_progress_logger() -> ProgressLogger:
     """Per-step training progress table (see prism.progress)."""
     return ProgressLogger(
@@ -672,6 +655,33 @@ def _build_silver_progress_logger(*, include_relation: bool) -> ProgressLogger:
     return ProgressLogger(
         columns=[Column(key, key) for key in keys],
         row_kinds={"silver": keys},
+    )
+
+
+def _build_development_batch_progress_logger() -> ProgressLogger:
+    """Per-batch development progress table (running eval losses), mirroring the
+    training table so the development pass reads the same way instead of a bare
+    "Batch X/Y" counter (see prism.progress). Learning rate is omitted (eval does
+    not learn)."""
+    return ProgressLogger(
+        columns=[
+            Column("tokens", "tokens", kind="count", width=13),
+            Column("total_loss", "total_loss"),
+            Column("upos", "upos"),
+            Column("morphology", "morphology"),
+            Column("lemma", "lemma"),
+            Column("tokens_per_second", "tokens_per_second"),
+        ],
+        row_kinds={
+            "development": [
+                "tokens",
+                "total_loss",
+                "upos",
+                "morphology",
+                "lemma",
+                "tokens_per_second",
+            ],
+        },
     )
 
 
@@ -1131,6 +1141,7 @@ def main() -> None:
         include_relation=relation_teacher is not None
     )
     development_progress_logger = _build_development_progress_logger()
+    development_batch_progress_logger = _build_development_batch_progress_logger()
 
     def train_epoch(
         epoch_index: int,
@@ -1271,22 +1282,38 @@ def main() -> None:
             flush=True,
         )
 
+        def _on_development_step(report: TrainingStepReport) -> None:
+            # Per-batch development progress as a table (running eval losses),
+            # mirroring the training table. The epoch is printed above.
+            development_batch_progress_logger.log(
+                "development",
+                counters=[("batch", report.batch_index, report.total_batches)],
+                values={
+                    "tokens": report.token_count,
+                    "total_loss": report.total_loss,
+                    "upos": report.upos_loss,
+                    "morphology": report.morphology_loss,
+                    "lemma": report.lemma_rule_loss,
+                    "tokens_per_second": report.tokens_per_second,
+                },
+            )
+
         metrics = evaluate_supervised_token_task_epoch(
             model=model,
-            batches=_report_progress(
-                iter_supervised_token_task_batches(
-                    tokenizer=tokenizer,
-                    sentence_batches=(development_sentence_batches),
-                    character_vocabulary=character_vocabulary,
-                    maximum_character_count=CHARACTER_MAXIMUM_COUNT,
-                ),
-                label="Development",
-                total=len(development_sentence_batches),
+            batches=iter_supervised_token_task_batches(
+                tokenizer=tokenizer,
+                sentence_batches=(development_sentence_batches),
+                character_vocabulary=character_vocabulary,
+                maximum_character_count=CHARACTER_MAXIMUM_COUNT,
             ),
             device=device,
             morphology_schema=schema.morphology,
             morphology_bundle_loss_policy=morphology_bundle_loss_policy,
+            on_step=_on_development_step,
+            step_interval=50,
+            total_batches=len(development_sentence_batches),
         )
+        development_batch_progress_logger.close()  # frame the per-batch table
 
         # Development summary as a bordered table matching the training table's
         # style (the epoch is printed above it). Rare bundle metrics, when
@@ -1501,6 +1528,7 @@ def main() -> None:
     # close() already frames each block; this is idempotent safety).
     training_progress_logger.close()
     silver_progress_logger.close()
+    development_batch_progress_logger.close()
     development_progress_logger.close()
 
     print()

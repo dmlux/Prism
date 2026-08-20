@@ -714,6 +714,9 @@ def evaluate_supervised_token_task_epoch(
     prediction_observers: Sequence[TokenTaskPredictionObserver] = (),
     morphology_logit_correction: MorphologyLogitCorrection | None = None,
     morphology_bundle_loss_policy: MorphologyBundleLossPolicy | None = None,
+    on_step: TrainingStepCallback | None = None,
+    step_interval: int = _DEFAULT_STEP_INTERVAL,
+    total_batches: int = 0,
 ) -> SupervisedEvaluationMetrics:
     resolved_slice_masks = {} if token_slice_masks is None else token_slice_masks
     if any(not name or name.strip() != name for name in resolved_slice_masks):
@@ -807,6 +810,9 @@ def evaluate_supervised_token_task_epoch(
         device=device,
         process_batch=process_batch,
         empty_epoch_message=("Evaluation epoch must contain batches."),
+        on_step=on_step,
+        step_interval=step_interval,
+        total_batches=total_batches,
     )
 
     for name, masks in resolved_slice_masks.items():
