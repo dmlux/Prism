@@ -147,8 +147,52 @@ The pretrained backbone is an internal building block — it is **not shipped on
 its own**; the released tagger (`prism-<lang>` fp32 + `-fast` int8) is distilled
 onto it with Prism's existing pipeline, reusing a strong permissively-licensed
 large model as the distillation teacher (English uses Ettin-encoder-400m, MIT —
-no bespoke large model is trained). Package the backbone as a `transformers`
-model, wire it as the student backbone, distil on gold + silver, then export
-fp32 + int8 and gate against UDPipe 2.17. (This stage is being wired on the
-`model/prism-bert-backbone` branch; this section will get exact commands as it
-lands.)
+no bespoke large model is trained).
+
+The English backbone is wired as a selectable student. Distil (gold + KD), then
+evaluate the dev UD-F1 vs the UDPipe-2.17 floor:
+
+```bash
+# distil the tagger on the pretrained runs/prismbert-en backbone
+PYTHONPATH=python/src caffeinate -is .venv/bin/python -u -m prism.languages.english.train_baseline \
+    --model-role student --student-backbone prismbert-en --treebank-release 2.17 \
+    --teacher-checkpoint runs/en-teacher-400m/best.pt \
+    --token-pooling mean \
+    --task-head-architecture wide-shared-mlp-structured-morphology-character-cnn \
+    --morphology-pre-head-architecture shared-mlp \
+    --backbone-layer-aggregation learned-last-four \
+    --epoch-count 12 --early-stopping-patience 4 \
+    --checkpoint-selection-metric development-loss \
+    --checkpoint runs/en-prismbert-rope-student/best.pt
+
+# dev UD-F1 (add --silver-* once silver data is prepared, see below)
+PYTHONPATH=python/src .venv/bin/python -m prism.languages.english.evaluate_baseline \
+    --treebank-release 2.17 --split development \
+    --checkpoint runs/en-prismbert-rope-student/best.pt \
+    --analysis runs/en-prismbert-rope-student/development-analysis.json \
+    --morphology-logit-correction-strength 0.0 --device mps
+```
+
+Export fp32 + int8 (`.pte`) and measure size/speed (see
+[PRISMBERT.md](PRISMBERT.md) for the A/B results and the deploy decision):
+
+```bash
+PYTHONPATH=python/src .venv/bin/python -m prism.languages.english.export_artifact \
+    --checkpoint runs/en-prismbert-rope-student/best.pt --output-root models \
+    --artifact-version rope-int8 --treebank-release 2.17 --precision int8 \
+    --morphology-logit-correction-strength 0.0
+```
+
+**Silver-data distillation** (the next quality lever — gold+KD alone trails
+UDPipe): teacher-label a large clean corpus and add it to the student:
+
+```bash
+.venv/bin/python -m prism.languages.english.prepare_silver_corpus --help   # build the raw silver corpus
+.venv/bin/python -m prism.languages.english.label_silver_corpus --help     # Ettin-400m labels it
+# then re-run train_baseline with --silver-corpus <dir> --silver-labels <labels-dir>
+```
+
+The architecture decision is settled: the released English tagger uses the
+**RoPE backbone (`--student-backbone prismbert-en`)** — the only arch with a
+working, fast int8 `.pte` (see PRISMBERT.md). The legacy BabyLM backbone
+(`--student-backbone prism-bert-en`) is kept for comparison only.

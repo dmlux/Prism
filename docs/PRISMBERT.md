@@ -55,11 +55,13 @@ is a **clean implementation** (no in-place custom-autograd tricks, no
 export-hostile ops), not the positional scheme. Ettin's int8 problems were its
 specific implementation, not RoPE per se.
 
-So we rebuilt PrismBERT on NorBERT4's architecture: it has a **proven int8
-`.pte` deployment** and **fp32 quality that beats UDPipe** on real data. We
-pretrain **our own weights per language on our own clean corpus** — only the
-architecture template changed; the per-language, quant-friendly thesis is
-unchanged.
+So we rebuilt PrismBERT on NorBERT4's architecture and pretrain **our own
+weights per language on our own clean corpus** — only the architecture template
+changed; the per-language, quant-friendly thesis is unchanged. The deciding
+reason, confirmed by the English A/B below, is **int8 deployability**: this arch
+is the one that produces a working, fast int8 `.pte`. (On English it does *not*
+win on fp32 quality — see the A/B — but int8 deployment is the hard constraint,
+and there it is the only arch that works end-to-end.)
 
 ## Training objective: standard bidirectional MLM
 
@@ -134,19 +136,63 @@ for comparison; it is no longer the default.
   our short tagging/pretraining sequence lengths — the long-context windowing is
   not needed here.
 
+## The deploy decision: RoPE vs the legacy BabyLM arch (2026-08-20)
+
+Both PrismBERT archs were distilled through the identical English pipeline
+(teacher Ettin-400m, gold + KD, no silver, 12 epochs, dev-loss selection) and
+measured head-to-head. The RoPE arch (`gpt_bert_rope`) is **locked as the deploy
+architecture** — it is the only one that yields a working, fast int8 model.
+
+| Axis | BabyLM (`gpt_bert`, 23.3 M) | RoPE (`gpt_bert_rope`, 22.2 M) | Winner |
+|------|-----------------------------|-------------------------------|--------|
+| fp32 dev UD-F1 (UPOS/UFeats/Lemma) | 97.08 / 97.01 / 97.52 | 96.68 / 96.63 / 97.37 | BabyLM (+~0.4 pp) |
+| int8 eager quality (worst Δ vs fp32) | −0.04 pp | −0.32 pp (morphology) | BabyLM |
+| int8 `.pte` size | 26.7 MiB | 24.3 MiB | ~tie |
+| **int8 `.pte` builds** | yes (after the fix below) | yes | — |
+| **int8 runs on the native runtime** | **no — silent abort** | **yes** | **RoPE** |
+| int8 speed (native, 1 thread, 6 k-tok doc) | n/a (crashes) | **412 tok/s = 2.0× its fp32** | **RoPE** |
+
+**Why BabyLM int8 is a dead end here.** Its DeBERTa-style disentangled relative
+attention applies a linear to the constant `relative_embedding`; the XNNPACK
+dynamic-quant partitioner does not claim it, leaving an un-delegated per-channel
+quantize in the graph. That op now *lowers* (see the export fix below) but
+*aborts at native runtime* — the same int8-hostile pattern the RoPE arch avoids
+by construction (no disentangled attention → the embedding fuses to
+`embedding_byte` and every linear delegates). Neither arch beats UDPipe on
+gold+KD-only yet; closing that gap is the silver-data step, which helps both and
+is orthogonal to this decision.
+
 ## int8 + release
 
-Near-lossless post-training int8 is expected (NorBERT4 family); QAT
-(`torchao prepare_qat_pt2e` → ExecuTorch XNNPACK) stays a fallback only if the
-int8 gate regresses. One export follow-up remains: `to_executorch` needs the
-`quantized_decomposed::quantize_per_channel` out-variant registered in this ET
-build (NorBERT4 completes it by fusing into `embedding_byte`) — resolve during
-export wiring; it blocks the deployable `.pte`, not the eager int8 quality.
+**Export blocker fixed (2026-08-20).** `to_executorch` previously failed on any
+un-delegated per-channel quantize with "Missing out variants:
+`quantized_decomposed::quantize_per_channel`". ExecuTorch ships portable `.out`
+kernels for `{quantize,dequantize}_per_channel` (its C++ runtime) but does not
+register them as Python torch ops, so the AOT `to_out_var` pass could not resolve
+them. `lower_to_executorch_xnnpack` now registers those `.out` overloads before
+lowering (idempotent; a no-op for the fully-delegated RoPE graph). This unblocks
+the *export*; note that an un-delegated per-channel quantize still needs a
+runtime kernel that executes cleanly — it does for RoPE (nothing un-delegated),
+but the BabyLM graph aborts (above).
+
+Near-lossless post-training int8 holds for RoPE (worst −0.32 pp, morphology);
+QAT (`torchao prepare_qat_pt2e` → ExecuTorch XNNPACK) stays a fallback only if
+the int8 gate regresses.
 
 Ship the tagger fp32 + int8 (`-fast`) **from `main`** after the UD gate vs
 UDPipe 2.17; publish the raw PrismBERT backbone separately on HF (not bundled in
 the tagger tarball). Weights release under **CC BY-SA 4.0** (the SA chain is
 honoured by CC-BY-SA Wikipedia + public-domain Gutenberg); code under Apache-2.0.
+
+## Next step: silver-data distillation
+
+Gold+KD alone leaves both archs below UDPipe. The next quality lever is
+silver-data distillation on the locked RoPE backbone: teacher-label a large
+clean English corpus with Ettin-400m and add it to the student's training.
+Tooling: `prism.languages.english.prepare_silver_corpus` +
+`label_silver_corpus`, then `train_baseline --student-backbone prismbert-en
+--silver-corpus … --silver-labels …`. This is how the shipped Ettin student got
+its gains; it applies unchanged to the RoPE backbone.
 
 ## History
 
@@ -159,5 +205,11 @@ honoured by CC-BY-SA Wikipedia + public-domain Gutenberg); code under Apache-2.0
   DWA's in-place custom-autograd and was fixed by a functional rewrite
   (fp32 bit-identical, int8 near-lossless).
 - **2026-08-14:** rebuilt PrismBERT on NorBERT4's architecture (`gpt_bert_rope`),
-  the current default, for its proven int8 `.pte` deploy + UDPipe-beating fp32
-  quality.
+  made it the default, and pretrained `prismbert-en` (H320/L14/FF832, 22.2 M,
+  held-out ppl 5.12).
+- **2026-08-20:** distilled RoPE and legacy-BabyLM students head-to-head and
+  measured int8 export/size/speed/runtime. Fixed the int8 `.pte` export blocker
+  (portable per-channel-quant `.out` variants). Found BabyLM int8 aborts at
+  native runtime while RoPE int8 runs at 2.0× its fp32; **locked RoPE as the
+  deploy architecture** despite its ~0.4 pp fp32 deficit. Next: silver-data
+  distillation (both archs still trail UDPipe on gold+KD only).
