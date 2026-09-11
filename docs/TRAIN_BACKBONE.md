@@ -183,16 +183,50 @@ PYTHONPATH=python/src .venv/bin/python -m prism.languages.english.export_artifac
     --morphology-logit-correction-strength 0.0
 ```
 
-**Silver-data distillation** (the next quality lever — gold+KD alone trails
-UDPipe): teacher-label a large clean corpus and add it to the student:
+**Silver-data distillation** is the quality lever that pushes the RoPE tagger
+past BabyLM and close to UDPipe (dev UD-F1 97.34 / 97.52 / 97.65; see
+[PRISMBERT.md](PRISMBERT.md)). The English silver corpora are already
+teacher-labelled by Ettin-400m (5 M tokens each), so no re-labelling is needed —
+just add them to the distillation:
 
 ```bash
-.venv/bin/python -m prism.languages.english.prepare_silver_corpus --help   # build the raw silver corpus
-.venv/bin/python -m prism.languages.english.label_silver_corpus --help     # Ettin-400m labels it
-# then re-run train_baseline with --silver-corpus <dir> --silver-labels <labels-dir>
+PYTHONPATH=python/src caffeinate -is .venv/bin/python -u -m prism.languages.english.train_baseline \
+    --model-role student --student-backbone prismbert-en --treebank-release 2.17 \
+    --teacher-checkpoint runs/en-teacher-400m/best.pt \
+    --token-pooling mean \
+    --task-head-architecture wide-shared-mlp-structured-morphology-character-cnn \
+    --morphology-pre-head-architecture shared-mlp \
+    --backbone-layer-aggregation learned-last-four \
+    --epoch-count 12 --early-stopping-patience 4 \
+    --checkpoint-selection-metric development-task-accuracy \
+    --secondary-checkpoint-selection-metric development-loss \
+    --silver-corpus data/processed/gutenberg-eng/pretokenized.jsonl \
+    --silver-labels data/processed/gutenberg-eng/labels \
+    --silver-corpus data/processed/wikipedia-eng/pretokenized.jsonl \
+    --silver-labels data/processed/wikipedia-eng/labels \
+    --silver-loss-weight 0.5 --silver-disable-agreement-filter \
+    --checkpoint runs/en-prismbert-rope-silver/best.pt
 ```
 
+Three silver-specific flags matter:
+
+* **`--checkpoint-selection-metric development-task-accuracy`** (with
+  `--secondary-checkpoint-selection-metric development-loss` to keep both). Under
+  silver, dev-loss and dev-accuracy *diverge* — loss bottoms early (~epoch 2)
+  and rises while accuracy keeps climbing (~epoch 11). Selecting by loss ships a
+  markedly worse checkpoint (97.02 / 97.08 / 97.34 vs 97.34 / 97.52 / 97.65).
+* **`--silver-disable-agreement-filter`** — these labels carry no second-model
+  agreement predictions, so the default agreement filter would error. (Re-label
+  with `label_silver_corpus --agreement-checkpoint …` if you want that filter.)
+* Silver sentences longer than the backbone's `max_position_embeddings` (512
+  subwords) are dropped automatically — the RoPE tables are that long, and long
+  Gutenberg/Wikipedia sentences would otherwise overflow them.
+
+To prepare silver for a **new** language: `prepare_silver_corpus` (extract
+sentences from a raw archive) then `label_silver_corpus` (label them with the
+teacher + its calibration).
+
 The architecture decision is settled: the released English tagger uses the
-**RoPE backbone (`--student-backbone prismbert-en`)** — the only arch with a
-working, fast int8 `.pte` (see PRISMBERT.md). The legacy BabyLM backbone
+**RoPE backbone (`--student-backbone prismbert-en`)** with silver — the only arch
+with a working, fast int8 `.pte` (see PRISMBERT.md). The legacy BabyLM backbone
 (`--student-backbone prism-bert-en`) is kept for comparison only.

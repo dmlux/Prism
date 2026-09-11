@@ -158,9 +158,10 @@ dynamic-quant partitioner does not claim it, leaving an un-delegated per-channel
 quantize in the graph. That op now *lowers* (see the export fix below) but
 *aborts at native runtime* — the same int8-hostile pattern the RoPE arch avoids
 by construction (no disentangled attention → the embedding fuses to
-`embedding_byte` and every linear delegates). Neither arch beats UDPipe on
-gold+KD-only yet; closing that gap is the silver-data step, which helps both and
-is orthogonal to this decision.
+`embedding_byte` and every linear delegates). On gold+KD alone neither arch beats
+UDPipe; the silver-data step (below) closes most of that gap for RoPE and makes
+it beat BabyLM outright, so the ~0.4 pp fp32 deficit in this table is erased in
+the shipped configuration.
 
 ## int8 + release
 
@@ -175,24 +176,46 @@ the *export*; note that an un-delegated per-channel quantize still needs a
 runtime kernel that executes cleanly — it does for RoPE (nothing un-delegated),
 but the BabyLM graph aborts (above).
 
-Near-lossless post-training int8 holds for RoPE (worst −0.32 pp, morphology);
-QAT (`torchao prepare_qat_pt2e` → ExecuTorch XNNPACK) stays a fallback only if
-the int8 gate regresses.
+Near-lossless post-training int8 holds for RoPE — worst −0.32 pp (morphology) on
+the gold-only model, and only **−0.06 pp** (UPOS) on the shipped silver model
+(morphology/lemma even improve). QAT (`torchao prepare_qat_pt2e` → ExecuTorch
+XNNPACK) stays a fallback only if the int8 gate regresses.
 
 Ship the tagger fp32 + int8 (`-fast`) **from `main`** after the UD gate vs
 UDPipe 2.17; publish the raw PrismBERT backbone separately on HF (not bundled in
 the tagger tarball). Weights release under **CC BY-SA 4.0** (the SA chain is
 honoured by CC-BY-SA Wikipedia + public-domain Gutenberg); code under Apache-2.0.
 
-## Next step: silver-data distillation
+## Silver-data distillation (2026-08-21) — the quality lever that landed it
 
-Gold+KD alone leaves both archs below UDPipe. The next quality lever is
-silver-data distillation on the locked RoPE backbone: teacher-label a large
-clean English corpus with Ettin-400m and add it to the student's training.
-Tooling: `prism.languages.english.prepare_silver_corpus` +
-`label_silver_corpus`, then `train_baseline --student-backbone prismbert-en
---silver-corpus … --silver-labels …`. This is how the shipped Ettin student got
-its gains; it applies unchanged to the RoPE backbone.
+Gold+KD alone left RoPE below UDPipe. Adding silver (10 M teacher-labelled
+tokens: 5 M Gutenberg + 5 M Wikipedia, Ettin-400m labels, `--silver-loss-weight
+0.5`) on the locked RoPE backbone closed most of the gap and made it the best
+English model we have:
+
+| Model (dev UD-F1, gold-tok, EWT 2.17) | UPOS | UFeats | Lemma |
+|---------------------------------------|------|--------|-------|
+| UDPipe 2.17 (floor) | 97.56 | 97.86 | 97.92 |
+| RoPE gold+KD | 96.68 | 96.63 | 97.37 |
+| **RoPE + silver (task-acc select)** | **97.34** | **97.52** | **97.65** |
+| BabyLM gold+KD (reference) | 97.08 | 97.01 | 97.52 |
+
+Silver lifts RoPE by **+0.66 / +0.89 / +0.28 pp** — now **beating BabyLM gold+KD
+on all three** (and RoPE is the int8-deployable arch), ~0.2–0.35 pp under UDPipe.
+int8 of the silver model is **near-lossless** (24.3 MiB; worst −0.06 pp UPOS,
+morphology/lemma slightly improve — cleaner than the gold-only −0.32 pp).
+
+**Recipe finding — silver needs task-accuracy checkpoint selection.** With
+silver, dev-loss and dev-accuracy diverge (loss bottoms ~epoch 2 then rises while
+accuracy keeps climbing to ~epoch 11). Selecting by `development-loss` picks the
+early, worse checkpoint (97.02 / 97.08 / 97.34); `development-task-accuracy` picks
+the late, much better one (the table above). Always run silver with
+`--checkpoint-selection-metric development-task-accuracy` (keep
+`--secondary-checkpoint-selection-metric development-loss` to retain both).
+Exact commands: [TRAIN_BACKBONE.md](TRAIN_BACKBONE.md) §5.
+
+**Next lever (optional):** more silver (10 M → more, or a better source mix) to
+close the last ~0.3 pp to UDPipe.
 
 ## History
 
@@ -211,5 +234,8 @@ its gains; it applies unchanged to the RoPE backbone.
   measured int8 export/size/speed/runtime. Fixed the int8 `.pte` export blocker
   (portable per-channel-quant `.out` variants). Found BabyLM int8 aborts at
   native runtime while RoPE int8 runs at 2.0× its fp32; **locked RoPE as the
-  deploy architecture** despite its ~0.4 pp fp32 deficit. Next: silver-data
-  distillation (both archs still trail UDPipe on gold+KD only).
+  deploy architecture** despite its ~0.4 pp fp32 deficit.
+- **2026-08-21:** silver distillation on RoPE → dev UD-F1 97.34 / 97.52 / 97.65
+  (task-accuracy checkpoint selection), beating BabyLM gold+KD and ~0.3 pp under
+  UDPipe; int8 near-lossless (−0.06 pp). Found dev-loss vs dev-accuracy diverge
+  under silver → task-accuracy selection is required.
